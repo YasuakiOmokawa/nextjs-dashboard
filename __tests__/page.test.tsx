@@ -1,10 +1,30 @@
-import { expect, test } from "vitest";
+import { expect, test, describe, beforeAll, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import Page from "@/app/page";
 
-test("Page", () => {
-  render(<Page />);
-  expect(
-    screen.getByRole("strong", { name: "Welcome to Acme." })
-  ).toBeDefined();
+beforeAll(() => {
+  vi.mock("next/font/google", () => ({
+    Inter: () => ({
+      style: {
+        fontFamily: "mocked",
+      },
+    }),
+    Lusitana: () => ({
+      style: {
+        fontFamily: "mocked",
+      },
+    }),
+    Bungee_Spice: () => ({
+      style: {
+        fontFamily: "mocked",
+      },
+    }),
+  }));
+});
+
+describe("Page", () => {
+  test("render strong message", () => {
+    render(<Page />);
+    expect(screen.getByRole("strong").textContent).toBe("Welcome to Acme.");
+  });
 });
