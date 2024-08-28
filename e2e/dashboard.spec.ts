@@ -1,9 +1,11 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("dashboard", () => {
-  test("has heading", async ({ page }) => {
+test.describe("app/dashboard/page.tsx", () => {
+  test.beforeEach(async ({ page }) => {
     await page.goto("http://localhost:3000/dashboard");
+  });
 
+  test("has heading", async ({ page }) => {
     await expect(
       page.getByRole("heading", { name: "Dashboard" })
     ).toBeVisible();
