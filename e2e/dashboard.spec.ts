@@ -1,13 +1,15 @@
 import { test, expect } from "@playwright/test";
+import { DashboardPage } from "./pages/dashboard-page";
 
 test.describe("app/dashboard/page.tsx", () => {
+  let dashboadPage: DashboardPage;
+
   test.beforeEach(async ({ page }) => {
-    await page.goto("/dashboard");
+    dashboadPage = new DashboardPage(page);
+    await dashboadPage.goto();
   });
 
-  test("has heading", async ({ page }) => {
-    await expect(
-      page.getByRole("heading", { name: "Dashboard" })
-    ).toBeVisible();
+  test("has heading title", async () => {
+    await expect(dashboadPage.getHeadingPageTitle()).toBeVisible();
   });
 });
