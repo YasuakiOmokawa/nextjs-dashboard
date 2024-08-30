@@ -1,6 +1,6 @@
 -- CreateTable
 CREATE TABLE "customers" (
-    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "name" VARCHAR(255) NOT NULL,
     "email" VARCHAR(255) NOT NULL,
     "image_url" VARCHAR(255) NOT NULL,
@@ -10,11 +10,11 @@ CREATE TABLE "customers" (
 
 -- CreateTable
 CREATE TABLE "invoices" (
-    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
-    "customer_id" UUID NOT NULL,
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "amount" INTEGER NOT NULL,
     "status" VARCHAR(255) NOT NULL,
     "date" DATE NOT NULL,
+    "customer_id" UUID NOT NULL,
 
     CONSTRAINT "invoices_pkey" PRIMARY KEY ("id")
 );
@@ -27,7 +27,7 @@ CREATE TABLE "revenue" (
 
 -- CreateTable
 CREATE TABLE "users" (
-    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "name" VARCHAR(255) NOT NULL,
     "email" TEXT NOT NULL,
     "password" TEXT NOT NULL,
@@ -40,4 +40,7 @@ CREATE UNIQUE INDEX "revenue_month_key" ON "revenue"("month");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
+
+-- AddForeignKey
+ALTER TABLE "invoices" ADD CONSTRAINT "invoices_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "customers"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
