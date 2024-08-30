@@ -23,6 +23,7 @@ model invoices {
   date        DateTime  @db.Date
   customer_id String    @db.Uuid
   customer    customers @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  tags        tags[]
 }
 
 model revenue {
@@ -35,4 +36,10 @@ model users {
   name     String @db.VarChar(255)
   email    String @unique
   password String
+}
+
+model tags {
+  id       String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name     String     @db.VarChar(255)
+  invoices invoices[]
 }
