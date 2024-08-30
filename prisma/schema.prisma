@@ -9,18 +9,21 @@ datasource db {
 }
 
 model customers {
-  id        String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  name      String @db.VarChar(255)
-  email     String @db.VarChar(255)
-  image_url String @db.VarChar(255)
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String     @db.VarChar(255)
+  email     String     @db.VarChar(255)
+  image_url String     @db.VarChar(255)
+  invoices  invoices[]
 }
 
 model invoices {
-  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  customer_id String   @db.Uuid
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   amount      Int
-  status      String   @db.VarChar(255)
-  date        DateTime @db.Date
+  status      String    @db.VarChar(255)
+  date        DateTime  @db.Date
+  customer_id String    @db.Uuid
+  customer    customers @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  tags        tags[]
 }
 
 model revenue {
@@ -29,8 +32,14 @@ model revenue {
 }
 
 model users {
-  id       String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name     String @db.VarChar(255)
   email    String @unique
   password String
+}
+
+model tags {
+  id       String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name     String     @db.VarChar(255)
+  invoices invoices[]
 }
