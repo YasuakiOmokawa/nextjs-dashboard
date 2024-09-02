@@ -43,3 +43,8 @@ model tags {
   name     String     @db.VarChar(255)
   invoices invoices[]
 }
+
+model tags2 {
+  id       String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name     String     @db.VarChar(255)
+}
