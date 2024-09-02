@@ -7,6 +7,9 @@ services:
     image: postgres:16.4-alpine3.20
     volumes:
       - pg-data:/var/lib/postgresql/data
+      - type: bind
+        source: "./dump"
+        target: "/dump"
     ports:
       - "5432:5432"
     environment:
