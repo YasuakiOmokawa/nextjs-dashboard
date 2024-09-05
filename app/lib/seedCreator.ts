@@ -1,5 +1,4 @@
 /*
-    Seed creator v2.0.1 - By Megas
     How to use: Import the seedCreator.ts file and call the readAllTables function
     Ex: import model from './seedCreator';
 
@@ -213,13 +212,21 @@ const createAllSeeds = async (
 // Stack to try again -- Tables to re try the find All if some promisse is rejected.
 const stackTryAgain: { [key: string]: number } = {};
 
+const getModel = (modelName: string) => {
+  for (const [key, value] of Object.entries(prisma)) {
+    if (typeof value == "object" && key == modelName) {
+      return value;
+    }
+  }
+};
+
 const findAndRefind = async (
   tables: string[],
   internalFilters: IFilter<[]>[]
 ) => {
   const selectsAll = await Promise.allSettled(
     tables.map((table) => {
-      return prisma[table].findMany({
+      return getModel(table).findMany({
         take: 1000,
       });
     })
