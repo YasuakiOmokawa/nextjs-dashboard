@@ -35,14 +35,17 @@ export interface IFilter<T> {
   inTable?: string;
 }
 
+type ObjectWithStringKey = {
+  [k in string]: unknown;
+};
+
 // Filter to not include in the seeds
 const filters: IFilter<[]>[] = [
-  // {
-  //   keyToFilter: 'password',
-  //   replaceTo: '01dfa4d90d9afbe',
-  //   inTable: 'User'
-  // },
-  // { keyToFilter: 'deletedAt' },
+  {
+    keyToFilter: "name",
+    replaceTo: "hogehoge",
+  },
+  { keyToFilter: "email", inTable: "users" },
   // { keyToFilter: 'like', replaceTo: true, inTable: 'CommentAndLike' }
 ];
 
@@ -174,7 +177,19 @@ const removeNullElements = (obj: object) => {
   }, {} as object);
 };
 
-const filteredFields = (obj: object, filter: IFilter<[]>) => {
+function assertObjectWithStringKey(
+  obj: object
+): asserts obj is ObjectWithStringKey {
+  if (Object.keys(obj).some((element) => typeof element !== "string")) {
+    throw new Error("object key must be string!");
+  }
+}
+
+const filteredFields = (
+  obj: object,
+  filter: IFilter<[]>
+): ObjectWithStringKey => {
+  assertObjectWithStringKey(obj);
   const { keyToFilter, replaceTo } = filter;
   return Object.keys(obj).reduce((acc, key) => {
     if (key === keyToFilter) {
@@ -186,7 +201,7 @@ const filteredFields = (obj: object, filter: IFilter<[]>) => {
     }
     acc[key] = obj[key];
     return acc;
-  }, {});
+  }, {} as ObjectWithStringKey);
 };
 
 const filterTables = (obj: object, filters: IFilter<[]>[], key: string) => {

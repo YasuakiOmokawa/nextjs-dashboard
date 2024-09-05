@@ -7,9 +7,9 @@ import { readAllTables } from "@/app/lib/seedCreator";
 
 readAllTables({
   logTables: true,
-  allSeeds: true,
-  seedFile: true,
-  // onlyTables: ["Recomend"], // optional: default []
+  allSeeds: false,
+  seedFile: false,
+  onlyTables: ["users"], // optional: default []
 });
 
 export default async function Page() {
