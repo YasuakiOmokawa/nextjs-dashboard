@@ -41,12 +41,11 @@ type ObjectWithStringKey = {
 
 // Filter to not include in the seeds
 const filters: IFilter<[]>[] = [
-  // {
-  //   keyToFilter: 'password',
-  //   replaceTo: '01dfa4d90d9afbe',
-  //   inTable: 'User'
-  // },
-  // { keyToFilter: 'deletedAt' },
+  {
+    keyToFilter: "name",
+    replaceTo: "hogehoge",
+  },
+  { keyToFilter: "email", inTable: "users" },
   // { keyToFilter: 'like', replaceTo: true, inTable: 'CommentAndLike' }
 ];
 
