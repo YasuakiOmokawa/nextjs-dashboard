@@ -35,6 +35,10 @@ export interface IFilter<T> {
   inTable?: string;
 }
 
+type ObjectWithStringKey = {
+  [k in string]: unknown;
+};
+
 // Filter to not include in the seeds
 const filters: IFilter<[]>[] = [
   // {
@@ -174,7 +178,19 @@ const removeNullElements = (obj: object) => {
   }, {} as object);
 };
 
-const filteredFields = (obj: object, filter: IFilter<[]>) => {
+function assertObjectWithStringKey(
+  obj: object
+): asserts obj is ObjectWithStringKey {
+  if (Object.keys(obj).some((element) => typeof element !== "string")) {
+    throw new Error("object key must be string!");
+  }
+}
+
+const filteredFields = (
+  obj: object,
+  filter: IFilter<[]>
+): ObjectWithStringKey => {
+  assertObjectWithStringKey(obj);
   const { keyToFilter, replaceTo } = filter;
   return Object.keys(obj).reduce((acc, key) => {
     if (key === keyToFilter) {
@@ -186,7 +202,7 @@ const filteredFields = (obj: object, filter: IFilter<[]>) => {
     }
     acc[key] = obj[key];
     return acc;
-  }, {});
+  }, {} as ObjectWithStringKey);
 };
 
 const filterTables = (obj: object, filters: IFilter<[]>[], key: string) => {
