@@ -192,6 +192,7 @@ const filteredFields = (
   assertObjectWithStringKey(obj);
   const { keyToFilter, replaceTo } = filter;
   return Object.keys(obj).reduce((acc, key) => {
+    assertObjectWithStringKey(acc);
     if (key === keyToFilter) {
       if (replaceTo === undefined) {
         return acc;
@@ -201,7 +202,7 @@ const filteredFields = (
     }
     acc[key] = obj[key];
     return acc;
-  }, {} as ObjectWithStringKey);
+  }, {});
 };
 
 const filterTables = (obj: object, filters: IFilter<[]>[], key: string) => {
