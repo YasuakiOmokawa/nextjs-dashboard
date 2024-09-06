@@ -267,6 +267,7 @@ const findAndRefind = async (
 
   return merged;
 };
+
 export const readAllTables = async ({
   allSeeds = false,
   seedFile = false,
@@ -307,13 +308,3 @@ export const readAllTables = async ({
   console.log("Done ---");
   return { tables, collections: merged, stackTryAgain };
 };
-
-// import './seedCreator';
-// /*
-readAllTables({
-  allSeeds: true,
-  seedFile: true,
-  logTables: false,
-  onlyTables: [],
-});
-//  */
