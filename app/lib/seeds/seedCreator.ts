@@ -92,7 +92,7 @@ export const readAllTables = async ({
       ? onlyTables
       : (Object.keys(Prisma.ModelName as Record<string, string>) as string[]);
 
-  const merged = !allSeeds ? {} : await findAndRefind(tables, arrFilters);
+  const merged = allSeeds ? await findAndRefind(tables, arrFilters) : {};
 
   const MAX_TRY_AGAIN = 3;
   let breakWhile = 10; // safe condition
