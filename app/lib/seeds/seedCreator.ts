@@ -25,9 +25,9 @@
 */
 
 import { Prisma } from "@prisma/client";
-import fs from "fs/promises";
 import { createSeedFile } from "./createSeedFile";
 import { findAndRefind } from "./findAndRefind";
+import { createAllSeeds } from "./createAllSeeds";
 
 export interface IFilter<T> {
   keyToFilter: string;
@@ -44,37 +44,6 @@ const filters: IFilter<[]>[] = [
   { keyToFilter: "email", inTable: "users" },
   // { keyToFilter: 'like', replaceTo: true, inTable: 'CommentAndLike' }
 ];
-
-// Ex: User go to user | CommentAndLike go to commentAndLike
-const snakeToCamel = (str: string) =>
-  str.toLocaleLowerCase().replace(/([-_][a-z])/g, (undeScoreAndString) => {
-    return undeScoreAndString.toUpperCase().replace("-", "").replace("_", "");
-  });
-
-const writeTable = async (
-  table: string,
-  value: Array<Prisma.ModelName>,
-  folder: string
-) => {
-  const tableNameCamelCase = snakeToCamel(table);
-  const dir = `./prisma/${folder}`;
-  await fs.mkdir(dir, { recursive: true });
-  return fs.writeFile(
-    `${dir}/${tableNameCamelCase}.json`,
-    `${JSON.stringify(value, null, 2)}`
-  );
-};
-
-const createAllSeeds = async (
-  tables: { [key: string]: [] },
-  folder: string
-) => {
-  await Promise.allSettled(
-    Object.keys(tables).map((key) => {
-      writeTable(key, tables[key], folder);
-    })
-  );
-};
 
 // Stack to try again -- Tables to re try the find All if some promisse is rejected.
 const stackTryAgain: { [key: string]: number } = {};
