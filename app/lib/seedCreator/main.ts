@@ -1,12 +1,10 @@
 /*
-    How to use: Import the seedCreator.ts file and call the readAllTables function
-    Ex: import model from './seedCreator';
+    How to use: Import this file and call the createSeed function
 
-    model.readAllTables({ allSeeds: true });
-    model.readAllTables({ allSeeds: true, seedFile: true, logTables: false });
-    Flag: allSeeds --> Create all seeds from all tables inside the ./prisma/seeds folder (create seeds folder if it doesn't exist)
-    Flag: seedFile --> Create seed.ts file with all seeds imported
-    Flag: logTables --> Log tables inside the console
+    Flag:
+    allSeeds --> Create all seeds from all tables inside the ./prisma/seeds folder (create seeds folder if it doesn't exist)
+    seedFile --> Create seed.ts file with all seeds imported
+    logTables --> Log tables inside the console
 
     filters array: 
     [
@@ -15,19 +13,18 @@
       { keyToFilter: 'like', replaceTo: true, inTable: 'CommentAndLike' } // Filter all keys like in CommentAndLike table and replaceTo = true
     ] // This array is optional and you can add more filters
 
-    Ex: model.readAllTables({ allSeeds: true, seedFile: true, logTables: false, arrFilters: filters });
-
-    prisma[table].findMany({
-        take: 1000,
-      }); // Limit in 1000 rows
+    Ex:
+    createSeed({ allSeeds: true });
+    createSeed({ allSeeds: true, seedFile: true, logTables: false });
+    createSeed({ allSeeds: true, seedFile: true, logTables: false, arrFilters: filters });
 
     After the seeds are created, you shuld run 'npx prisma db seed' (Ps: npx prisma migrate reset maybe dont make the seed all)
 */
 
 import { Prisma } from "@prisma/client";
-import fs from "fs/promises";
 import { createSeedFile } from "./createSeedFile";
 import { findAndRefind } from "./findAndRefind";
+import { createAllSeeds } from "./createAllSeeds";
 
 export interface IFilter<T> {
   keyToFilter: string;
@@ -45,41 +42,10 @@ const filters: IFilter<[]>[] = [
   // { keyToFilter: 'like', replaceTo: true, inTable: 'CommentAndLike' }
 ];
 
-// Ex: User go to user | CommentAndLike go to commentAndLike
-const snakeToCamel = (str: string) =>
-  str.toLocaleLowerCase().replace(/([-_][a-z])/g, (undeScoreAndString) => {
-    return undeScoreAndString.toUpperCase().replace("-", "").replace("_", "");
-  });
-
-const writeTable = async (
-  table: string,
-  value: Array<Prisma.ModelName>,
-  folder: string
-) => {
-  const tableNameCamelCase = snakeToCamel(table);
-  const dir = `./prisma/${folder}`;
-  await fs.mkdir(dir, { recursive: true });
-  return fs.writeFile(
-    `${dir}/${tableNameCamelCase}.json`,
-    `${JSON.stringify(value, null, 2)}`
-  );
-};
-
-const createAllSeeds = async (
-  tables: { [key: string]: [] },
-  folder: string
-) => {
-  await Promise.allSettled(
-    Object.keys(tables).map((key) => {
-      writeTable(key, tables[key], folder);
-    })
-  );
-};
-
 // Stack to try again -- Tables to re try the find All if some promisse is rejected.
 const stackTryAgain: { [key: string]: number } = {};
 
-export const readAllTables = async ({
+export const createSeed = async ({
   allSeeds = false,
   seedFile = false,
   logTables = true,
