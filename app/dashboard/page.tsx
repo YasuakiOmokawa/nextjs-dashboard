@@ -3,9 +3,9 @@ import RevenueChart from "@/app/ui/dashboard/revenue-chart";
 import LatestInvoices from "@/app/ui/dashboard/latest-invoices";
 import { lusitana } from "@/app/ui/fonts";
 import { fetchRevenue } from "@/app/lib/data";
-import { readAllTables } from "@/app/lib/seeds/seedCreator";
+import { createSeed } from "@/app/lib/seedCreator/main";
 
-readAllTables({
+createSeed({
   logTables: true,
   allSeeds: false,
   seedFile: false,
