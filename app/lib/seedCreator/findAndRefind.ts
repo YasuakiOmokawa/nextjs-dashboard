@@ -23,7 +23,7 @@ const getModel = (modelName: string) => {
   }
 };
 
-function assertObjectWithStringKey(
+function assertObjectWithStringKeyOrEmpty(
   obj: object
 ): asserts obj is ObjectWithStringKey {
   if (Object.keys(obj).some((element) => typeof element !== "string")) {
@@ -35,10 +35,10 @@ const filteredFields = (
   obj: object,
   filter: IFilter<[]>
 ): ObjectWithStringKey => {
-  assertObjectWithStringKey(obj);
+  assertObjectWithStringKeyOrEmpty(obj);
   const { keyToFilter, replaceTo } = filter;
   return Object.keys(obj).reduce((acc, key) => {
-    assertObjectWithStringKey(acc);
+    assertObjectWithStringKeyOrEmpty(acc);
     if (key === keyToFilter) {
       if (replaceTo === undefined) {
         return acc;
@@ -83,6 +83,7 @@ export const findAndRefind = async (
   );
 
   const merged = selectsAll.reduce((acc, result, i) => {
+    assertObjectWithStringKeyOrEmpty(acc);
     if (result.status !== "fulfilled") {
       console.log("Error", result.reason, "<---Try Again XXXXX");
       stackTryAgain[tables[i]] = (stackTryAgain[tables[i]] || 0) + 1;
@@ -98,7 +99,7 @@ export const findAndRefind = async (
       )
     );
     return acc;
-  }, {} as { [key: string]: [] });
+  }, {});
 
   return merged;
 };
