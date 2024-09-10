@@ -4,10 +4,9 @@ import {
   CustomersTableType,
   InvoiceForm,
   InvoicesTable,
-  LatestInvoiceRaw,
 } from "./definitions";
 import { formatCurrency } from "./utils";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -30,31 +29,36 @@ export async function fetchRevenue() {
   }
 }
 
-export async function fetchLatestInvoices() {
-  try {
-    const data = await prisma.invoices.findMany({
-      select: {
-        amount: true,
-        id: true,
-        customer: {
-          select: {
-            name: true,
-            image_url: true,
-            email: true,
-          },
+const fetchLatestInvoicesQuery =
+  Prisma.validator<Prisma.invoicesFindManyArgs>()({
+    select: {
+      amount: true,
+      id: true,
+      customer: {
+        select: {
+          name: true,
+          image_url: true,
+          email: true,
         },
       },
-      orderBy: {
-        date: "asc",
-      },
-      take: 5,
-    });
+    },
+    orderBy: {
+      date: "asc",
+    },
+    take: 5,
+  });
+
+export type LatestInvoice = Omit<
+  Prisma.invoicesGetPayload<typeof fetchLatestInvoicesQuery>,
+  "amount"
+> & { amount: string };
+
+export async function fetchLatestInvoices() {
+  try {
+    const data = await prisma.invoices.findMany(fetchLatestInvoicesQuery);
 
     const latestInvoices = data.map((invoice) => ({
-      id: invoice.id,
-      name: invoice.customer.name,
-      image_url: invoice.customer.image_url,
-      email: invoice.customer.email,
+      ...invoice,
       amount: formatCurrency(invoice.amount),
     }));
     return latestInvoices;
