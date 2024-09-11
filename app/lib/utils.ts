@@ -1,4 +1,12 @@
-import { Revenue } from './definitions';
+
+export type DeepPropertyReplacer<SourceType, TargetProp, ReplaceType> =
+  SourceType extends never
+    ? SourceType
+    : {
+        [k in keyof SourceType]: k extends TargetProp
+          ? ReplaceType
+          : DeepPropertyReplacer<SourceType[k], TargetProp, ReplaceType>;
+      };
 
 export const formatCurrency = (amount: number) => {
   return (amount / 100).toLocaleString('en-US', {
