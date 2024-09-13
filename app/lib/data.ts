@@ -13,7 +13,7 @@ const prisma = new PrismaClient();
 export async function fetchRevenue() {
   try {
     // Artificially delay a response for demo purposes.
-    // Don't do this in production
+    // Don't do this in productions
 
     // console.log('Fetching revenue data...');
     // await new Promise((resolve) => setTimeout(resolve, 3000));
