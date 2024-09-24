@@ -1,10 +1,12 @@
 "use client";
 
 import { MagnifyingGlassIcon } from "@heroicons/react/24/outline";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, usePathname, useRouter } from "next/navigation";
 
 export default function Search({ placeholder }: { placeholder: string }) {
   const searchParams = useSearchParams();
+  const pathName = usePathname();
+  const { replace } = useRouter();
 
   function hundleSearch(term: string) {
     const params = new URLSearchParams(searchParams);
@@ -13,6 +15,7 @@ export default function Search({ placeholder }: { placeholder: string }) {
     } else {
       params.delete("query");
     }
+    replace(`${pathName}?${params.toString()}`);
   }
 
   return (
