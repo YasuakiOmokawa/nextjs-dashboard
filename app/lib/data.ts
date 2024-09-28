@@ -116,6 +116,7 @@ export async function fetchFilteredInvoices(
   const offset = (currentPage - 1) * ITEMS_PER_PAGE;
 
   try {
+    // TODO: 書き換えの途中
     const invoices = await prisma.$queryRaw`
       select
         invoices.id,
