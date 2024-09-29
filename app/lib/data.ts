@@ -110,7 +110,7 @@ export async function fetchFilteredInvoices(
   currentPage: number
 ) {
   try {
-    const invoices = await Invoices(prisma.invoices).filterFetch({
+    const invoices = await Invoices(prisma.invoices).filteredFetch({
       query: query,
       currentPage: currentPage,
     });
