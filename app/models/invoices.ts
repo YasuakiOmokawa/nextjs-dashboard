@@ -11,14 +11,14 @@ type InvoicesTable = {
   status: "pending" | "paid";
 };
 
-type Filterfetch = {
+type filteredFetch = {
   query: string;
   currentPage: number;
 };
 
 export function Invoices(prismaInvoice: PrismaClient["invoices"]) {
   return Object.assign(prismaInvoice, {
-    async filterFetch(data: Filterfetch): Promise<InvoicesTable[]> {
+    async filteredFetch(data: filteredFetch): Promise<InvoicesTable[]> {
       const prisma = new PrismaClient();
       const ITEMS_PER_PAGE = 6;
       const offset = (data.currentPage - 1) * ITEMS_PER_PAGE;
