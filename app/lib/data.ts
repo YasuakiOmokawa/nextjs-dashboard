@@ -1,10 +1,5 @@
 import { sql } from "@vercel/postgres";
-import {
-  CustomerField,
-  CustomersTableType,
-  InvoiceForm,
-  InvoicesTable,
-} from "./definitions";
+import { CustomerField, CustomersTableType, InvoiceForm } from "./definitions";
 import { formatCurrency } from "./utils";
 import { PrismaClient, Prisma } from "@prisma/client";
 import { Invoices } from "@/app/models/invoices";
