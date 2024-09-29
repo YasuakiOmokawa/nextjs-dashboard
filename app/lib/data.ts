@@ -1,12 +1,8 @@
 import { sql } from "@vercel/postgres";
-import {
-  CustomerField,
-  CustomersTableType,
-  InvoiceForm,
-  InvoicesTable,
-} from "./definitions";
+import { CustomerField, CustomersTableType, InvoiceForm } from "./definitions";
 import { formatCurrency } from "./utils";
 import { PrismaClient, Prisma } from "@prisma/client";
+import { Invoices } from "@/app/models/invoices";
 
 const prisma = new PrismaClient();
 
@@ -113,29 +109,11 @@ export async function fetchFilteredInvoices(
   query: string,
   currentPage: number
 ) {
-  const offset = (currentPage - 1) * ITEMS_PER_PAGE;
-
   try {
-    const invoices = await prisma.$queryRaw<InvoicesTable[]>`
-      select
-        invoices.id,
-        invoices.amount,
-        invoices.date,
-        customers.name,
-        customers.email,
-        customers.image_url
-      from
-        invoices
-      join customers on invoices.customer_id = customers.id
-      where
-        customers.name ILIKE concat('%', ${query}, '%')
-        or customers.email ILIKE concat('%', ${query}, '%')
-        or invoices.amount::text ILIKE concat('%', ${query}, '%')
-        or invoices.date::text ILIKE concat('%', ${query}, '%')
-        or invoices.status ILIKE concat('%', ${query}, '%')
-      order by invoices.date desc
-      limit ${ITEMS_PER_PAGE} offset ${offset}
-    `;
+    const invoices = await Invoices(prisma.invoices).filterFetch({
+      query: query,
+      currentPage: currentPage,
+    });
 
     return invoices;
   } catch (error) {
