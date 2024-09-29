@@ -116,8 +116,7 @@ export async function fetchFilteredInvoices(
   const offset = (currentPage - 1) * ITEMS_PER_PAGE;
 
   try {
-    // TODO: 書き換えの途中
-    const invoices = await prisma.$queryRaw`
+    const invoices = await prisma.$queryRaw<InvoicesTable[]>`
       select
         invoices.id,
         invoices.amount,
@@ -129,29 +128,14 @@ export async function fetchFilteredInvoices(
         invoices
       join customers on invoices.customer_id = customers.id
       where
-        
+        customers.name ILIKE concat('%', ${query}, '%')
+        or customers.email ILIKE concat('%', ${query}, '%')
+        or invoices.amount::text ILIKE concat('%', ${query}, '%')
+        or invoices.date::text ILIKE concat('%', ${query}, '%')
+        or invoices.status ILIKE concat('%', ${query}, '%')
+      order by invoices.date desc
+      limit ${ITEMS_PER_PAGE} offset ${offset}
     `;
-
-    // const invoices = await sql<InvoicesTable>`
-    //   SELECT
-    //     invoices.id,
-    //     invoices.amount,
-    //     invoices.date,
-    //     invoices.status,
-    //     customers.name,
-    //     customers.email,
-    //     customers.image_url
-    //   FROM invoices
-    //   JOIN customers ON invoices.customer_id = customers.id
-    //   WHERE
-    //     customers.name ILIKE ${`%${query}%`} OR
-    //     customers.email ILIKE ${`%${query}%`} OR
-    //     invoices.amount::text ILIKE ${`%${query}%`} OR
-    //     invoices.date::text ILIKE ${`%${query}%`} OR
-    //     invoices.status ILIKE ${`%${query}%`}
-    //   ORDER BY invoices.date DESC
-    //   LIMIT ${ITEMS_PER_PAGE} OFFSET ${offset}
-    // `;
 
     return invoices;
   } catch (error) {
