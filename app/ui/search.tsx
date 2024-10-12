@@ -11,6 +11,7 @@ export default function Search({ placeholder }: { placeholder: string }) {
 
   const hundleSearch = useDebouncedCallback((term: string) => {
     const params = new URLSearchParams(searchParams);
+    params.set("page", "1"); // 検索条件が変わると全体のページ数が変わるので、1ページ目に設定する
     if (term) {
       params.set("query", term);
     } else {

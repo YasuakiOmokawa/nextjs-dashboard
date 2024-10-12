@@ -1,5 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 
+const ITEMS_PER_PAGE = 6;
+
 type InvoicesTable = {
   id: string;
   customer_id: string;
@@ -11,16 +13,15 @@ type InvoicesTable = {
   status: "pending" | "paid";
 };
 
-type filteredFetch = {
+type FilteredFetch = {
   query: string;
   currentPage: number;
 };
 
 export function Invoices(prismaInvoice: PrismaClient["invoices"]) {
   return Object.assign(prismaInvoice, {
-    async filteredFetch(data: filteredFetch): Promise<InvoicesTable[]> {
+    async filteredFetch(data: FilteredFetch): Promise<InvoicesTable[]> {
       const prisma = new PrismaClient();
-      const ITEMS_PER_PAGE = 6;
       const offset = (data.currentPage - 1) * ITEMS_PER_PAGE;
 
       const invoices = await prisma.$queryRaw<InvoicesTable[]>`
@@ -45,6 +46,28 @@ export function Invoices(prismaInvoice: PrismaClient["invoices"]) {
       `;
 
       return invoices;
+    },
+    async fetchTotaltPages(
+      data: Pick<FilteredFetch, "query">
+    ): Promise<number> {
+      const prisma = new PrismaClient();
+
+      const count: number = await prisma.$queryRaw`
+        select
+          count(1)
+        from
+          invoices
+        join customers on invoices.customer_id = customers.id
+        where
+          customers.name ILIKE concat('%', ${data.query}, '%')
+          or customers.email ILIKE concat('%', ${data.query}, '%')
+          or invoices.amount::text ILIKE concat('%', ${data.query}, '%')
+          or invoices.date::text ILIKE concat('%', ${data.query}, '%')
+          or invoices.status ILIKE concat('%', ${data.query}, '%')
+      `;
+
+      const totalPages = Math.ceil(Number(count / ITEMS_PER_PAGE));
+      return totalPages;
     },
   });
 }
