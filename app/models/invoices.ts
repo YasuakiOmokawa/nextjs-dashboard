@@ -52,9 +52,11 @@ export function Invoices(prismaInvoice: PrismaClient["invoices"]) {
     ): Promise<number> {
       const prisma = new PrismaClient();
 
-      const count: number = await prisma.$queryRaw`
+      // NOTE: 生クエリのcount()はbigintを返却するのでintegerにキャスト
+      // ref.https://github.com/prisma/prisma/issues/14613#issuecomment-1526258289
+      const count = await prisma.$queryRaw<{ count: number }[]>`
         select
-          count(1)
+          count(1)::integer
         from
           invoices
         join customers on invoices.customer_id = customers.id
@@ -66,7 +68,8 @@ export function Invoices(prismaInvoice: PrismaClient["invoices"]) {
           or invoices.status ILIKE concat('%', ${data.query}, '%')
       `;
 
-      const totalPages = Math.ceil(Number(count / ITEMS_PER_PAGE));
+      const countObject = count.at(0);
+      const totalPages = Math.ceil(Number(countObject!.count / ITEMS_PER_PAGE));
       return totalPages;
     },
   });
