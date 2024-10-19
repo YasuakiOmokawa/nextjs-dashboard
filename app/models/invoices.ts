@@ -13,14 +13,14 @@ type InvoicesTable = {
   status: "pending" | "paid";
 };
 
-type FilteredFetch = {
+type FetchFilter = {
   query: string;
   currentPage: number;
 };
 
 export function Invoices(prismaInvoice: PrismaClient["invoices"]) {
   return Object.assign(prismaInvoice, {
-    async filteredFetch(data: FilteredFetch): Promise<InvoicesTable[]> {
+    async filteredFetch(data: FetchFilter): Promise<InvoicesTable[]> {
       const prisma = new PrismaClient();
       const offset = (data.currentPage - 1) * ITEMS_PER_PAGE;
 
@@ -47,9 +47,7 @@ export function Invoices(prismaInvoice: PrismaClient["invoices"]) {
 
       return invoices;
     },
-    async fetchTotaltPages(
-      data: Pick<FilteredFetch, "query">
-    ): Promise<number> {
+    async fetchTotaltPages(data: Pick<FetchFilter, "query">): Promise<number> {
       const prisma = new PrismaClient();
 
       // NOTE: 生クエリのcount()はbigintを返却するのでintegerにキャスト
