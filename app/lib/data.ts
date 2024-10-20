@@ -1,5 +1,5 @@
 import { sql } from "@vercel/postgres";
-import { CustomerField, CustomersTableType, InvoiceForm } from "./definitions";
+import { CustomersTableType, InvoiceForm } from "./definitions";
 import { formatCurrency } from "./utils";
 import { PrismaClient, Prisma } from "@prisma/client";
 import { Invoices } from "@/app/models/invoices";
@@ -159,17 +159,24 @@ export async function fetchInvoiceById(id: string) {
   }
 }
 
+const fetchCustomersQuery = Prisma.validator<Prisma.customersFindManyArgs>()({
+  select: {
+    id: true,
+    name: true,
+  },
+  orderBy: {
+    name: "asc",
+  },
+});
+
+export type CustomerField = Prisma.customersGetPayload<
+  typeof fetchCustomersQuery
+>;
+
 export async function fetchCustomers() {
   try {
-    const data = await sql<CustomerField>`
-      SELECT
-        id,
-        name
-      FROM customers
-      ORDER BY name ASC
-    `;
+    const customers = await prisma.customers.findMany(fetchCustomersQuery);
 
-    const customers = data.rows;
     return customers;
   } catch (err) {
     console.error("Database Error:", err);
