@@ -23,6 +23,8 @@ model invoices {
   date        DateTime  @db.Date @default(now())
   customer_id String    @db.Uuid
   customer    customers @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  created_at  DateTime  @db.Timestamp(6) @default(now())
+  updated_at  DateTime  @db.Timestamp(6) @default(now())
   tags        tags[]
 }
 
