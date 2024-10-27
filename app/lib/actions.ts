@@ -26,7 +26,6 @@ export async function createInvoice(formData: FormData) {
       amount: amountInCents,
       status: status,
       customer_id: customerId,
-      date: new Date(),
     },
   });
 }
