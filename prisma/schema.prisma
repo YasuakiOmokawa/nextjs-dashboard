@@ -20,7 +20,7 @@ model invoices {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   amount      Int
   status      String    @db.VarChar(255)
-  date        DateTime  @db.Date
+  date        DateTime  @db.Date @default(now())
   customer_id String    @db.Uuid
   customer    customers @relation(fields: [customer_id], references: [id], onDelete: Cascade)
   tags        tags[]
