@@ -31,6 +31,8 @@ model invoices {
 model revenue {
   month   String @unique @db.VarChar(4)
   revenue Int
+  created_at  DateTime  @db.Timestamp(6) @default(now())
+  updated_at  DateTime  @db.Timestamp(6) @default(now())
 }
 
 model users {
