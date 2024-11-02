@@ -51,4 +51,6 @@ model tags {
 model tags2 {
   id       String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name     String     @db.VarChar(255)
+  created_at  DateTime  @db.Timestamp(6) @default(now())
+  updated_at  DateTime  @db.Timestamp(6) @default(now())
 }
