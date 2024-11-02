@@ -11,11 +11,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+      - name: Corepack enable
+        run: corepack/enable 
       - name: Setup Node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
+        with:
+          node-version: '>=20.12.0'
+          cache: 'pnpm'
       - name: Install dependencies
-        run: npm install
+        run: pnpm install
       - name: Apply all pending migrations to the database
         run: npx prisma migrate deploy
         env:
