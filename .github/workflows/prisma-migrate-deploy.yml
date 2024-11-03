@@ -7,22 +7,17 @@ on:
       - main
 
 jobs:
-  deploy:
+  Prisma-Migrate-Deploy:
     runs-on: ubuntu-latest
     environment:
       name: Production
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-      - name: Corepack enable
-        run: corepack enable 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '>=20.12.0'
-          cache: 'pnpm'
+      - name: Install bun
+        uses: oven-sh/setup-bun@v1
       - name: Install dependences
-        run: pnpm install
+        run: bun install
       - name: Apply all pending migrations to the database
         run: npx prisma migrate deploy
         env:
