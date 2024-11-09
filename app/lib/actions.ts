@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { PrismaClient } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 const prisma = new PrismaClient();
 
@@ -31,4 +32,5 @@ export async function createInvoice(formData: FormData) {
   });
 
   revalidatePath("/dashboard/invoices");
+  redirect("/dashboard/invoices");
 }
