@@ -10,7 +10,7 @@ export function stackMiddleware(
   if (current) {
     const next = stackMiddleware(functions, index + 1);
     return current(next);
+  } else {
+    return () => NextResponse.next();
   }
-
-  return () => NextResponse.next();
 }
