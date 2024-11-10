@@ -4,13 +4,14 @@ import {
   NextResponse,
   NextFetchEvent,
 } from "next/server";
+import { MiddlewareFactory } from "./types";
 
-export function redirectHoge(middleware: NextMiddleware) {
-  return async (request: NextRequest, event: NextFetchEvent) => {
-    if (request.nextUrl.pathname.startsWith("/hoge")) {
+export const redirectHoge: MiddlewareFactory = (middleware: NextMiddleware) => {
+  return async (request: NextRequest, _event: NextFetchEvent) => {
+    if (request.nextUrl.searchParams.has("redirect")) {
       return NextResponse.redirect(new URL("/dashboard", request.url));
     }
 
-    return middleware(request, event);
+    return middleware(request, _event);
   };
-}
+};
