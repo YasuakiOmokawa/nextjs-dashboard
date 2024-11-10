@@ -10,7 +10,8 @@ export function stackMiddleware(
   if (current) {
     const next = stackMiddleware(functions, index + 1);
     return current(next);
+  } else {
+    // currentがfalseになると、上記のconst next にNextResponse.next が代入される
+    return () => NextResponse.next();
   }
-
-  return () => NextResponse.next();
 }
