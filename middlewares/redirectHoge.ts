@@ -1,4 +1,3 @@
-import { resolveTxt } from "dns/promises";
 import {
   NextMiddleware,
   NextRequest,
