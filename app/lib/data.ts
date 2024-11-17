@@ -139,25 +139,33 @@ export async function fetchInvoicesPages(query: string) {
   }
 }
 
+const invoiceSelectionById = {
+  id: true,
+  customer_id: true,
+  amount: true,
+  status: true,
+} satisfies Prisma.invoicesSelect;
+
+export type InvoiceSelectionById = Prisma.invoicesGetPayload<{
+  select: typeof invoiceSelectionById;
+}>;
+
 export async function fetchInvoiceById(id: string) {
   try {
-    const data = await sql<InvoiceForm>`
-      SELECT
-        invoices.id,
-        invoices.customer_id,
-        invoices.amount,
-        invoices.status
-      FROM invoices
-      WHERE invoices.id = ${id};
-    `;
+    const invoice = await prisma.invoices.findUnique({
+      select: invoiceSelectionById,
+      where: {
+        id: id,
+      },
+    });
 
-    const invoice = data.rows.map((invoice) => ({
+    if (!invoice) throw new Error("Failed to fetch invoice.");
+
+    return {
       ...invoice,
-      // Convert amount from cents to dollars
+      // convert dollar from sent
       amount: invoice.amount / 100,
-    }));
-
-    return invoice[0];
+    };
   } catch (error) {
     console.error("Database Error:", error);
     throw new Error("Failed to fetch invoice.");
