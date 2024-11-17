@@ -163,7 +163,7 @@ export async function fetchInvoiceById(id: string) {
 
     return {
       ...invoice,
-      // convert dollar to sent
+      // convert dollar from sent
       amount: invoice.amount / 100,
     };
   } catch (error) {
