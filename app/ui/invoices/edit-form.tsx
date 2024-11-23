@@ -1,7 +1,6 @@
 "use client";
 
-import { CustomerField } from "@/app/lib/data";
-import { InvoiceForm } from "@/app/lib/definitions";
+import { CustomerField, InvoiceSelectionById } from "@/app/lib/data";
 import {
   CheckIcon,
   ClockIcon,
@@ -15,7 +14,7 @@ export default function EditInvoiceForm({
   invoice,
   customers,
 }: {
-  invoice: InvoiceForm;
+  invoice: InvoiceSelectionById;
   customers: CustomerField[];
 }) {
   return (

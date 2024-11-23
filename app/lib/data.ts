@@ -1,5 +1,5 @@
 import { sql } from "@vercel/postgres";
-import { CustomersTableType, InvoiceForm } from "./definitions";
+import { CustomersTableType } from "./definitions";
 import { formatCurrency } from "./utils";
 import { PrismaClient, Prisma } from "@prisma/client";
 import { Invoices } from "@/app/models/invoices";
@@ -146,9 +146,12 @@ const invoiceSelectionById = {
   status: true,
 } satisfies Prisma.invoicesSelect;
 
-export type InvoiceSelectionById = Prisma.invoicesGetPayload<{
-  select: typeof invoiceSelectionById;
-}>;
+export type InvoiceSelectionById = Omit<
+  Prisma.invoicesGetPayload<{
+    select: typeof invoiceSelectionById;
+  }>,
+  "status"
+> & { status: "pending" | "paid" };
 
 export async function fetchInvoiceById(id: string) {
   try {
@@ -165,7 +168,7 @@ export async function fetchInvoiceById(id: string) {
       ...invoice,
       // convert dollar from sent
       amount: invoice.amount / 100,
-    };
+    } as InvoiceSelectionById;
   } catch (error) {
     console.error("Database Error:", error);
     throw new Error("Failed to fetch invoice.");
