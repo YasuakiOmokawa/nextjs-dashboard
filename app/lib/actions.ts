@@ -34,3 +34,26 @@ export async function createInvoice(formData: FormData) {
   revalidatePath("/dashboard/invoices");
   redirect("/dashboard/invoices");
 }
+
+const UpdateInvoice = FormSchema.omit({ id: true, date: true });
+
+export async function updateInvoice(id: string, formData: FormData) {
+  const rawFormData = Object.fromEntries(formData.entries());
+  const { customerId, amount, status } = UpdateInvoice.parse(rawFormData);
+
+  const amountInCents = amount * 100;
+
+  await prisma.invoices.update({
+    data: {
+      amount: amountInCents,
+      status: status,
+      customer_id: customerId,
+    },
+    where: {
+      id: id,
+    },
+  });
+
+  revalidatePath("/dashboard/invoices");
+  redirect("/dashboard/invoices");
+}
