@@ -162,7 +162,7 @@ export async function fetchInvoiceById(id: string) {
       },
     });
 
-    if (!invoice) throw new Error("Failed to fetch invoice.");
+    if (!invoice) return invoice;
 
     return {
       ...invoice,
