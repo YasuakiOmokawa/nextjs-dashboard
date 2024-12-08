@@ -21,7 +21,16 @@ const FormSchema = z.object({
 
 const CreateInvoice = FormSchema.omit({ id: true, date: true });
 
-export async function createInvoice(formData: FormData) {
+export type State = {
+  errors?: {
+    customerId?: string[];
+    amount?: string[];
+    status?: string[];
+  };
+  message?: string | null;
+};
+
+export async function createInvoice(_prevState: State, formData: FormData) {
   const rawFormData = Object.fromEntries(formData.entries());
   const { customerId, amount, status } = CreateInvoice.parse(rawFormData);
 
