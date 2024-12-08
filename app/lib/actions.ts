@@ -32,8 +32,16 @@ export type State = {
 
 export async function createInvoice(_prevState: State, formData: FormData) {
   const rawFormData = Object.fromEntries(formData.entries());
-  const { customerId, amount, status } = CreateInvoice.parse(rawFormData);
+  const validatedFields = CreateInvoice.safeParse(rawFormData); // Validate fields using Zod
 
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+      message: "Invalid. Failed to Create Invoice.",
+    };
+  }
+
+  const { amount, status, customerId } = validatedFields.data;
   const amountInCents = amount * 100;
 
   try {
@@ -46,11 +54,11 @@ export async function createInvoice(_prevState: State, formData: FormData) {
     });
   } catch (e) {
     return {
-      message: "Failed to create invoice.",
+      message: "Database Error: Failed to create invoice.",
     };
   }
 
-  revalidatePath("/dashboard/invoices");
+  revalidatePath("/dashboard/invoices"); // update page cache
   redirect("/dashboard/invoices");
 }
 
