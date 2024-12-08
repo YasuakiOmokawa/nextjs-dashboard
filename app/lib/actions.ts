@@ -9,10 +9,14 @@ const prisma = new PrismaClient();
 
 const FormSchema = z.object({
   id: z.string(),
-  amount: z.coerce.number(),
-  status: z.enum(["paid", "pending"]),
+  amount: z.coerce.number().gt(0, "Please enter an amount greater than $0."),
+  status: z.enum(["paid", "pending"], {
+    invalid_type_error: "Please select an invoice status.",
+  }),
   date: z.date(),
-  customerId: z.string(),
+  customerId: z.string({
+    invalid_type_error: "Please select a customer.",
+  }),
 });
 
 const CreateInvoice = FormSchema.omit({ id: true, date: true });
