@@ -9,18 +9,39 @@ const prisma = new PrismaClient();
 
 const FormSchema = z.object({
   id: z.string(),
-  amount: z.coerce.number(),
-  status: z.enum(["paid", "pending"]),
+  amount: z.coerce.number().gt(0, "Please enter an amount greater than $0."),
+  status: z.enum(["paid", "pending"], {
+    invalid_type_error: "Please select an invoice status.",
+  }),
   date: z.date(),
-  customerId: z.string(),
+  customerId: z.string({
+    invalid_type_error: "Please select a customer.",
+  }),
 });
 
 const CreateInvoice = FormSchema.omit({ id: true, date: true });
 
-export async function createInvoice(formData: FormData) {
-  const rawFormData = Object.fromEntries(formData.entries());
-  const { customerId, amount, status } = CreateInvoice.parse(rawFormData);
+export type State = {
+  errors?: {
+    customerId?: string[];
+    amount?: string[];
+    status?: string[];
+  };
+  message?: string | null;
+};
 
+export async function createInvoice(_prevState: State, formData: FormData) {
+  const rawFormData = Object.fromEntries(formData.entries());
+  const validatedFields = CreateInvoice.safeParse(rawFormData); // Validate fields using Zod
+
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+      message: "Invalid. Failed to Create Invoice.",
+    };
+  }
+
+  const { amount, status, customerId } = validatedFields.data;
   const amountInCents = amount * 100;
 
   try {
@@ -33,11 +54,11 @@ export async function createInvoice(formData: FormData) {
     });
   } catch (e) {
     return {
-      message: "Failed to create invoice.",
+      message: "Database Error: Failed to create invoice.",
     };
   }
 
-  revalidatePath("/dashboard/invoices");
+  revalidatePath("/dashboard/invoices"); // update page cache
   redirect("/dashboard/invoices");
 }
 
