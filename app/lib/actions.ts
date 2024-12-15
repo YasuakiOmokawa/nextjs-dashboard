@@ -21,6 +21,7 @@ const FormSchema = z.object({
 
 const CreateInvoice = FormSchema.omit({ id: true, date: true });
 
+// for useActionState
 export type State = {
   errors?: {
     customerId?: string[];
@@ -28,6 +29,11 @@ export type State = {
     status?: string[];
   };
   message?: string | null;
+  formData?: {
+    customerId?: string;
+    amount?: number;
+    status?: string;
+  };
 };
 
 export async function createInvoice(_prevState: State, formData: FormData) {
@@ -38,6 +44,14 @@ export async function createInvoice(_prevState: State, formData: FormData) {
     return {
       errors: validatedFields.error.flatten().fieldErrors,
       message: "Invalid. Failed to Create Invoice.",
+      // return inputed value to form
+      formData: {
+        customerId: rawFormData?.customerId
+          ? String(rawFormData.customerId)
+          : undefined,
+        amount: rawFormData?.amount ? Number(rawFormData.amount) : undefined,
+        status: rawFormData?.status ? String(rawFormData.status) : undefined,
+      },
     };
   }
 
