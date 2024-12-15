@@ -7,15 +7,18 @@ import { redirect } from "next/navigation";
 
 const prisma = new PrismaClient();
 
+// for validation
 const FormSchema = z.object({
   id: z.string(),
-  amount: z.coerce.number().gt(0, "Please enter an amount greater than $0."),
-  status: z.enum(["paid", "pending"], {
-    invalid_type_error: "Please select an invoice status.",
-  }),
   date: z.date(),
   customerId: z.string({
     invalid_type_error: "Please select a customer.",
+    required_error: "Customer is required.",
+  }),
+  amount: z.coerce.number().gt(0, "Please enter an amount greater than $0."),
+  status: z.enum(["paid", "pending"], {
+    invalid_type_error: "Please select an invoice status.",
+    required_error: "Invoice status is required.",
   }),
 });
 
@@ -61,9 +64,9 @@ export async function createInvoice(_prevState: State, formData: FormData) {
   try {
     await prisma.invoices.create({
       data: {
+        customer_id: customerId,
         amount: amountInCents,
         status: status,
-        customer_id: customerId,
       },
     });
   } catch (e) {
