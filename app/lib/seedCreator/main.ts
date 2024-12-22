@@ -79,9 +79,15 @@ export const createSeed = async ({
     }
   }
 
-  logTables && console.log("Start -->", merged, "<-- End");
-  allSeeds && (await createAllSeeds(merged, folderName));
-  seedFile && (await createSeedFile());
+  if (logTables) {
+    console.log("Start -->", merged, "<-- End");
+  }
+  if (allSeeds) {
+    await createAllSeeds(merged, folderName);
+  }
+  if (seedFile) {
+    await createSeedFile();
+  }
   console.log("Done ---");
   return { tables, collections: merged, stackTryAgain };
 };

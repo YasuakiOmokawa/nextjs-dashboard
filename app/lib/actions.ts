@@ -52,7 +52,7 @@ export async function createInvoice(_prevState: State, formData: FormData) {
         status: status,
       },
     });
-  } catch (e) {
+  } catch (_e) {
     return {
       message: "Database Error: Failed to create invoice.",
     };
@@ -79,7 +79,7 @@ export async function updateInvoice(id: string, formData: FormData) {
         id: id,
       },
     });
-  } catch (e) {
+  } catch (_e) {
     return {
       message: "Failed to update invoice.",
     };
@@ -98,7 +98,7 @@ export async function deleteInvoice(id: string) {
     return {
       message: "Delete invoice.",
     };
-  } catch (e) {
+  } catch (_e) {
     return {
       message: "Failed to delete invoice.",
     };
