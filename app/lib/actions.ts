@@ -1,28 +1,11 @@
 "use server";
 
-import { z } from "zod";
 import { PrismaClient } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { validatesCreateInvoice, validatesUpdateInvoice } from "./validates";
 
 const prisma = new PrismaClient();
-
-// for validation
-const FormSchema = z.object({
-  id: z.string(),
-  date: z.date(),
-  customerId: z.string({
-    invalid_type_error: "Please select a customer.",
-    required_error: "Customer is required.",
-  }),
-  amount: z.coerce.number().gt(0, "Please enter an amount greater than $0."),
-  status: z.enum(["paid", "pending"], {
-    invalid_type_error: "Please select an invoice status.",
-    required_error: "Invoice status is required.",
-  }),
-});
-
-const CreateInvoice = FormSchema.omit({ id: true, date: true });
 
 // for useActionState
 export type State = {
@@ -41,7 +24,7 @@ export type State = {
 
 export async function createInvoice(_prevState: State, formData: FormData) {
   const rawFormData = Object.fromEntries(formData.entries());
-  const validatedFields = CreateInvoice.safeParse(rawFormData); // Validate fields using Zod
+  const validatedFields = validatesCreateInvoice(rawFormData);
 
   if (!validatedFields.success) {
     return {
@@ -79,11 +62,9 @@ export async function createInvoice(_prevState: State, formData: FormData) {
   redirect("/dashboard/invoices");
 }
 
-const UpdateInvoice = FormSchema.omit({ id: true, date: true });
-
 export async function updateInvoice(id: string, formData: FormData) {
   const rawFormData = Object.fromEntries(formData.entries());
-  const { customerId, amount, status } = UpdateInvoice.parse(rawFormData);
+  const { customerId, amount, status } = validatesUpdateInvoice(rawFormData);
 
   const amountInCents = amount * 100;
 
