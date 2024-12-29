@@ -62,10 +62,30 @@ export async function createInvoice(_prevState: State, formData: FormData) {
   redirect("/dashboard/invoices");
 }
 
-export async function updateInvoice(id: string, formData: FormData) {
+export async function updateInvoice(
+  id: string,
+  _prevState: State,
+  formData: FormData
+) {
   const rawFormData = Object.fromEntries(formData.entries());
-  const { customerId, amount, status } = validatesUpdateInvoice(rawFormData);
+  const validatedFields = validatesUpdateInvoice(rawFormData);
 
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+      message: "Invalid. Failed to Update Invoice.",
+      // return inputed value to form
+      formData: {
+        customerId: rawFormData?.customerId
+          ? String(rawFormData.customerId)
+          : undefined,
+        amount: rawFormData?.amount ? Number(rawFormData.amount) : undefined,
+        status: rawFormData?.status ? String(rawFormData.status) : undefined,
+      },
+    };
+  }
+
+  const { amount, status, customerId } = validatedFields.data;
   const amountInCents = amount * 100;
 
   try {

@@ -24,4 +24,4 @@ const UpdateInvoiceForm = InvoiceFormSchema.omit({ id: true, date: true });
 
 export const validatesUpdateInvoice = (data: {
   [key: string]: FormDataEntryValue;
-}) => UpdateInvoiceForm.parse(data);
+}) => UpdateInvoiceForm.safeParse(data);
