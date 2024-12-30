@@ -1,6 +1,10 @@
+"use client";
+
 import { PencilIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline";
 import Link from "next/link";
-import { deleteInvoice } from "@/app/lib/actions";
+import { deleteInvoice, DeleteState } from "@/app/lib/actions";
+import { useActionState } from "react";
+import { toast } from "sonner";
 
 export function CreateInvoice() {
   return (
@@ -26,14 +30,20 @@ export function UpdateInvoice({ id }: { id: string }) {
 }
 
 export function DeleteInvoice({ id }: { id: string }) {
+  const initialState: DeleteState = { type: "Initialize" };
   const deleteInvoiceWithId = deleteInvoice.bind(null, id);
+  const [state, formAction] = useActionState(deleteInvoiceWithId, initialState);
 
   return (
-    <form action={deleteInvoiceWithId}>
+    <form action={formAction}>
       <button className="rounded-md border p-2 hover:bg-gray-100">
         <span className="sr-only">Delete</span>
         <TrashIcon className="w-5" />
       </button>
+      <div>{state.type}</div>
+      {state.type === "Success" && toast(state.message)}
+      {state.type === "Failure" &&
+        toast(state.message, { description: state.error })}
     </form>
   );
 }

@@ -22,6 +22,20 @@ export type State = {
   };
 };
 
+export type DeleteState = Initialize | Success | Failure;
+type Initialize = {
+  type: "Initialize";
+};
+type Success = {
+  type: "Success";
+  message: string;
+};
+type Failure = {
+  type: "Failure";
+  message: string;
+  error: string;
+};
+
 export async function createInvoice(_prevState: State, formData: FormData) {
   const rawFormData = Object.fromEntries(formData.entries());
   const validatedFields = validatesCreateInvoice(rawFormData);
@@ -109,7 +123,10 @@ export async function updateInvoice(
   redirect("/dashboard/invoices");
 }
 
-export async function deleteInvoice(id: string) {
+export async function deleteInvoice(
+  id: string,
+  _prevState: DeleteState
+): Promise<DeleteState> {
   try {
     await prisma.invoices.delete({
       where: { id: id },
@@ -117,10 +134,13 @@ export async function deleteInvoice(id: string) {
     revalidatePath("/dashboard/invoices");
     return {
       message: "Delete invoice.",
+      type: "Success",
     };
-  } catch (_e) {
+  } catch (e) {
     return {
       message: "Failed to delete invoice.",
+      type: "Failure",
+      error: String(e),
     };
   }
 }
