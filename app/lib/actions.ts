@@ -109,7 +109,7 @@ export async function updateInvoice(
   redirect("/dashboard/invoices");
 }
 
-export async function deleteInvoice(id: string) {
+export async function deleteInvoice(id: string, _prevState: State) {
   try {
     await prisma.invoices.delete({
       where: { id: id },
