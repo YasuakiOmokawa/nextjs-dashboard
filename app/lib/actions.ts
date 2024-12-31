@@ -4,6 +4,7 @@ import { PrismaClient } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { validatesCreateInvoice, validatesUpdateInvoice } from "./validates";
+import { cookies } from "next/headers";
 
 const prisma = new PrismaClient();
 
@@ -131,6 +132,7 @@ export async function deleteInvoice(
     await prisma.invoices.delete({
       where: { id: id },
     });
+    (await cookies()).set("successDeleteInvoice", "true", { maxAge: 0 });
     revalidatePath("/dashboard/invoices");
     return {
       message: "Delete invoice.",
