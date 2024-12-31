@@ -2,7 +2,7 @@
 
 import { PencilIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline";
 import Link from "next/link";
-import { deleteInvoice, DeleteState } from "@/app/lib/actions";
+import { deleteInvoice } from "@/app/lib/actions";
 import { useActionState } from "react";
 
 export function CreateInvoice() {
@@ -29,12 +29,8 @@ export function UpdateInvoice({ id }: { id: string }) {
 }
 
 export function DeleteInvoice({ id }: { id: string }) {
-  const initialState: DeleteState = { type: "Initialize" };
   const deleteInvoiceWithId = deleteInvoice.bind(null, id);
-  const [_state, formAction] = useActionState(
-    deleteInvoiceWithId,
-    initialState
-  );
+  const [_state, formAction] = useActionState(deleteInvoiceWithId, undefined);
 
   return (
     <form action={formAction}>
