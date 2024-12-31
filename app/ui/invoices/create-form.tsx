@@ -99,7 +99,7 @@ export default function Form({ customers }: { customers: CustomerField[] }) {
                   value="pending"
                   className="h-4 w-4 cursor-pointer border-gray-300 bg-gray-100 text-gray-600 focus:ring-2"
                   aria-describedby="status-error"
-                  defaultChecked={state.formData?.status == "pending"}
+                  defaultChecked={state.formData?.status === "pending"}
                 />
                 <label
                   htmlFor="pending"
@@ -116,7 +116,7 @@ export default function Form({ customers }: { customers: CustomerField[] }) {
                   value="paid"
                   className="h-4 w-4 cursor-pointer border-gray-300 bg-gray-100 text-gray-600 focus:ring-2"
                   aria-describedby="status-error"
-                  defaultChecked={state.formData?.status == "paid"}
+                  defaultChecked={state.formData?.status === "paid"}
                 />
                 <label
                   htmlFor="paid"
