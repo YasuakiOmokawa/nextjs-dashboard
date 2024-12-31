@@ -124,25 +124,10 @@ export async function updateInvoice(
   redirect("/dashboard/invoices");
 }
 
-export async function deleteInvoice(
-  id: string,
-  _prevState: DeleteState
-): Promise<DeleteState> {
-  try {
-    await prisma.invoices.delete({
-      where: { id: id },
-    });
-    (await cookies()).set("successDeleteInvoice", "true", { maxAge: 0 });
-    revalidatePath("/dashboard/invoices");
-    return {
-      message: "Delete invoice.",
-      type: "Success",
-    };
-  } catch (e) {
-    return {
-      message: "Failed to delete invoice.",
-      type: "Failure",
-      error: String(e),
-    };
-  }
+export async function deleteInvoice(id: string, _prevState: unknown) {
+  await prisma.invoices.delete({
+    where: { id: id },
+  });
+  (await cookies()).set("successDeleteInvoice", "true", { maxAge: 0 });
+  revalidatePath("/dashboard/invoices");
 }
