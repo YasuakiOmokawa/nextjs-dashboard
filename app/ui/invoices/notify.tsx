@@ -8,7 +8,7 @@ export function Notify({
   isSuccessDeleteInvoice: boolean;
 }) {
   if (isSuccessDeleteInvoice) {
-    toast("Delete invoice successfully.");
+    toast.success("Delete invoice successfully.");
   }
 
   return <div></div>;
