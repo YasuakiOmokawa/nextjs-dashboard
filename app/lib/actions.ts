@@ -45,19 +45,13 @@ export async function createInvoice(_prevState: State, formData: FormData) {
   const { amount, status, customerId } = validatedFields.data;
   const amountInCents = amount * 100;
 
-  try {
-    await prisma.invoices.create({
-      data: {
-        customer_id: customerId,
-        amount: amountInCents,
-        status: status,
-      },
-    });
-  } catch (_e) {
-    return {
-      message: "Database Error: Failed to create invoice.",
-    };
-  }
+  await prisma.invoices.create({
+    data: {
+      customer_id: customerId,
+      amount: amountInCents,
+      status: status,
+    },
+  });
 
   revalidatePath("/dashboard/invoices"); // update page cache
   redirect("/dashboard/invoices");
@@ -89,22 +83,16 @@ export async function updateInvoice(
   const { amount, status, customerId } = validatedFields.data;
   const amountInCents = amount * 100;
 
-  try {
-    await prisma.invoices.update({
-      data: {
-        amount: amountInCents,
-        status: status,
-        customer_id: customerId,
-      },
-      where: {
-        id: id,
-      },
-    });
-  } catch (_e) {
-    return {
-      message: "Failed to update invoice.",
-    };
-  }
+  await prisma.invoices.update({
+    data: {
+      amount: amountInCents,
+      status: status,
+      customer_id: customerId,
+    },
+    where: {
+      id: id,
+    },
+  });
 
   revalidatePath("/dashboard/invoices");
   redirect("/dashboard/invoices");
