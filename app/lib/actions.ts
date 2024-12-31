@@ -8,7 +8,7 @@ import { cookies } from "next/headers";
 
 const prisma = new PrismaClient();
 
-// for useActionState
+// for create/update
 export type State = {
   errors?: {
     customerId?: string[];
@@ -21,20 +21,6 @@ export type State = {
     amount?: number;
     status?: string;
   };
-};
-
-export type DeleteState = Initialize | Success | Failure;
-type Initialize = {
-  type: "Initialize";
-};
-type Success = {
-  type: "Success";
-  message: string;
-};
-type Failure = {
-  type: "Failure";
-  message: string;
-  error: string;
 };
 
 export async function createInvoice(_prevState: State, formData: FormData) {
