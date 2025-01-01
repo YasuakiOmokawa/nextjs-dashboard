@@ -29,6 +29,7 @@ export function Invoices(prismaInvoice: PrismaClient["invoices"]) {
           invoices.id,
           invoices.amount,
           invoices.date,
+          invoices.status,
           customers.name,
           customers.email,
           customers.image_url
