@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
+import { ReactNode, useEffect } from "react";
 import { toast } from "sonner";
 
 export function Notify({
+  children,
   isSuccessDeleteInvoice,
 }: {
+  children: ReactNode;
   isSuccessDeleteInvoice: boolean;
 }) {
   useEffect(() => {
@@ -14,5 +16,5 @@ export function Notify({
     }
   });
 
-  return <p className="sr-only">notify</p>;
+  return <>{children}</>;
 }
