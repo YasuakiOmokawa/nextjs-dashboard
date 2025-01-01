@@ -6,37 +6,40 @@ import { lusitana } from "@/app/ui/fonts";
 import { InvoicesTableSkeleton } from "@/app/ui/skeletons";
 import { Suspense } from "react";
 import { fetchInvoicesPages } from "@/app/lib/data";
+import { Notify } from "@/app/ui/invoices/notify";
+import { cookies } from "next/headers";
 
-export default async function Page(
-  props: {
-    searchParams?: Promise<{ query?: string; page?: string }>;
-  }
-) {
+export default async function Page(props: {
+  searchParams?: Promise<{ query?: string; page?: string }>;
+}) {
   const searchParams = await props.searchParams;
   const tableProps = {
     query: searchParams?.query || "",
     currentPage: Number(searchParams?.page) || 1,
   };
   const totalPages = await fetchInvoicesPages(tableProps.query);
+  const isSuccessDeleteInvoice = (await cookies()).has("successDeleteInvoice");
 
   return (
-    <div className="w-full">
-      <div className="flex w-full items-center justify-between">
-        <h1 className={`${lusitana.className} text-2xl`}>Invoices</h1>
+    <Notify isSuccessDeleteInvoice={isSuccessDeleteInvoice}>
+      <div className="w-full">
+        <div className="flex w-full items-center justify-between">
+          <h1 className={`${lusitana.className} text-2xl`}>Invoices</h1>
+        </div>
+        <div className="mt-4 flex items-center justify-between gap-2 md:mt-8">
+          <Search placeholder="Search Invoices..." />
+          <CreateInvoice />
+        </div>
+        <Suspense
+          key={Object.values(tableProps).join("")}
+          fallback={<InvoicesTableSkeleton />}
+        >
+          <Table {...tableProps} />
+        </Suspense>
+        <div className="mt-5 flex w-full justify-center">
+          <Pagination totalPages={totalPages} />
+        </div>
       </div>
-      <div className="mt-4 flex items-center justify-between gap-2 md:mt-8">
-        <Search placeholder="Search Invoices..." />
-        <CreateInvoice />
-      </div>
-      <Suspense
-        key={Object.values(tableProps).join("")}
-        fallback={<InvoicesTableSkeleton />}
-      >
-        <Table {...tableProps} />
-      </Suspense>
-      <div className="mt-5 flex w-full justify-center">
-        <Pagination totalPages={totalPages} />
-      </div>
-    </div>
+    </Notify>
   );
 }
