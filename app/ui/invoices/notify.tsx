@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { toast } from "sonner";
 
 export function Notify({
@@ -7,9 +8,11 @@ export function Notify({
 }: {
   isSuccessDeleteInvoice: boolean;
 }) {
-  if (isSuccessDeleteInvoice) {
-    toast.success("Delete invoice successfully.");
-  }
+  useEffect(() => {
+    if (isSuccessDeleteInvoice) {
+      toast.success("Delete invoice successfully.");
+    }
+  });
 
-  return <div></div>;
+  return <p className="sr-only">notify</p>;
 }
