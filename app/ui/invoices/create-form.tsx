@@ -10,14 +10,27 @@ import {
 } from "@heroicons/react/24/outline";
 import { Button } from "@/app/ui/button";
 import { createInvoice, State } from "@/app/lib/actions";
-import { useActionState } from "react";
+import { FormEvent, useActionState } from "react";
+import { CreationFormElement } from "./types";
 
 export default function Form({ customers }: { customers: CustomerField[] }) {
   const initialState: State = { message: null, errors: {} };
   const [state, formAction] = useActionState(createInvoice, initialState);
 
+  const handleSubmit = (e: FormEvent<CreationFormElement>) => {
+    const select = e.currentTarget.elements.customer;
+    const customer = select.options[select.selectedIndex].innerText;
+    const amount = e.currentTarget.elements.amount.value;
+    const status = e.currentTarget.elements.status.value;
+    alert(`
+      customer: ${customer}
+      amount: ${amount}
+      status: ${status}
+    `);
+  };
+
   return (
-    <form action={formAction}>
+    <form action={formAction} onSubmit={handleSubmit}>
       <div className="rounded-md bg-gray-50 p-4 md:p-6">
         {/* Customer Name */}
         <div className="mb-4">
