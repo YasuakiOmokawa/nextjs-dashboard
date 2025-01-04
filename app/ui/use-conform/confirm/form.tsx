@@ -2,10 +2,19 @@
 
 import { useField, useFormMetadata } from "@conform-to/react";
 import { Button } from "../../button";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 export default function Form() {
   const form = useFormMetadata();
   const [email] = useField<string>("email");
+  const { replace } = useRouter();
+
+  useEffect(() => {
+    if (form.status === "error") {
+      replace("/use-conform");
+    }
+  });
 
   return (
     <>
@@ -21,7 +30,7 @@ export default function Form() {
           name={email.name}
           defaultValue={email.value}
         />
-        {form.value && form.valid && <Button type="submit">Submit</Button>}
+        <Button type="submit">Submit</Button>
       </form>
     </>
   );
