@@ -4,7 +4,7 @@ import { parseWithZod } from "@conform-to/zod";
 import { schema } from "./schema";
 import { redirect } from "next/navigation";
 
-export async function confirm(_prevState: unknown, formData: FormData) {
+export async function createData(_prevState: unknown, formData: FormData) {
   const submission = parseWithZod(formData, {
     schema: schema,
   });
@@ -13,5 +13,8 @@ export async function confirm(_prevState: unknown, formData: FormData) {
     return submission.reply();
   }
 
-  redirect("/dashboard");
+  // please implement server query
+  console.log("data creation success!");
+
+  redirect("/thanks");
 }
