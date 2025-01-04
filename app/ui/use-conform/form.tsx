@@ -19,7 +19,7 @@ export default function Form() {
         />
         <div className="text-red-500">{email.errors}</div>
       </div>
-      {form.value && form.valid && <Button type="submit">Go to Confirm</Button>}
+      <Button type="submit">Go to Confirm</Button>
     </form>
   );
 }
