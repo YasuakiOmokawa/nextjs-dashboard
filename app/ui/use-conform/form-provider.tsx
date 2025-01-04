@@ -1,18 +1,22 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, startTransition, useActionState } from "react";
 import {
   FormProvider as ConformFormProvider,
   useForm,
 } from "@conform-to/react";
 import { parseWithZod } from "@conform-to/zod";
 import { schema } from "@/app/lib/use-conform/schema";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
+import { confirm } from "@/app/lib/use-conform/action";
 
 export default function FormProvider({ children }: { children: ReactNode }) {
+  const [lastResult, formAction] = useActionState(confirm, undefined);
   const router = useRouter();
+  const pathName = usePathname();
 
   const [form] = useForm({
+    lastResult,
     defaultValue: {
       email: "",
     },
@@ -21,9 +25,26 @@ export default function FormProvider({ children }: { children: ReactNode }) {
     },
     shouldValidate: "onBlur",
     shouldRevalidate: "onInput",
-    onSubmit(ev) {
-      ev.preventDefault();
-      router.push("/use-conform/confirm");
+    onSubmit(event) {
+      event.preventDefault();
+
+      const submittedForm = event.currentTarget;
+      const formPath = "/use-conform";
+      const confirmPath = "/use-conform/confirm";
+
+      switch (pathName) {
+        case formPath:
+          router.push(confirmPath);
+          break;
+        case confirmPath:
+          const formData = new FormData(submittedForm);
+          startTransition(() => {
+            formAction(formData);
+          });
+          break;
+        default:
+          break;
+      }
     },
   });
 
