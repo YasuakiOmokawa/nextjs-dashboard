@@ -20,13 +20,13 @@ export default function Form() {
   const [name] = useField<string>("name");
 
   return (
-    <Card className="w-[350px]">
-      <CardHeader>
-        <CardTitle>Form with conform</CardTitle>
-        <CardDescription>Please input your info</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form id={form.id} onSubmit={form.onSubmit} noValidate>
+    <form id={form.id} onSubmit={form.onSubmit} noValidate>
+      <Card className="w-[350px]">
+        <CardHeader>
+          <CardTitle>Form with conform</CardTitle>
+          <CardDescription>Please input your info</CardDescription>
+        </CardHeader>
+        <CardContent>
           <div className="grid w-full items-center gap-4">
             <div className="flex flex-col space-y-1.5">
               <Label htmlFor="email">Email</Label>
@@ -51,16 +51,16 @@ export default function Form() {
               <div className="text-red-500">{name.errors}</div>
             </div>
           </div>
-        </form>
-      </CardContent>
-      <CardFooter className="flex justify-between">
-        <Link href="/">
-          <Button variant="outline">Cancel</Button>
-        </Link>
-        <Button type="submit" name="intent" value="confirm" form={form.id}>
-          Confirm
-        </Button>
-      </CardFooter>
-    </Card>
+        </CardContent>
+        <CardFooter className="flex justify-between">
+          <Link href="/">
+            <Button variant="outline">Cancel</Button>
+          </Link>
+          <Button type="submit" name="intent" value="confirm">
+            Confirm
+          </Button>
+        </CardFooter>
+      </Card>
+    </form>
   );
 }
