@@ -22,7 +22,7 @@ export default function Form() {
   return (
     <Card className="w-[350px]">
       <CardHeader>
-        <CardTitle>Form with conform</CardTitle>
+        <CardTitle>Form with Conform</CardTitle>
         <CardDescription>Please input your info</CardDescription>
       </CardHeader>
       <CardContent>
