@@ -26,7 +26,7 @@ export default function Form() {
         <CardDescription>Please input your info</CardDescription>
       </CardHeader>
       <CardContent>
-        <form id={form.id} onSubmit={form.onSubmit} noValidate>
+        <form id={form.id} onSubmit={form.onSubmit}>
           <div className="grid w-full items-center gap-4">
             <div className="flex flex-col space-y-1.5">
               <Label htmlFor="email">Email</Label>
