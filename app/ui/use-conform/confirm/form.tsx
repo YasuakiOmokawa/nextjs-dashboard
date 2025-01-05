@@ -45,7 +45,7 @@ export default function Form() {
           <Link href="/use-conform">
             <Button variant="outline">Cancel</Button>
           </Link>
-          <Button type="submit" name="submitType" value="submit">
+          <Button type="submit" name="intent" value="submit">
             Submit
           </Button>
         </form>

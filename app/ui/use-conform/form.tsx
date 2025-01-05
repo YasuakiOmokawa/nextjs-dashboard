@@ -26,7 +26,7 @@ export default function Form() {
         <CardDescription>Please input your info</CardDescription>
       </CardHeader>
       <CardContent>
-        <form id={form.id} onSubmit={form.onSubmit}>
+        <form id={form.id} onSubmit={form.onSubmit} noValidate>
           <div className="grid w-full items-center gap-4">
             <div className="flex flex-col space-y-1.5">
               <Label htmlFor="email">Email</Label>
@@ -57,7 +57,7 @@ export default function Form() {
         <Link href="/">
           <Button variant="outline">Cancel</Button>
         </Link>
-        <Button type="submit" name="submitType" value="confirm" form={form.id}>
+        <Button type="submit" name="intent" value="confirm" form={form.id}>
           Confirm
         </Button>
       </CardFooter>

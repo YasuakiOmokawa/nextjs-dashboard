@@ -29,7 +29,7 @@ export default function FormProvider({ children }: { children: ReactNode }) {
     onSubmit(event, { formData }) {
       event.preventDefault();
 
-      switch (formData.get("submitType")) {
+      switch (formData.get("intent")) {
         case "confirm":
           router.push("/use-conform/confirm");
           break;
