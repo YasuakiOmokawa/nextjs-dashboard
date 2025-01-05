@@ -22,7 +22,7 @@ export default function Form() {
 
   useEffect(() => {
     if (form.status === "error") {
-      replace("/use-conform");
+      replace("/use-conform/create");
     }
   });
 
@@ -42,7 +42,7 @@ export default function Form() {
         <form id={form.id} onSubmit={form.onSubmit} className="flex gap-8">
           <input type="hidden" name={email.name} value={email.value} />
           <input type="hidden" name={name.name} value={name.value} />
-          <Link href="/use-conform">
+          <Link href="/use-conform/create">
             <Button variant="outline">Cancel</Button>
           </Link>
           <Button type="submit" name="intent" value="submit">

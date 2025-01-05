@@ -31,7 +31,7 @@ export default function FormProvider({ children }: { children: ReactNode }) {
 
       switch (formData.get("intent")) {
         case "confirm":
-          router.push("/use-conform/confirm");
+          router.push("/use-conform/create/confirm");
           break;
         case "submit":
           startTransition(() => {

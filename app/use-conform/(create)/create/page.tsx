@@ -1,4 +1,4 @@
-import Form from "@/app/ui/use-conform/form";
+import Form from "@/app/ui/use-conform/create/form";
 
 export default async function Page() {
   return (
