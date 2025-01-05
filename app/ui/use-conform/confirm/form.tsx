@@ -19,10 +19,10 @@ export default function Form() {
   });
 
   return (
-    <div className="p-10">
+    <div className="p-5">
       <p>please check your input</p>
       <div className="mt-4">
-        <ul className="font-bold list-disc">
+        <ul className="font-bold list-inside list-disc">
           <li>{`${email.name}: ${email.value}`}</li>
           <li>{`${message.name}: ${message.value}`}</li>
         </ul>
