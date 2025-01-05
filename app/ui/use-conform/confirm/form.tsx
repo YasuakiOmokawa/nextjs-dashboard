@@ -9,7 +9,7 @@ import Link from "next/link";
 export default function Form() {
   const form = useFormMetadata();
   const [email] = useField<string>("email");
-  const [message] = useField<string>("message");
+  const [name] = useField<string>("name");
   const { replace } = useRouter();
 
   useEffect(() => {
@@ -24,12 +24,12 @@ export default function Form() {
       <div className="mt-4">
         <ul className="font-bold list-inside list-disc">
           <li>{`${email.name}: ${email.value}`}</li>
-          <li>{`${message.name}: ${message.value}`}</li>
+          <li>{`${name.name}: ${name.value}`}</li>
         </ul>
       </div>
       <form id={form.id} onSubmit={form.onSubmit}>
         <input type="hidden" name={email.name} value={email.value} />
-        <input type="hidden" name={message.name} value={message.value} />
+        <input type="hidden" name={name.name} value={name.value} />
         <div className="mt-6 flex gap-4">
           <Link
             href="/use-conform"

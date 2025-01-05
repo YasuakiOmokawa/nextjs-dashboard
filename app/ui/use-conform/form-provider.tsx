@@ -17,7 +17,7 @@ export default function FormProvider({ children }: { children: ReactNode }) {
     lastResult,
     defaultValue: {
       email: "",
-      message: "",
+      name: "",
     },
     onValidate({ formData }) {
       return parseWithZod(formData, { schema: schema });
