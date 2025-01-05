@@ -57,7 +57,7 @@ export default function Form() {
         <Link href="/">
           <Button variant="outline">Cancel</Button>
         </Link>
-        <Button type="submit" name="submitType" value="confirm" form={form.id}>
+        <Button type="submit" name="intent" value="confirm" form={form.id}>
           Confirm
         </Button>
       </CardFooter>

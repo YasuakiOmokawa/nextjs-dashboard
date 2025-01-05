@@ -7,6 +7,7 @@ import {
 } from "@conform-to/react";
 import { parseWithZod } from "@conform-to/zod";
 import { schema } from "@/app/lib/use-conform/schema";
+import { getZodConstraint } from "@conform-to/zod";
 import { useRouter } from "next/navigation";
 import { createData } from "@/app/lib/use-conform/action";
 
@@ -15,6 +16,7 @@ export default function FormProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [form] = useForm({
     lastResult,
+    constraint: getZodConstraint(schema),
     defaultValue: {
       email: "",
       name: "",
@@ -27,7 +29,7 @@ export default function FormProvider({ children }: { children: ReactNode }) {
     onSubmit(event, { formData }) {
       event.preventDefault();
 
-      switch (formData.get("submitType")) {
+      switch (formData.get("intent")) {
         case "confirm":
           router.push("/use-conform/confirm");
           break;
