@@ -24,10 +24,8 @@ export default function FormProvider({ children }: { children: ReactNode }) {
     },
     shouldValidate: "onBlur",
     shouldRevalidate: "onInput",
-    onSubmit(event) {
+    onSubmit(event, { formData }) {
       event.preventDefault();
-      const submittedForm = event.currentTarget;
-      const formData = new FormData(submittedForm);
 
       switch (formData.get("submitType")) {
         case "confirm":
