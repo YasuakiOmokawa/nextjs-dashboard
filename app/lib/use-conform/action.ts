@@ -13,8 +13,8 @@ export async function createData(_prevState: unknown, formData: FormData) {
     return submission.reply();
   }
 
-  // please implement server query
-  console.log("data creation success!");
+  // simulate database query
+  await new Promise((resolve) => setTimeout(resolve, 1000));
 
   redirect("/thanks");
 }
