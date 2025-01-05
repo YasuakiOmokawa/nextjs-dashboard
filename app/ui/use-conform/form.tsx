@@ -23,7 +23,7 @@ export default function Form() {
     <form id={form.id} onSubmit={form.onSubmit} noValidate>
       <Card className="w-[350px]">
         <CardHeader>
-          <CardTitle>Form with conform</CardTitle>
+          <CardTitle>Form with Conform</CardTitle>
           <CardDescription>Please input your info</CardDescription>
         </CardHeader>
         <CardContent>
