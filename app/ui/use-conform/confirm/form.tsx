@@ -1,10 +1,18 @@
 "use client";
 
 import { useField, useFormMetadata } from "@conform-to/react";
-import { Button } from "../../button";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import Link from "next/link";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 export default function Form() {
   const form = useFormMetadata();
@@ -19,29 +27,29 @@ export default function Form() {
   });
 
   return (
-    <div className="p-5">
-      <p>please check your input</p>
-      <div className="mt-4">
-        <ul className="font-bold list-inside list-disc">
+    <Card className="w-[350px]">
+      <CardHeader>
+        <CardTitle>Please check your input</CardTitle>
+        <CardDescription>please submit if all acceptable</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ul className="font-bold list-disc list-inside">
           <li>{`${email.name}: ${email.value}`}</li>
           <li>{`${name.name}: ${name.value}`}</li>
         </ul>
-      </div>
-      <form id={form.id} onSubmit={form.onSubmit}>
-        <input type="hidden" name={email.name} value={email.value} />
-        <input type="hidden" name={name.name} value={name.value} />
-        <div className="mt-6 flex gap-4">
-          <Link
-            href="/use-conform"
-            className="flex h-10 items-center rounded-lg bg-gray-100 px-4 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-200"
-          >
-            Cancel
+      </CardContent>
+      <CardFooter>
+        <form id={form.id} onSubmit={form.onSubmit} className="flex gap-8">
+          <input type="hidden" name={email.name} value={email.value} />
+          <input type="hidden" name={name.name} value={name.value} />
+          <Link href="/use-conform">
+            <Button variant="outline">Cancel</Button>
           </Link>
           <Button type="submit" name="submitType" value="submit">
             Submit
           </Button>
-        </div>
-      </form>
-    </div>
+        </form>
+      </CardFooter>
+    </Card>
   );
 }
