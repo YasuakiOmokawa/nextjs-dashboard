@@ -17,7 +17,7 @@ export default function Form() {
             type="email"
             key={email.key}
             name={email.name}
-            defaultValue={email.initialValue}
+            defaultValue={email.value || email.initialValue}
           />
           <div className="text-red-500">{email.errors}</div>
         </fieldset>
@@ -27,7 +27,7 @@ export default function Form() {
             type="text"
             key={message.key}
             name={message.name}
-            defaultValue={message.initialValue}
+            defaultValue={message.value || message.initialValue}
           />
           <div className="text-red-500">{message.errors}</div>
         </fieldset>
