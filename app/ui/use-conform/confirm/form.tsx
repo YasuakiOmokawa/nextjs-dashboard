@@ -28,7 +28,6 @@ export default function Form() {
         </ul>
       </div>
       <form id={form.id} onSubmit={form.onSubmit}>
-        <input type="hidden" name="submitType" value="submit" />
         <input type="hidden" name={email.name} value={email.value} />
         <input type="hidden" name={message.name} value={message.value} />
         <div className="mt-6 flex gap-4">
@@ -38,7 +37,9 @@ export default function Form() {
           >
             Cancel
           </Link>
-          <Button type="submit">Submit</Button>
+          <Button type="submit" name="submitType" value="submit">
+            Submit
+          </Button>
         </div>
       </form>
     </div>

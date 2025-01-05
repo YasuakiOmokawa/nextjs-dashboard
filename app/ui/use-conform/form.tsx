@@ -10,7 +10,6 @@ export default function Form() {
 
   return (
     <form id={form.id} onSubmit={form.onSubmit} noValidate>
-      <input type="hidden" name="submitType" value="confirm" />
       <div>
         <fieldset>
           <label>Email</label>
@@ -34,7 +33,9 @@ export default function Form() {
         </fieldset>
       </div>
       <div className="mt-6 flex">
-        <Button type="submit">Confirm</Button>
+        <Button type="submit" name="submitType" value="confirm">
+          Confirm
+        </Button>
       </div>
     </form>
   );
