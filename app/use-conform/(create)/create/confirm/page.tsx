@@ -14,7 +14,7 @@ export default async function Page() {
     headerList.get("referer") !==
     `${process.env.PROTOCOL}${headerList.get("host")}/use-conform/create`
   ) {
-    redirect("/use-conform/create");
+    // redirect("/use-conform/create");
   }
 
   return (
