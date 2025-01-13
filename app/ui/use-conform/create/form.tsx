@@ -13,11 +13,22 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
+import { useLocationState } from "@location-state/core";
 
 export default function Form() {
   const form = useFormMetadata();
   const [email] = useField<string>("email");
   const [name] = useField<string>("name");
+  const [emailState, setEmail] = useLocationState({
+    name: "email",
+    defaultValue: email.value,
+    storeName: "session",
+  });
+  const [nameState, setName] = useLocationState({
+    name: "name",
+    defaultValue: name.value,
+    storeName: "session",
+  });
 
   return (
     <form id={form.id} onSubmit={form.onSubmit} noValidate>
@@ -34,8 +45,9 @@ export default function Form() {
                 type="email"
                 key={email.key}
                 name={email.name}
-                defaultValue={email.value || email.initialValue}
+                defaultValue={emailState}
                 placeholder="sample@example.com"
+                onChange={(e) => setEmail(e.target.value)}
               />
               <div className="text-red-500">{email.errors}</div>
             </div>
@@ -45,8 +57,9 @@ export default function Form() {
                 type="text"
                 key={name.key}
                 name={name.name}
-                defaultValue={name.value || name.initialValue}
+                defaultValue={nameState}
                 placeholder="John Doe"
+                onChange={(e) => setName(e.target.value)}
               />
               <div className="text-red-500">{name.errors}</div>
             </div>
