@@ -2,6 +2,10 @@ import { NextFetchEvent, NextResponse, type NextRequest } from "next/server";
 import { stackMiddleware } from "./middlewares/stackMiddleware";
 import { redirectHoge } from "./middlewares/redirectHoge";
 import { MiddlewareFactory } from "./middlewares/types";
+import NextAuth from "next-auth";
+import { authConfig } from "./auth.config";
+
+export default NextAuth(authConfig).auth;
 
 // mapping route pattern and middleware
 const routeMiddlewares: { [key: string]: MiddlewareFactory[] } = {
