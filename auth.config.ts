@@ -6,15 +6,12 @@ export const authConfig = {
   },
   providers: [],
   callbacks: {
-    authorized({ auth, request: { nextUrl } }) {
+    async authorized({ auth, request: {} }) {
       const isLoggedIn = !!auth?.user;
-      const isOnDashboard = nextUrl.pathname.startsWith("/dashboard");
-      if (isOnDashboard) {
-        if (isLoggedIn) return true;
+      if (!isLoggedIn) {
         return false;
-      } else if (isLoggedIn) {
-        return Response.redirect(new URL("/dashboard", nextUrl));
       }
+
       return true;
     },
   },
