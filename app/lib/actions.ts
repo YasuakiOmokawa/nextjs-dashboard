@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { validatesCreateInvoice, validatesUpdateInvoice } from "./validates";
 import { cookies } from "next/headers";
+import { signIn } from "@/auth";
+import { AuthError } from "next-auth";
 
 const prisma = new PrismaClient();
 
@@ -22,6 +24,25 @@ export type State = {
     status?: string;
   };
 };
+
+export async function authenticate(
+  _prevState: string | undefined,
+  formData: FormData
+) {
+  try {
+    await signIn("credentials", formData);
+  } catch (e) {
+    if (e instanceof AuthError) {
+      switch (e.type) {
+        case "CredentialsSignin":
+          return "Invalid Credentials.";
+        default:
+          return "Something went wrong.";
+      }
+    }
+    throw e;
+  }
+}
 
 export async function createInvoice(_prevState: State, formData: FormData) {
   const rawFormData = Object.fromEntries(formData.entries());
