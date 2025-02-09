@@ -8,12 +8,8 @@ export const authConfig = {
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
-      if (!isLoggedIn) return false;
-      const callbackUrl = nextUrl.searchParams.get("callbackUrl");
-      if (isLoggedIn && callbackUrl) {
-        return Response.redirect(new URL(callbackUrl));
-      }
-      if (isLoggedIn && nextUrl.pathname === "/login") {
+      if (!isLoggedIn && nextUrl.pathname != "/") return false;
+      if (isLoggedIn && ["/login", "/"].includes(nextUrl.pathname)) {
         return Response.redirect(new URL("/dashboard", nextUrl));
       }
 
