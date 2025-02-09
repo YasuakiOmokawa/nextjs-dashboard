@@ -30,7 +30,13 @@ export async function authenticate(
   formData: FormData
 ) {
   try {
-    await signIn("credentials", formData);
+    await signIn("credentials", {
+      email: formData.get("email"),
+      password: formData.get("password"),
+      redirectTo: String(formData.get("callbackPath")).startsWith("/")
+        ? String(formData.get("callbackPath"))
+        : "/dashboard",
+    });
   } catch (e) {
     if (e instanceof AuthError) {
       switch (e.type) {
