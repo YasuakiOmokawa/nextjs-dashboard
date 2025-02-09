@@ -26,6 +26,7 @@ export type State = {
 };
 
 export async function authenticate(
+  redirectPath: string,
   _prevState: string | undefined,
   formData: FormData
 ) {
@@ -33,9 +34,7 @@ export async function authenticate(
     await signIn("credentials", {
       email: formData.get("email"),
       password: formData.get("password"),
-      redirectTo: String(formData.get("callbackPath")).startsWith("/")
-        ? String(formData.get("callbackPath"))
-        : "/dashboard",
+      redirectTo: redirectPath,
     });
   } catch (e) {
     if (e instanceof AuthError) {
