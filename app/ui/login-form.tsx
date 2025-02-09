@@ -10,12 +10,18 @@ import { ArrowRightIcon } from "@heroicons/react/20/solid";
 import { Button } from "./button";
 import { useActionState } from "react";
 import { authenticate } from "../lib/actions";
+import { useSearchParams } from "next/navigation";
 
 export default function LoginForm() {
+  const callbackUrl = useSearchParams().get("callbackUrl");
+  const callbackPath = callbackUrl && new URL(callbackUrl).pathname;
   const [errorMessage, formAction] = useActionState(authenticate, undefined);
 
   return (
     <form action={formAction} className="space-y-3">
+      {callbackPath && (
+        <input type="hidden" name="callbackPath" value={callbackPath} />
+      )}
       <div className="flex-1 rounded-lg bg-gray-50 px-6 pb-4 pt-8">
         <h1 className={`${lusitana.className} mb-3 text-2xl`}>
           Please log in to continue.
