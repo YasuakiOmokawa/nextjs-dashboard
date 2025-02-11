@@ -7,6 +7,8 @@ import { validatesCreateInvoice, validatesUpdateInvoice } from "./validates";
 import { cookies } from "next/headers";
 import { signIn } from "@/auth";
 import { AuthError } from "next-auth";
+import { parseWithZod } from "@conform-to/zod";
+import { loginSchema } from "./schema/login/schema";
 
 const prisma = new PrismaClient();
 
@@ -30,10 +32,16 @@ export async function authenticate(
   _prevState: string | undefined,
   formData: FormData
 ) {
+  const submission = parseWithZod(formData, { schema: loginSchema });
+
+  if (submission.status !== "success") {
+    return "Invalid Form Data.";
+  }
+
   try {
     await signIn("credentials", {
-      email: formData.get("email"),
-      password: formData.get("password"),
+      email: submission.value.email,
+      password: submission.value.password,
       redirectTo: redirectPath,
     });
   } catch (e) {
