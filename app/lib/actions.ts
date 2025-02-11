@@ -9,6 +9,7 @@ import { signIn } from "@/auth";
 import { AuthError } from "next-auth";
 import { parseWithZod } from "@conform-to/zod";
 import { loginSchema } from "./schema/login/schema";
+import { signOut as SignOut } from "@/auth";
 
 const prisma = new PrismaClient();
 
@@ -26,6 +27,10 @@ export type State = {
     status?: string;
   };
 };
+
+export async function signOut() {
+  await SignOut({ redirectTo: "/" });
+}
 
 export async function authenticate(
   redirectPath: string,
