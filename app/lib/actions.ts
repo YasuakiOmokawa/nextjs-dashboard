@@ -29,13 +29,13 @@ export type State = {
 
 export async function authenticate(
   redirectPath: string,
-  _prevState: string | undefined,
+  _prevState: unknown,
   formData: FormData
 ) {
   const submission = parseWithZod(formData, { schema: loginSchema });
 
   if (submission.status !== "success") {
-    return "Invalid Form Data.";
+    return submission.reply();
   }
 
   try {
@@ -48,9 +48,13 @@ export async function authenticate(
     if (e instanceof AuthError) {
       switch (e.type) {
         case "CredentialsSignin":
-          return "Invalid Credentials.";
+          return submission.reply({
+            formErrors: ["Invalid Credentials."],
+          });
         default:
-          return "Something went wrong.";
+          return submission.reply({
+            formErrors: ["Something went wrong."],
+          });
       }
     }
     throw e;

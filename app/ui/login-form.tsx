@@ -16,11 +16,13 @@ import { parseWithZod } from "@conform-to/zod";
 import { loginSchema } from "../lib/schema/login/schema";
 
 export default function LoginForm() {
-  const [errorMessage, action] = useActionState(
+  const [lastResult, action] = useActionState(
     authenticate.bind(null, useRedirectPath()),
     undefined
   );
   const [form, fields] = useForm({
+    lastResult,
+
     onValidate({ formData }) {
       return parseWithZod(formData, { schema: loginSchema });
     },
@@ -91,10 +93,10 @@ export default function LoginForm() {
           aria-live="polite"
           aria-atomic="true"
         >
-          {errorMessage && (
+          {form.errors && (
             <>
               <ExclamationCircleIcon className="h-5 w-5 text-red-500" />
-              <p className="text-sm text-red-500">{errorMessage}</p>
+              <p className="text-sm text-red-500">{form.errors}</p>
             </>
           )}
         </div>
