@@ -33,8 +33,14 @@ async function getUser(email: string, password: string) {
   }
 }
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+export const {
+  handlers: { GET, POST },
+  auth,
+  signIn,
+  signOut,
+} = NextAuth({
   ...authConfig,
+  debug: true,
   adapter: PrismaAdapter(prisma),
   providers: [
     Resend({
