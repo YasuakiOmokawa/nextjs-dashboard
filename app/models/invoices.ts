@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { prisma } from "@/prisma";
 
 const ITEMS_PER_PAGE = 6;
 
@@ -21,7 +22,6 @@ type FetchFilter = {
 export function Invoices(prismaInvoice: PrismaClient["invoices"]) {
   return Object.assign(prismaInvoice, {
     async filteredFetch(data: FetchFilter): Promise<InvoicesTable[]> {
-      const prisma = new PrismaClient();
       const offset = (data.currentPage - 1) * ITEMS_PER_PAGE;
 
       const invoices = await prisma.$queryRaw<InvoicesTable[]>`
@@ -49,8 +49,6 @@ export function Invoices(prismaInvoice: PrismaClient["invoices"]) {
       return invoices;
     },
     async fetchTotaltPages(data: Pick<FetchFilter, "query">): Promise<number> {
-      const prisma = new PrismaClient();
-
       // NOTE: 生クエリのcount()はbigintを返却するのでintegerにキャスト
       // ref.https://github.com/prisma/prisma/issues/14613#issuecomment-1526258289
       const count = await prisma.$queryRaw<{ count: number }[]>`

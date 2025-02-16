@@ -1,9 +1,12 @@
 import NextAuth from "next-auth";
 import { authConfig } from "./auth.config";
 import Credentials from "next-auth/providers/credentials";
-import { Prisma, PrismaClient } from "@prisma/client";
+import Resend from "next-auth/providers/resend";
+import { Prisma } from "@prisma/client";
 import bcrypt from "bcrypt";
 import { loginSchema } from "./app/lib/schema/login/schema";
+import { PrismaAdapter } from "@auth/prisma-adapter";
+import { prisma } from "@/prisma";
 
 async function getUser(email: string, password: string) {
   try {
@@ -14,7 +17,7 @@ async function getUser(email: string, password: string) {
       email: true,
     } satisfies Prisma.usersSelect;
 
-    const user = await new PrismaClient().users.findUnique({
+    const user = await prisma.users.findUnique({
       select: userSelectionById,
       where: {
         email: email,
@@ -30,9 +33,13 @@ async function getUser(email: string, password: string) {
   }
 }
 
-export const { auth, signIn, signOut } = NextAuth({
+export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
+  adapter: PrismaAdapter(prisma),
   providers: [
+    Resend({
+      from: "notifications@transactional.ys-polaris.net",
+    }),
     Credentials({
       async authorize(credentials) {
         const parsedCredentials = loginSchema.safeParse(credentials);
