@@ -42,9 +42,8 @@ export async function authenticate(
   }
 
   try {
-    await signIn("credentials", {
+    await signIn("resend", {
       email: submission.value.email,
-      password: submission.value.password,
       redirectTo: redirectPath,
     });
   } catch (e) {
