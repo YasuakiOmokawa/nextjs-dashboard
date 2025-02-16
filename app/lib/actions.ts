@@ -1,6 +1,5 @@
 "use server";
 
-import { PrismaClient } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { validatesCreateInvoice, validatesUpdateInvoice } from "./validates";
@@ -10,8 +9,7 @@ import { AuthError } from "next-auth";
 import { parseWithZod } from "@conform-to/zod";
 import { loginSchema } from "./schema/login/schema";
 import { signOut as SignOut } from "@/auth";
-
-const prisma = new PrismaClient();
+import { prisma } from "@/prisma";
 
 // for create/update
 export type State = {

@@ -1,10 +1,9 @@
 import { sql } from "@vercel/postgres";
 import { CustomersTableType } from "./definitions";
 import { formatCurrency } from "./utils";
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { Invoices } from "@/app/models/invoices";
-
-const prisma = new PrismaClient();
+import { prisma } from "@/prisma";
 
 export async function fetchRevenue() {
   try {

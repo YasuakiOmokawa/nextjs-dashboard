@@ -2,7 +2,7 @@ import NextAuth from "next-auth";
 import { authConfig } from "./auth.config";
 import Credentials from "next-auth/providers/credentials";
 import Resend from "next-auth/providers/resend";
-import { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import bcrypt from "bcrypt";
 import { loginSchema } from "./app/lib/schema/login/schema";
 import { PrismaAdapter } from "@auth/prisma-adapter";
@@ -17,7 +17,7 @@ async function getUser(email: string, password: string) {
       email: true,
     } satisfies Prisma.usersSelect;
 
-    const user = await new PrismaClient().users.findUnique({
+    const user = await prisma.users.findUnique({
       select: userSelectionById,
       where: {
         email: email,
