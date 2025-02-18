@@ -42,6 +42,9 @@ export const {
   ...authConfig,
   debug: true,
   adapter: PrismaAdapter(prisma),
+  session: {
+    strategy: "jwt",
+  },
   providers: [
     Resend({
       from: "notifications@transactional.ys-polaris.net",
