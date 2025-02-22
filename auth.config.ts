@@ -3,8 +3,8 @@ import {
   Authorize,
   verifyAuthjsRequest,
   verifyLoggedIn,
-  verifyLoggedInApplicationRequest,
-  verifyNotLoggedInApplicationRequest,
+  verifyLoggedInSignInRequest,
+  verifyNotLoggedInRootRequest,
 } from "./lib/auth/utils";
 
 export const authConfig = {
@@ -14,32 +14,32 @@ export const authConfig = {
   providers: [],
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
-      const initial: Authorize = {
+      const initialAuthorize: Authorize = {
         isLoggedIn: false,
         isAuthjsRequest: false,
-        isLoggedInApplicationRequest: false,
-        isNotLoggedInApplicationRequest: false,
+        isLoggedInSignInRequest: false,
+        isNotLoggedInRootRequest: false,
       };
 
-      const loggedInVerified = verifyLoggedIn(initial, auth);
+      const loggedInVerified = verifyLoggedIn(initialAuthorize, auth);
       const authjsVerified = verifyAuthjsRequest(loggedInVerified, nextUrl);
-      const loggedInApplicationVerified = verifyLoggedInApplicationRequest(
+      const loggedInSignInVerified = verifyLoggedInSignInRequest(
         authjsVerified,
         nextUrl
       );
-      const authorize = verifyNotLoggedInApplicationRequest(
-        loggedInApplicationVerified,
+      const allVerifiedAuthorize = verifyNotLoggedInRootRequest(
+        loggedInSignInVerified,
         nextUrl
       );
 
       if (
-        authorize.isAuthjsRequest ||
-        authorize.isNotLoggedInApplicationRequest
+        allVerifiedAuthorize.isAuthjsRequest ||
+        allVerifiedAuthorize.isNotLoggedInRootRequest
       ) {
         return true;
-      } else if (authorize.isLoggedInApplicationRequest) {
+      } else if (allVerifiedAuthorize.isLoggedInSignInRequest) {
         return Response.redirect(new URL("/dashboard", nextUrl));
-      } else if (authorize.isLoggedIn) {
+      } else if (allVerifiedAuthorize.isLoggedIn) {
         return true;
       } else {
         return false;

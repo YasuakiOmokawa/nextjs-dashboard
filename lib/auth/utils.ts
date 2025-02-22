@@ -4,8 +4,8 @@ import { NextURL } from "next/dist/server/web/next-url";
 export type Authorize = {
   isLoggedIn: boolean;
   isAuthjsRequest: boolean;
-  isLoggedInApplicationRequest: boolean;
-  isNotLoggedInApplicationRequest: boolean;
+  isLoggedInSignInRequest: boolean;
+  isNotLoggedInRootRequest: boolean;
 };
 
 export const verifyLoggedIn = (
@@ -32,21 +32,21 @@ export const verifyAuthjsRequest = (
   }
 };
 
-export const verifyLoggedInApplicationRequest = (
+export const verifyLoggedInSignInRequest = (
   authorize: Authorize,
   nextUrl: NextURL
 ): Authorize => {
   if (authorize.isLoggedIn) {
     return {
       ...authorize,
-      isLoggedInApplicationRequest: ["/login", "/"].includes(nextUrl.pathname),
+      isLoggedInSignInRequest: ["/login", "/"].includes(nextUrl.pathname),
     };
   } else {
     return authorize;
   }
 };
 
-export const verifyNotLoggedInApplicationRequest = (
+export const verifyNotLoggedInRootRequest = (
   authorize: Authorize,
   nextUrl: NextURL
 ): Authorize => {
@@ -55,7 +55,7 @@ export const verifyNotLoggedInApplicationRequest = (
   } else {
     return {
       ...authorize,
-      isNotLoggedInApplicationRequest: nextUrl.pathname === "/",
+      isNotLoggedInRootRequest: nextUrl.pathname === "/",
     };
   }
 };
