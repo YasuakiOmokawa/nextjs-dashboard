@@ -39,8 +39,10 @@ export const authConfig = {
         return true;
       } else if (authorize.isLoggedInApplicationRequest) {
         return Response.redirect(new URL("/dashboard", nextUrl));
-      } else {
+      } else if (authorize.isLoggedIn) {
         return true;
+      } else {
+        return false;
       }
     },
   },
