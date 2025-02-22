@@ -14,32 +14,23 @@ export const authConfig = {
   providers: [],
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
-      const initialAuthorize: Authorize = {
+      let authorize: Authorize = {
         isLoggedIn: false,
         isAuthjsRequest: false,
         isLoggedInSignInRequest: false,
         isNotLoggedInRootRequest: false,
       };
 
-      const loggedInVerified = verifyLoggedIn(initialAuthorize, auth);
-      const authjsVerified = verifyAuthjsRequest(loggedInVerified, nextUrl);
-      const loggedInSignInVerified = verifyLoggedInSignInRequest(
-        authjsVerified,
-        nextUrl
-      );
-      const allVerifiedAuthorize = verifyNotLoggedInRootRequest(
-        loggedInSignInVerified,
-        nextUrl
-      );
+      authorize = verifyLoggedIn(authorize, auth);
+      authorize = verifyAuthjsRequest(authorize, nextUrl);
+      authorize = verifyLoggedInSignInRequest(authorize, nextUrl);
+      authorize = verifyNotLoggedInRootRequest(authorize, nextUrl);
 
-      if (
-        allVerifiedAuthorize.isAuthjsRequest ||
-        allVerifiedAuthorize.isNotLoggedInRootRequest
-      ) {
+      if (authorize.isAuthjsRequest || authorize.isNotLoggedInRootRequest) {
         return true;
-      } else if (allVerifiedAuthorize.isLoggedInSignInRequest) {
+      } else if (authorize.isLoggedInSignInRequest) {
         return Response.redirect(new URL("/dashboard", nextUrl));
-      } else if (allVerifiedAuthorize.isLoggedIn) {
+      } else if (authorize.isLoggedIn) {
         return true;
       } else {
         return false;
