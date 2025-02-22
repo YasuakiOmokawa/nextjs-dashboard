@@ -1,25 +1,61 @@
 import { Session } from "next-auth";
+import { NextURL } from "next/dist/server/web/next-url";
 
-type Authorize = {
+export type Authorize = {
   isLoggedIn: boolean;
   isAuthjsRequest: boolean;
-  isApplicationRequest: boolean;
+  isLoggedInApplicationRequest: boolean;
+  isNotLoggedInApplicationRequest: boolean;
 };
 
-export const isLoggedIn = (auth: Session): boolean => {
-  return !!auth.user;
+export const verifyLoggedIn = (
+  authorize: Authorize,
+  auth: Session | null
+): Authorize => ({
+  ...authorize,
+  isLoggedIn: !!auth?.user,
+});
+
+export const verifyAuthjsRequest = (
+  authorize: Authorize,
+  nextUrl: NextURL
+): Authorize => {
+  if (authorize.isLoggedIn) {
+    return authorize;
+  } else {
+    return {
+      ...authorize,
+      isAuthjsRequest:
+        nextUrl.pathname === "/api/auth/verify-request" ||
+        nextUrl.searchParams.has("token"),
+    };
+  }
 };
 
-type AuthJsRequest = {
-  pathname: "/api/auth/verify-request";
-  param: "token";
+export const verifyLoggedInApplicationRequest = (
+  authorize: Authorize,
+  nextUrl: NextURL
+): Authorize => {
+  if (authorize.isLoggedIn) {
+    return {
+      ...authorize,
+      isLoggedInApplicationRequest: ["/login", "/"].includes(nextUrl.pathname),
+    };
+  } else {
+    return authorize;
+  }
 };
 
-type ApplicationRequest = {
-  pathname: "/";
-};
-
-type NotLoggedInRequest = {
-  authjs: AuthJsRequest;
-  application: ApplicationRequest;
+export const verifyNotLoggedInApplicationRequest = (
+  authorize: Authorize,
+  nextUrl: NextURL
+): Authorize => {
+  if (authorize.isLoggedIn) {
+    return authorize;
+  } else {
+    return {
+      ...authorize,
+      isNotLoggedInApplicationRequest: nextUrl.pathname === "/",
+    };
+  }
 };
