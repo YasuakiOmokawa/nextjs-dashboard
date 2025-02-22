@@ -1,4 +1,11 @@
 import type { NextAuthConfig } from "next-auth";
+import {
+  Authorize,
+  verifyAuthjsRequest,
+  verifyLoggedIn,
+  verifyLoggedInApplicationRequest,
+  verifyNotLoggedInApplicationRequest,
+} from "./lib/auth/utils";
 
 export const authConfig = {
   pages: {
@@ -7,23 +14,34 @@ export const authConfig = {
   providers: [],
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
-      console.log(nextUrl);
-      const isLoggedIn = !!auth?.user;
+      const initial: Authorize = {
+        isLoggedIn: false,
+        isAuthjsRequest: false,
+        isLoggedInApplicationRequest: false,
+        isNotLoggedInApplicationRequest: false,
+      };
 
-      // ログインしてなかったら、auth.jsのリクエスト検証パスではログイン画面にリダイレクトしてほしくない
-      if (!isLoggedIn && nextUrl.pathname === "/api/auth/verify-request") {
+      const loggedInVerified = verifyLoggedIn(initial, auth);
+      const authjsVerified = verifyAuthjsRequest(loggedInVerified, nextUrl);
+      const loggedInApplicationVerified = verifyLoggedInApplicationRequest(
+        authjsVerified,
+        nextUrl
+      );
+      const authorize = verifyNotLoggedInApplicationRequest(
+        loggedInApplicationVerified,
+        nextUrl
+      );
+
+      if (
+        authorize.isAuthjsRequest ||
+        authorize.isNotLoggedInApplicationRequest
+      ) {
+        return true;
+      } else if (authorize.isLoggedInApplicationRequest) {
+        return Response.redirect(new URL("/dashboard", nextUrl));
+      } else {
         return true;
       }
-      // ログインしてなかったら、auth.jsのトークン検証パスではログイン画面にリダイレクトしてほしくない
-      if (!isLoggedIn && nextUrl.searchParams.has("token")) return true;
-      // ログインしてなかったら、ログイン前だけに表示してほしいパスに遷移してほしい
-      if (!isLoggedIn && nextUrl.pathname === "/") return true;
-
-      // ログインしてたら、ログイン前だけに表示してほしいパスに遷移してほしくない
-      if (isLoggedIn && ["/login", "/"].includes(nextUrl.pathname)) {
-        return Response.redirect(new URL("/dashboard", nextUrl));
-      }
-      return true;
     },
   },
 } satisfies NextAuthConfig;
