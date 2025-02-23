@@ -15,14 +15,9 @@ import { useRedirectPath } from "../lib/hooks/login/useRedirectPath";
 import { useForm } from "@conform-to/react";
 import { parseWithZod } from "@conform-to/zod";
 import { loginSchema } from "../lib/schema/login/schema";
-import { loginEmailAtom, loginPasswordAtom } from "../lib/atoms/atoms";
-import { useAtom } from "jotai/react";
 import Link from "next/link";
 
 export default function LoginForm() {
-  const [emailState, setEmail] = useAtom(loginEmailAtom);
-  const [passwordState, setPassword] = useAtom(loginPasswordAtom);
-
   const [lastResult, action] = useActionState(
     authenticate.bind(null, useRedirectPath()),
     undefined
@@ -65,8 +60,7 @@ export default function LoginForm() {
                 type="email"
                 name={fields.email.name}
                 placeholder="Enter your email address"
-                defaultValue={emailState || fields.email.value}
-                onChange={(e) => setEmail(e.target.value)}
+                defaultValue={fields.email.value}
               />
               <AtSymbolIcon className="pointer-events-none absolute left-3 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-gray-500 peer-focus:text-gray-900" />
             </div>
@@ -86,8 +80,7 @@ export default function LoginForm() {
                 type="password"
                 name={fields.password.name}
                 placeholder="Enter password"
-                defaultValue={passwordState || fields.password.value}
-                onChange={(e) => setPassword(e.target.value)}
+                defaultValue={fields.password.value}
               />
               <KeyIcon className="pointer-events-none absolute left-3 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-gray-500 peer-focus:text-gray-900" />
             </div>
