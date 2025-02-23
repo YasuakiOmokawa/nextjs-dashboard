@@ -10,7 +10,7 @@ import {
 import { ArrowRightIcon } from "@heroicons/react/20/solid";
 import { Button } from "./button";
 import { useActionState } from "react";
-import { authenticate } from "../lib/actions";
+import { authenticateWithCredential } from "../lib/actions";
 import { useRedirectPath } from "../lib/hooks/login/useRedirectPath";
 import { useForm } from "@conform-to/react";
 import { parseWithZod } from "@conform-to/zod";
@@ -19,7 +19,7 @@ import Link from "next/link";
 
 export default function LoginForm() {
   const [lastResult, action] = useActionState(
-    authenticate.bind(null, useRedirectPath()),
+    authenticateWithCredential.bind(null, useRedirectPath()),
     undefined
   );
   const [form, fields] = useForm({
