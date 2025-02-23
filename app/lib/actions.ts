@@ -30,7 +30,7 @@ export async function signOut() {
   await SignOut({ redirectTo: "/" });
 }
 
-export async function authenticate(
+export async function authenticateWithCredential(
   redirectPath: string,
   _prevState: unknown,
   formData: FormData
@@ -42,8 +42,9 @@ export async function authenticate(
   }
 
   try {
-    await signIn("resend", {
+    await signIn("credentials", {
       email: submission.value.email,
+      password: submission.value.password,
       redirectTo: redirectPath,
     });
   } catch (e) {
