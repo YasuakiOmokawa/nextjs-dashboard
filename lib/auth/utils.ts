@@ -3,7 +3,7 @@ import { NextURL } from "next/dist/server/web/next-url";
 
 export type Authorize = {
   isLoggedIn: boolean;
-  isAuthjsRequest: boolean;
+  isAuthorizeRequest: boolean;
   isLoggedInSignInRequest: boolean;
   isNotLoggedInRootRequest: boolean;
 };
@@ -16,7 +16,7 @@ export const verifyLoggedIn = (
   isLoggedIn: !!auth?.user,
 });
 
-export const verifyAuthjsRequest = (
+export const verifyAuthorizeRequest = (
   authorize: Authorize,
   nextUrl: NextURL
 ): Authorize => {
@@ -25,7 +25,7 @@ export const verifyAuthjsRequest = (
   } else {
     return {
       ...authorize,
-      isAuthjsRequest:
+      isAuthorizeRequest:
         nextUrl.pathname === "/api/auth/verify-request" ||
         nextUrl.searchParams.has("token"),
     };

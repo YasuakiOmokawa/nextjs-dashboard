@@ -1,7 +1,7 @@
 import type { NextAuthConfig } from "next-auth";
 import {
   Authorize,
-  verifyAuthjsRequest,
+  verifyAuthorizeRequest,
   verifyLoggedIn,
   verifyLoggedInSignInRequest,
   verifyNotLoggedInRootRequest,
@@ -16,17 +16,17 @@ export const authConfig = {
     authorized({ auth, request: { nextUrl } }) {
       let authorize: Authorize = {
         isLoggedIn: false,
-        isAuthjsRequest: false,
+        isAuthorizeRequest: false,
         isLoggedInSignInRequest: false,
         isNotLoggedInRootRequest: false,
       };
 
       authorize = verifyLoggedIn(authorize, auth);
-      authorize = verifyAuthjsRequest(authorize, nextUrl);
+      authorize = verifyAuthorizeRequest(authorize, nextUrl);
       authorize = verifyLoggedInSignInRequest(authorize, nextUrl);
       authorize = verifyNotLoggedInRootRequest(authorize, nextUrl);
 
-      if (authorize.isAuthjsRequest || authorize.isNotLoggedInRootRequest) {
+      if (authorize.isAuthorizeRequest || authorize.isNotLoggedInRootRequest) {
         return true;
       } else if (authorize.isLoggedInSignInRequest) {
         return Response.redirect(new URL("/dashboard", nextUrl));
