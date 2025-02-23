@@ -5,6 +5,7 @@ import {
   AtSymbolIcon,
   ExclamationCircleIcon,
   KeyIcon,
+  EnvelopeIcon,
 } from "@heroicons/react/24/outline";
 import { ArrowRightIcon } from "@heroicons/react/20/solid";
 import { Button } from "./button";
@@ -16,6 +17,7 @@ import { parseWithZod } from "@conform-to/zod";
 import { loginSchema } from "../lib/schema/login/schema";
 import { loginEmailAtom, loginPasswordAtom } from "../lib/atoms/atoms";
 import { useAtom } from "jotai/react";
+import Link from "next/link";
 
 export default function LoginForm() {
   const [emailState, setEmail] = useAtom(loginEmailAtom);
@@ -107,6 +109,17 @@ export default function LoginForm() {
             </>
           )}
         </div>
+        <div className="flex items-center">
+          <div className="flex-grow h-px bg-black"></div>
+          <div className="px-4">or</div>
+          <div className="flex-grow h-px bg-black"></div>
+        </div>{" "}
+        <Link href="/login/email">
+          <Button className="mt-4 w-full">
+            <EnvelopeIcon className="mr-1.5 h-5 w-5 text-gray-50" />
+            Log in with Email Link
+          </Button>
+        </Link>
       </div>
     </form>
   );
