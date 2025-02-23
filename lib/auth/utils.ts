@@ -8,7 +8,7 @@ export const buildResponse = (
   const loggedIn = isLoggedIn(auth);
   if (
     isAuthorizeRequest(loggedIn, url) ||
-    isNotLoggedInRootRequest(loggedIn, url)
+    isNotLoggedInSignInRequest(loggedIn, url)
   ) {
     return true;
   } else if (isLoggedInSignInRequest(loggedIn, url)) {
@@ -29,7 +29,14 @@ const isAuthorizeRequest = (isLoggedIn: boolean, url: NextURL): boolean =>
     : false;
 
 const isLoggedInSignInRequest = (isLoggedIn: boolean, url: NextURL): boolean =>
-  isLoggedIn && ["/login", "/"].includes(url.pathname) ? true : false;
+  isLoggedIn && new RegExp("^/$|^/login$|^/login/*").test(url.pathname)
+    ? true
+    : false;
 
-const isNotLoggedInRootRequest = (isLoggedIn: boolean, url: NextURL): boolean =>
-  !isLoggedIn && url.pathname === "/" ? true : false;
+const isNotLoggedInSignInRequest = (
+  isLoggedIn: boolean,
+  url: NextURL
+): boolean =>
+  !isLoggedIn && new RegExp("^/$|^/login$|^/login/*").test(url.pathname)
+    ? true
+    : false;
