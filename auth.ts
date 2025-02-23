@@ -4,7 +4,7 @@ import Credentials from "next-auth/providers/credentials";
 import Resend from "next-auth/providers/resend";
 import { Prisma } from "@prisma/client";
 import bcrypt from "bcrypt";
-import { loginSchema } from "./app/lib/schema/login/schema";
+import { credentialLoginSchema } from "./app/lib/schema/login/schema";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/prisma";
 
@@ -51,7 +51,7 @@ export const {
     }),
     Credentials({
       async authorize(credentials) {
-        const parsedCredentials = loginSchema.safeParse(credentials);
+        const parsedCredentials = credentialLoginSchema.safeParse(credentials);
         if (!parsedCredentials.success) return null;
         const user = await getUser(
           parsedCredentials.data.email,
