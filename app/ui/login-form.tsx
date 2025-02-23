@@ -14,7 +14,7 @@ import { authenticateWithCredential } from "../lib/actions";
 import { useRedirectPath } from "../lib/hooks/login/useRedirectPath";
 import { useForm } from "@conform-to/react";
 import { parseWithZod } from "@conform-to/zod";
-import { loginSchema } from "../lib/schema/login/schema";
+import { credentialLoginSchema } from "../lib/schema/login/schema";
 import Link from "next/link";
 
 export default function LoginForm() {
@@ -26,7 +26,7 @@ export default function LoginForm() {
     lastResult,
 
     onValidate({ formData }) {
-      return parseWithZod(formData, { schema: loginSchema });
+      return parseWithZod(formData, { schema: credentialLoginSchema });
     },
 
     shouldValidate: "onBlur",
@@ -107,7 +107,7 @@ export default function LoginForm() {
           <div className="px-4">or</div>
           <div className="flex-grow h-px bg-black"></div>
         </div>{" "}
-        <Link href="/login/email">
+        <Link href="/login/email-link">
           <Button className="mt-4 w-full">
             <EnvelopeIcon className="mr-1.5 h-5 w-5 text-gray-50" />
             Log in with Email Link
