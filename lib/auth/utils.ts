@@ -1,61 +1,35 @@
 import { Session } from "next-auth";
 import { NextURL } from "next/dist/server/web/next-url";
 
-export type Authorize = {
-  isLoggedIn: boolean;
-  isAuthorizeRequest: boolean;
-  isLoggedInSignInRequest: boolean;
-  isNotLoggedInRootRequest: boolean;
-};
-
-export const verifyLoggedIn = (
-  authorize: Authorize,
-  auth: Session | null
-): Authorize => ({
-  ...authorize,
-  isLoggedIn: !!auth?.user,
-});
-
-export const verifyAuthorizeRequest = (
-  authorize: Authorize,
-  nextUrl: NextURL
-): Authorize => {
-  if (authorize.isLoggedIn) {
-    return authorize;
+export const buildResponse = (
+  auth: Session | null,
+  url: NextURL
+): boolean | Response => {
+  const loggedIn = isLoggedIn(auth);
+  if (
+    isAuthorizeRequest(loggedIn, url) ||
+    isNotLoggedInRootRequest(loggedIn, url)
+  ) {
+    return true;
+  } else if (isLoggedInSignInRequest(loggedIn, url)) {
+    return Response.redirect(new URL("/dashboard", url));
+  } else if (loggedIn) {
+    return true;
   } else {
-    return {
-      ...authorize,
-      isAuthorizeRequest:
-        nextUrl.pathname === "/api/auth/verify-request" ||
-        nextUrl.searchParams.has("token"),
-    };
+    return false;
   }
 };
 
-export const verifyLoggedInSignInRequest = (
-  authorize: Authorize,
-  nextUrl: NextURL
-): Authorize => {
-  if (authorize.isLoggedIn) {
-    return {
-      ...authorize,
-      isLoggedInSignInRequest: ["/login", "/"].includes(nextUrl.pathname),
-    };
-  } else {
-    return authorize;
-  }
-};
+const isLoggedIn = (auth: Session | null): boolean => !!auth?.user;
 
-export const verifyNotLoggedInRootRequest = (
-  authorize: Authorize,
-  nextUrl: NextURL
-): Authorize => {
-  if (authorize.isLoggedIn) {
-    return authorize;
-  } else {
-    return {
-      ...authorize,
-      isNotLoggedInRootRequest: nextUrl.pathname === "/",
-    };
-  }
-};
+const isAuthorizeRequest = (isLoggedIn: boolean, url: NextURL): boolean =>
+  !isLoggedIn &&
+  (url.pathname === "/api/auth/verify-request" || url.searchParams.has("token"))
+    ? true
+    : false;
+
+const isLoggedInSignInRequest = (isLoggedIn: boolean, url: NextURL): boolean =>
+  isLoggedIn && ["/login", "/"].includes(url.pathname) ? true : false;
+
+const isNotLoggedInRootRequest = (isLoggedIn: boolean, url: NextURL): boolean =>
+  !isLoggedIn && url.pathname === "/" ? true : false;
