@@ -21,3 +21,6 @@ type R11 = ToArray<string | number>;
 type _T12 = Assert<Equals<R11, Array<string> | Array<number>>>;
 type R12 = ToArrayND<string | number>;
 type _T13 = Assert<Equals<R12, Array<string | number>>>;
+
+type R13 = string | number extends unknown ? Array<string | number> : never;
+type _T14 = Assert<Equals<R13, Array<string | number>>>;
