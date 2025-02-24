@@ -24,7 +24,8 @@ const isLoggedIn = (auth: Session | null): boolean => !!auth?.user;
 
 const isAuthorizeRequest = (isLoggedIn: boolean, url: NextURL): boolean =>
   !isLoggedIn &&
-  (url.pathname === "/api/auth/verify-request" || url.searchParams.has("token"))
+  (new RegExp("^/api/auth/*").test(url.pathname) ||
+    url.searchParams.has("token"))
     ? true
     : false;
 
