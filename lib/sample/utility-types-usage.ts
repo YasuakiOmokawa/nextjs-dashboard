@@ -24,3 +24,19 @@ type _T13 = Assert<Equals<R12, Array<string | number>>>;
 
 type R13 = string | number extends unknown ? Array<string | number> : never;
 type _T14 = Assert<Equals<R13, Array<string | number>>>;
+
+type Entry = {
+  id: number;
+  title: string;
+};
+
+type _T15 = Assert<Equals<Entry["id"], number>>;
+type IdAndName = [number, string];
+
+type _T16 = Assert<Equals<IdAndName["0"], number>>;
+type _T17 = Assert<Equals<IdAndName[number], number | string>>;
+
+type ObjectAndIndex = {
+  [key: number]: string;
+};
+type _T18 = Assert<Equals<ObjectAndIndex[number], string>>;
