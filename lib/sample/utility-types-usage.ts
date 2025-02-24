@@ -57,3 +57,11 @@ type _ValueUnion = ValueTypeOf<T21 | T22, "b">;
 type KI2 = keyof (T21 & T22);
 type KU2 = keyof T21 | keyof T22;
 type _T23 = Assert<Equals<KI2, KU2>>;
+
+type VersionString = `v${number}.${number}.${number}`;
+const _a = "v1.2.3" satisfies VersionString;
+type ParseVersionString<T extends VersionString> =
+  T extends `v${infer A}.${infer B}.${infer C}` ? [A, B, C] : never;
+
+type VersionParts = ParseVersionString<typeof _a>;
+type _T24 = Assert<Equals<VersionParts, ["1", "2", "3"]>>;
