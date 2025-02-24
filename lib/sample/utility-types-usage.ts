@@ -65,3 +65,18 @@ type ParseVersionString<T extends VersionString> =
 
 type VersionParts = ParseVersionString<typeof _a>;
 type _T24 = Assert<Equals<VersionParts, ["1", "2", "3"]>>;
+
+type ParamsOf<S extends string> =
+  S extends `${infer _Head}{${infer Name}}${infer Tail}`
+    ? { [K in Name]: string } & ParamsOf<Tail>
+    : unknown;
+
+type Params1 = ParamsOf<"/{userId}/{entryId}/">;
+type _T25 = Assert<Equals<Params1, { userId: string } & { entryId: string }>>;
+type Params2 = ParamsOf<"/@{account}/thread/{threadId}/comment/{commentId}">;
+type _T26 = Assert<
+  Equals<
+    Params2,
+    { account: string } & { threadId: string } & { commentId: string }
+  >
+>;
