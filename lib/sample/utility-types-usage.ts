@@ -14,3 +14,10 @@ type _R2 = IsString<string> | IsString<number>;
 type _R3 =
   | (string extends string ? true : false)
   | (number extends string ? true : false);
+
+type ToArray<T> = T extends unknown ? Array<T> : never;
+type ToArrayND<T> = [T] extends [unknown] ? Array<T> : never;
+type R11 = ToArray<string | number>;
+type _T12 = Assert<Equals<R11, Array<string> | Array<number>>>;
+type R12 = ToArrayND<string | number>;
+type _T13 = Assert<Equals<R12, Array<string | number>>>;
