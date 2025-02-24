@@ -40,3 +40,20 @@ type ObjectAndIndex = {
   [key: number]: string;
 };
 type _T18 = Assert<Equals<ObjectAndIndex[number], string>>;
+
+type ArrayElement<T> = T extends Array<infer U> ? U : never;
+type _T19 = Assert<Equals<ArrayElement<Array<number>>, number>>;
+type _T20 = Assert<Equals<ArrayElement<[number, string]>, number | string>>;
+
+type T21 = { a: string; b: string };
+type T22 = { b: string; c: string };
+type KI = keyof T21 & keyof T22;
+type _T21 = Assert<Equals<KI, "b">>;
+type KU = keyof (T21 | T22);
+type _T22 = Assert<Equals<KU, "b">>;
+type ValueTypeOf<T, K extends keyof T> = T[K];
+type _ValueUnion = ValueTypeOf<T21 | T22, "b">;
+
+type KI2 = keyof (T21 & T22);
+type KU2 = keyof T21 | keyof T22;
+type _T23 = Assert<Equals<KI2, KU2>>;
