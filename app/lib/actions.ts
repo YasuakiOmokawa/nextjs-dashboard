@@ -33,6 +33,22 @@ export async function signOut() {
   await SignOut({ redirectTo: "/" });
 }
 
+export async function authenticateWithGithub(
+  redirectPath: string,
+  _formData: FormData
+) {
+  try {
+    await signIn("github", {
+      redirectTo: redirectPath,
+    });
+  } catch (e) {
+    if (e instanceof AuthError) {
+      return redirect(`/?error=${e.type}`);
+    }
+    throw e;
+  }
+}
+
 export async function authenticateWithEmailLink(
   redirectPath: string,
   _prevState: unknown,
