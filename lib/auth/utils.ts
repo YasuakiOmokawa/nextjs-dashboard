@@ -1,7 +1,7 @@
 import { Session } from "next-auth";
 import { NextURL } from "next/dist/server/web/next-url";
 
-export const buildResponse = (
+export const buildNextAuthResponse = (
   auth: Session | null,
   url: NextURL
 ): boolean | Response => {

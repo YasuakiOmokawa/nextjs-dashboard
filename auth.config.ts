@@ -1,5 +1,5 @@
 import type { NextAuthConfig } from "next-auth";
-import { buildResponse } from "./lib/auth/utils";
+import { buildNextAuthResponse } from "./lib/auth/utils";
 
 export const authConfig = {
   pages: {
@@ -8,7 +8,7 @@ export const authConfig = {
   providers: [],
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
-      return buildResponse(auth, nextUrl);
+      return buildNextAuthResponse(auth, nextUrl);
     },
   },
 } satisfies NextAuthConfig;
