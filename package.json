@@ -5,7 +5,8 @@
     "dev": "next dev",
     "start": "next start",
     "test": "vitest",
-    "lint": "next lint"
+    "lint": "next lint",
+    "deployable-test": "next build"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.7.4",
