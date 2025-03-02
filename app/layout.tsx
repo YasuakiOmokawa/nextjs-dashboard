@@ -1,6 +1,5 @@
 import "@/app/ui/global.css";
 import { inter } from "@/app/ui/fonts";
-import { Toaster } from "@/components/ui/sonner";
 import { Notify } from "./ui/invoices/notify";
 import { cookies } from "next/headers";
 
@@ -16,7 +15,6 @@ export default async function RootLayout({
       <body className={`${inter.className} antialiased`}>
         {children}
         <Notify flash={flash?.value} />
-        <Toaster />
       </body>
     </html>
   );
