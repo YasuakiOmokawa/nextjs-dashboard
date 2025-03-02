@@ -18,9 +18,8 @@ export default async function FlashToaster() {
   const flash = (await cookies()).get("flash");
 
   return (
-    <>
-      <FlashToasterClient flash={flash?.value} />
+    <FlashToasterClient flash={flash?.value}>
       <Toaster />
-    </>
+    </FlashToasterClient>
   );
 }
