@@ -200,3 +200,16 @@ export async function deleteInvoice(id: string, _prevState: unknown) {
   (await cookies()).set("successDeleteInvoice", "true", { maxAge: 0 });
   revalidatePath("/dashboard/invoices");
 }
+
+export async function deleteUser(email: string | null | undefined) {
+  if (!email) {
+    (await cookies()).set("notFoundUserEmail", "true", { maxAge: 0 });
+    redirect("/");
+  }
+
+  await prisma.user.delete({
+    where: { email: email },
+  });
+  (await cookies()).set("successDeleteUser", "true", { maxAge: 0 });
+  await signOut();
+}
