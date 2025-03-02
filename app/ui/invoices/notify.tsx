@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { toast } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
 
 export function Notify({ flash }: { flash: string | undefined }) {
   useEffect(() => {
@@ -14,5 +15,5 @@ export function Notify({ flash }: { flash: string | undefined }) {
       }
     }
   });
-  return null;
+  return <Toaster />;
 }
