@@ -1,11 +1,12 @@
 import "@/app/ui/global.css";
 import { inter } from "@/app/ui/fonts";
 import FlashToaster from "@/lib/flash-toaster";
+import { ReactNode } from "react";
 
 export default async function RootLayout({
   children,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <html lang="en">
