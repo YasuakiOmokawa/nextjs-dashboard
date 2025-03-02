@@ -2,10 +2,9 @@
 
 import { useEffect } from "react";
 import { toast } from "sonner";
-import { Toaster } from "@/components/ui/sonner";
-import { Flash } from "@/lib/flash";
+import { Flash } from "@/lib/flash-toaster";
 
-export function Notify({ flash }: { flash: string | undefined }) {
+export function FlashToasterClient({ flash }: { flash: string | undefined }) {
   useEffect(() => {
     if (!!flash) {
       const data: Flash = JSON.parse(flash);
@@ -16,5 +15,5 @@ export function Notify({ flash }: { flash: string | undefined }) {
       }
     }
   });
-  return <Toaster />;
+  return null;
 }
