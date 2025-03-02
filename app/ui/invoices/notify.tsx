@@ -1,25 +1,18 @@
 "use client";
 
-import { ReactNode, useEffect } from "react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 
-export function Notify({
-  children,
-  isSuccessDeleteInvoice,
-  isSuccessDeleteUser,
-}: {
-  children: ReactNode;
-  isSuccessDeleteInvoice?: boolean;
-  isSuccessDeleteUser?: boolean;
-}) {
+export function Notify({ flash }: { flash: string | undefined }) {
   useEffect(() => {
-    if (isSuccessDeleteInvoice) {
-      toast.success("Delete invoice successfully.");
-    }
-    if (isSuccessDeleteUser) {
-      toast.success("Delete user successfully.");
+    if (!!flash) {
+      const { type, message } = JSON.parse(flash);
+      if (type === "success") {
+        toast.success(message);
+      } else if (type === "error") {
+        toast.error(message);
+      }
     }
   });
-
-  return <>{children}</>;
+  return null;
 }
