@@ -1,20 +1,17 @@
 import "@/app/ui/global.css";
 import { inter } from "@/app/ui/fonts";
-import { Notify } from "./ui/invoices/notify";
-import { cookies } from "next/headers";
+import FlashToaster from "@/lib/flash-toaster";
 
 export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const flash = (await cookies()).get("flash");
-
   return (
     <html lang="en">
       <body className={`${inter.className} antialiased`}>
         {children}
-        <Notify flash={flash?.value} />
+        <FlashToaster />
       </body>
     </html>
   );

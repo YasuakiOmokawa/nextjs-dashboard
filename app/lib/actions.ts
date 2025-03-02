@@ -12,7 +12,7 @@ import {
 } from "./schema/login/schema";
 import { signOut as SignOut } from "@/auth";
 import { prisma } from "@/prisma";
-import { setFlash } from "@/lib/flash";
+import { setFlash } from "@/lib/flash-toaster";
 
 // for create/update
 export type State = {
