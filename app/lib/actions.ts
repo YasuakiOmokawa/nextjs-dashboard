@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { validatesCreateInvoice, validatesUpdateInvoice } from "./validates";
-import { cookies } from "next/headers";
 import { signIn } from "@/auth";
 import { AuthError } from "next-auth";
 import { parseWithZod } from "@conform-to/zod";
@@ -13,6 +12,7 @@ import {
 } from "./schema/login/schema";
 import { signOut as SignOut } from "@/auth";
 import { prisma } from "@/prisma";
+import { setFlash } from "@/lib/flash";
 
 // for create/update
 export type State = {
@@ -197,19 +197,19 @@ export async function deleteInvoice(id: string, _prevState: unknown) {
   await prisma.invoices.delete({
     where: { id: id },
   });
-  (await cookies()).set("successDeleteInvoice", "true", { maxAge: 0 });
+  await setFlash({ type: "success", message: "delete invoice successful." });
   revalidatePath("/dashboard/invoices");
 }
 
 export async function deleteUser(email: string | null | undefined) {
   if (!email) {
-    (await cookies()).set("notFoundUserEmail", "true", { maxAge: 0 });
+    await setFlash({ type: "error", message: "user email not found." });
     redirect("/");
   }
 
   await prisma.user.delete({
     where: { email: email },
   });
-  (await cookies()).set("successDeleteUser", "true", { maxAge: 0 });
+  await setFlash({ type: "success", message: "delete user successful." });
   await signOut();
 }
