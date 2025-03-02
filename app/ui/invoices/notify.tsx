@@ -3,15 +3,16 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
+import { Flash } from "@/lib/flash";
 
 export function Notify({ flash }: { flash: string | undefined }) {
   useEffect(() => {
     if (!!flash) {
-      const { type, message } = JSON.parse(flash);
-      if (type === "success") {
-        toast.success(message);
-      } else if (type === "error") {
-        toast.error(message);
+      const data: Flash = JSON.parse(flash);
+      if (data.type === "success") {
+        toast.success(data.message);
+      } else if (data.type === "error") {
+        toast.error(data.message);
       }
     }
   });
