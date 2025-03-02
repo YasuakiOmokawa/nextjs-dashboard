@@ -1,4 +1,4 @@
-import { Button } from "@/app/ui/button";
+import DeleteAccountButton from "@/app/ui/profile/delete-account-button";
 import { auth } from "@/auth";
 
 export default async function Page() {
@@ -9,7 +9,7 @@ export default async function Page() {
       <div>this is user profile</div>
       <p>Welcome {session?.user?.name}</p>
       <form>
-        <Button>delete your account</Button>
+        <DeleteAccountButton />
       </form>
     </main>
   );

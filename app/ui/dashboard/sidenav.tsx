@@ -2,7 +2,7 @@ import Link from "next/link";
 import NavLinks from "@/app/ui/dashboard/nav-links";
 import AcmeLogo from "@/app/ui/acme-logo";
 import SignOutForm from "@/app/ui/dashboard/signout-form";
-import { UserIcon } from "@heroicons/react/24/outline";
+import ProfileLink from "../profile-link";
 
 export default function SideNav() {
   return (
@@ -19,13 +19,7 @@ export default function SideNav() {
         <div className="hidden h-auto w-full grow rounded-md bg-gray-50 md:block">
           <NavLinks />
         </div>
-        <Link
-          href="/setting/profile"
-          className="flex h-[48px] w-full grow items-center justify-center gap-2 rounded-md bg-gray-50 p-3 text-sm font-medium hover:bg-sky-100 hover:text-blue-600 md:flex-none md:justify-start md:p-2 md:px-3"
-        >
-          <UserIcon className="w-6" />
-          <div className="hidden md:block">Profile</div>
-        </Link>
+        <ProfileLink />
         <SignOutForm />
       </div>
     </div>
