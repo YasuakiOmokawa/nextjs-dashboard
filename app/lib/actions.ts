@@ -86,7 +86,7 @@ export async function authenticateWithEmailLink(
 }
 
 export async function updateUser(
-  id: string | undefined,
+  id: string,
   _prevState: unknown,
   formData: FormData
 ) {

@@ -23,7 +23,7 @@ import { userSchema } from "@/app/lib/schema/profile/schema";
 export function EditSheet() {
   const { data: session } = useSession();
   const [lastResult, action] = useActionState(
-    updateUser.bind(null, session?.user?.id),
+    updateUser.bind(null, String(session?.user?.id)),
     undefined
   );
   const [form, fields] = useForm({
