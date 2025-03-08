@@ -98,6 +98,7 @@ export async function updateUser(
 
   await prisma.user.update({
     data: {
+      email: submission.value.email,
       name: submission.value.name,
     },
     where: {
