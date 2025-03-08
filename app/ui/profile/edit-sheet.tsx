@@ -18,7 +18,7 @@ export function EditSheet() {
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button variant="outline">プロファイル更新</Button>
+        <Button variant="outline">Update Profile</Button>
       </SheetTrigger>
       <SheetContent>
         <form>
