@@ -201,14 +201,14 @@ export async function deleteInvoice(id: string, _prevState: unknown) {
   revalidatePath("/dashboard/invoices");
 }
 
-export async function deleteUser(email: string | null | undefined) {
-  if (!email) {
-    await setFlash({ type: "error", message: "user email not found." });
+export async function deleteUser(id: string | null | undefined) {
+  if (!id) {
+    await setFlash({ type: "error", message: "user id not found." });
     redirect("/");
   }
 
   await prisma.user.delete({
-    where: { email: email },
+    where: { id },
   });
   await setFlash({ type: "success", message: "delete user successful." });
   await signOut();

@@ -9,7 +9,7 @@ export default async function Page() {
     <main>
       <div>this is user profile</div>
       <p>Welcome {session?.user?.name}</p>
-      <form action={deleteUser.bind(null, session?.user?.email)}>
+      <form action={deleteUser.bind(null, session?.user?.id)}>
         <DeleteAccountButton />
       </form>
     </main>
