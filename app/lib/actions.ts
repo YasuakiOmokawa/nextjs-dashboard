@@ -13,6 +13,7 @@ import {
 import { signOut as SignOut } from "@/auth";
 import { prisma } from "@/prisma";
 import { setFlash } from "@/lib/flash-toaster";
+import { userSchema } from "./schema/profile/schema";
 
 // for create/update
 export type State = {
@@ -82,6 +83,29 @@ export async function authenticateWithEmailLink(
     }
     throw e;
   }
+}
+
+export async function updateUser(
+  id: string | undefined,
+  _prevState: unknown,
+  formData: FormData
+) {
+  const submission = parseWithZod(formData, { schema: userSchema });
+
+  if (submission.status !== "success") {
+    return submission.reply();
+  }
+
+  await prisma.user.update({
+    data: {
+      name: submission.value.name,
+    },
+    where: {
+      id: id,
+    },
+  });
+
+  revalidatePath("/setting/profile");
 }
 
 export async function authenticateWithCredential(
