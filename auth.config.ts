@@ -7,19 +7,9 @@ export const authConfig = {
   },
   providers: [],
   callbacks: {
+    // NOTE: ミドルウェア経由で動かしたいのでここに書いてる
     authorized({ auth, request: { nextUrl } }) {
       return buildNextAuthResponse(auth, nextUrl);
-    },
-    jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
-      }
-      return token;
-    },
-    session({ session, token }) {
-      session.user.id = String(token.id);
-
-      return session;
     },
   },
 } satisfies NextAuthConfig;
