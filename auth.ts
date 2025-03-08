@@ -65,4 +65,33 @@ export const {
     }),
     GitHub,
   ],
+  callbacks: {
+    jwt({ token, user }) {
+      if (user) {
+        token.id = user.id;
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      const dbUser = await prisma.user.findUniqueOrThrow({
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          image: true,
+        },
+        where: { id: String(token.id) },
+      });
+
+      session.user = {
+        ...session.user,
+        id: dbUser.id,
+        name: dbUser.name,
+        email: dbUser.email,
+        image: dbUser.image,
+      };
+
+      return session;
+    },
+  },
 });
