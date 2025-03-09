@@ -1,10 +1,10 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { ProfileSidebar } from "@/app/ui/profile/profile-sidebar";
+import { SettingSidebar } from "@/app/ui/setting/setting-sidebar";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
-      <ProfileSidebar />
+      <SettingSidebar />
       <main>
         <SidebarTrigger />
         {children}

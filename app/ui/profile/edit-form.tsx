@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import Link from "next/link";
 
 import { useActionState } from "react";
 import { useSession } from "next-auth/react";
@@ -73,11 +72,6 @@ export function EditForm() {
           </div>
         </CardContent>
         <CardFooter className="flex justify-between">
-          <Link href="/">
-            <Button type="reset" variant="outline">
-              Cancel
-            </Button>
-          </Link>
           <Button type="submit">Confirm</Button>
         </CardFooter>
       </Card>
