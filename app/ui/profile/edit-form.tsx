@@ -73,11 +73,6 @@ export function EditForm() {
           </div>
         </CardContent>
         <CardFooter className="flex justify-between">
-          <Link href="/">
-            <Button type="reset" variant="outline">
-              Cancel
-            </Button>
-          </Link>
           <Button type="submit">Confirm</Button>
         </CardFooter>
       </Card>
