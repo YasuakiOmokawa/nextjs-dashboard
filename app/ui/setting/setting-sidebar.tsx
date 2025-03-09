@@ -29,7 +29,7 @@ export function SettingSidebar() {
     <Sidebar>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Profile</SidebarGroupLabel>
+          <SidebarGroupLabel>Setting</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {sidebarItems.map((item) => (
