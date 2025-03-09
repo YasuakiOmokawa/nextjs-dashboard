@@ -6,8 +6,12 @@ import { useSession } from "next-auth/react";
 
 export function DeleteUserForm() {
   const { data: session } = useSession();
-  const handleClick = () => alert("本当によろしいですか？");
-
+  const handleClick = (event) => {
+    event.preventDefault();
+    if (confirm("本当によろしいですか？")) {
+      event.target.closest('form').submit();
+    }
+  };
   return (
     <form action={deleteUser.bind(null, session?.user?.id)}>
       <Button variant="destructive" onClick={handleClick}>
