@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
@@ -40,8 +39,7 @@ export function EditForm() {
     <form id={form.id} onSubmit={form.onSubmit} action={action} noValidate>
       <Card className="w-[350px]">
         <CardHeader>
-          <CardTitle>プロフィール編集</CardTitle>
-          <CardDescription>情報を編集してください</CardDescription>
+          <CardTitle>プロフィール</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid w-full items-center gap-4">
@@ -72,7 +70,7 @@ export function EditForm() {
           </div>
         </CardContent>
         <CardFooter className="flex justify-between">
-          <Button type="submit">Confirm</Button>
+          <Button type="submit">更新</Button>
         </CardFooter>
       </Card>
     </form>
