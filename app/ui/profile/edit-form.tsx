@@ -27,20 +27,6 @@ export function EditForm() {
       onSuccess() {
         toast.success("profile updated");
       },
-      onError(result) {
-        if (
-          result.error &&
-          Object.values(result.error)
-            .at(0)
-            ?.some((x) => x === "something went wrong")
-        ) {
-          const messages = Object.values(result.error).at(0);
-          toast.error(messages?.at(0), {
-            description: messages?.at(1),
-            duration: 10000,
-          });
-        }
-      },
     }),
     undefined
   );
