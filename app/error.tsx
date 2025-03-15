@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import * as Sentry from "@sentry/nextjs";
 
 export default function Error({
   error,
@@ -10,8 +11,8 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    // optionally log error to an error reporting service
-    throw error;
+    // log error to an error reporting service
+    Sentry.captureException(error);
   }, [error]);
 
   return (
@@ -20,7 +21,7 @@ export default function Error({
       <button
         className="mt-4 rounded-md bg-blue-500 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-400"
         onClick={
-          // Attempt to recover by trying to re-render the invoices route.
+          // Attempt to recover by trying to re-render the segment.
           () => reset()
         }
       >
