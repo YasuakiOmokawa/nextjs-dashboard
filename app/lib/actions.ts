@@ -13,7 +13,8 @@ import {
 import { signOut as SignOut } from "@/auth";
 import { prisma } from "@/prisma";
 import { setFlash } from "@/lib/flash-toaster";
-import { userSchema } from "./schema/profile/schema";
+import { deleteUserSchema, userSchema } from "./schema/profile/schema";
+import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 
 // for create/update
 export type State = {
@@ -227,15 +228,42 @@ export async function deleteInvoice(id: string, _prevState: unknown) {
   revalidatePath("/dashboard/invoices");
 }
 
-export async function deleteUser(id: string | null | undefined) {
-  if (!id) {
-    await setFlash({ type: "error", message: "user id not found." });
-    redirect("/");
+export async function deleteUser(
+  id: string | null | undefined,
+  _prevState: unknown,
+  formData: FormData
+) {
+  if (id) formData.set("id", id);
+
+  const submission = parseWithZod(formData, { schema: deleteUserSchema });
+
+  if (submission.status !== "success") {
+    return submission.reply({
+      formErrors: ["user id is not defined."],
+    });
   }
 
-  await prisma.user.delete({
-    where: { id },
-  });
-  await setFlash({ type: "success", message: "delete user successful." });
+  try {
+    await prisma.user.delete({
+      where: { id: submission.value.id },
+    });
+  } catch (e) {
+    if (e instanceof PrismaClientKnownRequestError) {
+      switch (e.meta?.cause) {
+        case "Record to delete does not exist.":
+          return submission.reply({
+            formErrors: ["user not found."],
+          });
+        default:
+          return submission.reply({
+            formErrors: ["something went wrong."],
+          });
+      }
+    }
+    throw e;
+  }
+
+  await setFlash({ type: "success", message: "user deleted." });
   await signOut();
+  return submission.reply();
 }
