@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
@@ -18,11 +17,31 @@ import { useForm } from "@conform-to/react";
 import { parseWithZod } from "@conform-to/zod";
 import { userSchema } from "@/app/lib/schema/profile/schema";
 import { updateUser } from "@/app/lib/actions";
+import { withCallbacks } from "@/lib/with-callbacks";
+import { toast } from "sonner";
 
 export function EditForm() {
   const { data: session } = useSession();
   const [lastResult, action] = useActionState(
-    updateUser.bind(null, String(session?.user?.id)),
+    withCallbacks(updateUser.bind(null, String(session?.user?.id)), {
+      onSuccess() {
+        toast.success("profile updated");
+      },
+      onError(result) {
+        if (
+          result.error &&
+          Object.values(result.error)
+            .at(0)
+            ?.some((x) => x === "something went wrong")
+        ) {
+          const messages = Object.values(result.error).at(0);
+          toast.error(messages?.at(0), {
+            description: messages?.at(1),
+            duration: 10000,
+          });
+        }
+      },
+    }),
     undefined
   );
   const [form, fields] = useForm({
@@ -40,8 +59,7 @@ export function EditForm() {
     <form id={form.id} onSubmit={form.onSubmit} action={action} noValidate>
       <Card className="w-[350px]">
         <CardHeader>
-          <CardTitle>プロフィール編集</CardTitle>
-          <CardDescription>情報を編集してください</CardDescription>
+          <CardTitle>プロフィール</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid w-full items-center gap-4">
@@ -72,7 +90,7 @@ export function EditForm() {
           </div>
         </CardContent>
         <CardFooter className="flex justify-between">
-          <Button type="submit">Confirm</Button>
+          <Button type="submit">更新</Button>
         </CardFooter>
       </Card>
     </form>

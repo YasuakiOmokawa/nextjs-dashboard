@@ -96,17 +96,24 @@ export async function updateUser(
     return submission.reply();
   }
 
-  await prisma.user.update({
-    data: {
-      email: submission.value.email,
-      name: submission.value.name,
-    },
-    where: {
-      id: id,
-    },
-  });
+  try {
+    await prisma.user.update({
+      data: {
+        email: submission.value.email,
+        name: submission.value.name,
+      },
+      where: {
+        id: id,
+      },
+    });
+  } catch (e) {
+    return submission.reply({
+      formErrors: ["something went wrong", String(e)],
+    });
+  }
 
   revalidatePath("/setting/profile");
+  return submission.reply();
 }
 
 export async function authenticateWithCredential(
