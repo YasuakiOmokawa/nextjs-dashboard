@@ -2,7 +2,10 @@
 
 import { deleteUser } from "@/app/lib/actions";
 import { Button } from "@/components/ui/button";
+import { withCallbacks } from "@/lib/with-callbacks";
 import { useSession } from "next-auth/react";
+import { useActionState } from "react";
+import { toast } from "sonner";
 
 export function DeleteUserForm() {
   const { data: session } = useSession();
@@ -13,11 +16,22 @@ export function DeleteUserForm() {
     }
   };
 
+  const [_lastResult, action] = useActionState(
+    withCallbacks(deleteUser.bind(null, session?.user?.id), {
+      onError(result) {
+        if (result.error) {
+          const message = result.error[""];
+          toast.error(message?.at(0), {
+            duration: 10000,
+          });
+        }
+      },
+    }),
+    undefined
+  );
+
   return (
-    <form
-      action={deleteUser.bind(null, session?.user?.id)}
-      onSubmit={handleClick}
-    >
+    <form action={action} onSubmit={handleClick}>
       <Button variant="destructive" type="submit">
         アカウントを削除します
       </Button>
