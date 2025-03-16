@@ -1,15 +1,17 @@
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { SettingSidebar } from "@/app/ui/setting/setting-sidebar";
+import { AppSidebar } from "@/components/app-sidebar";
+import { SiteHeader } from "@/components/site-header";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <SidebarProvider>
-      <main>
-        <div className="flex flex-col space-y-8 lg:flex-row lg:space-x-12 lg:space-y-0">
-          <SettingSidebar />
-          {children}
+    <div className="[--header-height:calc(theme(spacing.14))]">
+      <SidebarProvider className="flex flex-col">
+        <SiteHeader />
+        <div className="flex flex-1">
+          <AppSidebar />
+          <SidebarInset>{children}</SidebarInset>
         </div>
-      </main>
-    </SidebarProvider>
+      </SidebarProvider>
+    </div>
   );
 }
