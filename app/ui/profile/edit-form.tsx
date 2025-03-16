@@ -1,16 +1,17 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
 import { useActionState } from "react";
 import { useSession } from "next-auth/react";
 import { useForm } from "@conform-to/react";
@@ -42,43 +43,70 @@ export function EditForm() {
   });
 
   return (
-    <form id={form.id} onSubmit={form.onSubmit} action={action} noValidate>
-      <Card className="w-[350px]">
-        <CardHeader>
-          <CardTitle>プロフィール</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid w-full items-center gap-4">
-            <div className="flex flex-col space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                type="email"
-                key={fields.email.key}
-                name={fields.email.name}
-                defaultValue={
-                  fields.email.value ?? String(session?.user?.email)
-                }
-                placeholder="sample@example.com"
-              />
-              <div className="text-red-500">{fields.email.errors}</div>
-            </div>
-            <div className="flex flex-col space-y-1.5">
-              <Label htmlFor="name">Name</Label>
-              <Input
-                type="text"
-                key={fields.name.key}
-                name={fields.name.name}
-                defaultValue={fields.name.value ?? String(session?.user?.name)}
-                placeholder="John Doe"
-              />
-              <div className="text-red-500">{fields.name.errors}</div>
-            </div>
+    <div className="flex-1 lg:max-w-2xl">
+      <div className="space-y-6">
+        <div>
+          <h3 className="text-lg font-medium">Profile</h3>
+          <p className="text-sm text-muted-foreground">
+            This is how others will see you on the site.
+          </p>
+        </div>
+        <Separator />
+        <form
+          className="space-y-8"
+          id={form.id}
+          onSubmit={form.onSubmit}
+          action={action}
+          noValidate
+        >
+          <div className="space-y-2">
+            <Label htmlFor="name">Name</Label>
+            <Input
+              type="text"
+              key={fields.name.key}
+              name={fields.name.name}
+              defaultValue={fields.name.value ?? String(session?.user?.name)}
+              placeholder="John Doe"
+            />
+            <p className="text-xs text-muted-foreground">
+              This is your public display name.
+            </p>
+            <div className="text-red-500">{fields.name.errors}</div>
           </div>
-        </CardContent>
-        <CardFooter className="flex justify-between">
-          <Button type="submit">更新</Button>
-        </CardFooter>
-      </Card>
-    </form>
+
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Select>
+              <SelectTrigger id="email">
+                <SelectValue placeholder="Select a verified email to display" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="m@example.com">m@example.com</SelectItem>
+                <SelectItem value="m@google.com">m@google.com</SelectItem>
+                <SelectItem value="m@support.com">m@support.com</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              You can manage verified email addresses in your email settings.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="bio">Bio</Label>
+            <Textarea
+              id="bio"
+              placeholder="Tell us a little bit about yourself"
+              className="min-h-[100px]"
+              defaultValue="I own a computer."
+            />
+            <p className="text-xs text-muted-foreground">
+              You can @mention other users and organizations to link to them.
+            </p>
+          </div>
+
+          <Button type="submit">Update</Button>
+        </form>
+      </div>
+    </div>
   );
 }
