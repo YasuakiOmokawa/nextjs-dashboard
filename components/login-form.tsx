@@ -3,12 +3,8 @@
 import { GalleryVerticalEnd } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import githubIcon from "@/app/ui/icons/github-mark.png";
-import Image from "next/image";
-import { authenticateWithGithub } from "@/app/lib/actions";
-import { useRedirectPath } from "@/app/lib/hooks/login/useRedirectPath";
 import EmailLinkForm from "@/app/ui/email-link-form";
+import GithubAuthForm from "@/app/ui/github-auth-form";
 
 export function LoginForm({
   className,
@@ -39,18 +35,7 @@ export function LoginForm({
           </span>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <form action={authenticateWithGithub.bind(null, useRedirectPath())}>
-            <Button variant="outline" className="w-full">
-              <Image
-                src={githubIcon}
-                alt="GitHub icon for login"
-                width={100}
-                height={100}
-                className="h-5 w-5"
-              />
-              Continue with GitHub
-            </Button>
-          </form>
+          <GithubAuthForm />
         </div>
       </div>
       <div className="text-balance text-center text-xs text-muted-foreground [&_a]:underline [&_a]:underline-offset-4 hover:[&_a]:text-primary  ">
