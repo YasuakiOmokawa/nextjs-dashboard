@@ -39,10 +39,10 @@ export default function EmailLinkForm() {
             placeholder="Enter your email address"
             defaultValue={fields.email.value}
           />
+          {fields.email.errors && (
+            <div className="text-red-500 text-sm">{fields.email.errors}</div>
+          )}
         </div>
-        {fields.email.errors && (
-          <div className="text-red-500">{fields.email.errors}</div>
-        )}
         <Button type="submit" className="w-full">
           Login
         </Button>
@@ -50,9 +50,9 @@ export default function EmailLinkForm() {
           <div
             aria-live="polite"
             aria-atomic="true"
-            className="flex h-8 items-end space-x-1"
+            className="flex justify-center items-center space-x-1"
           >
-            <ExclamationCircleIcon className="h-5 w-5 text-red-500" />
+            <ExclamationCircleIcon className="w-5 text-red-500" />
             <p className="text-sm text-red-500">{form.errors}</p>
           </div>
         )}
