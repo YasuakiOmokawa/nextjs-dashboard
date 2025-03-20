@@ -8,6 +8,7 @@ import bcrypt from "bcrypt";
 import { credentialLoginSchema } from "./app/lib/schema/login/schema";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/prisma";
+import { getAndDeleteCookie, isExistsAccount } from "@/lib/auth/serverUtils";
 
 async function getUser(email: string, password: string) {
   try {
@@ -92,6 +93,17 @@ export const {
       };
 
       return session;
+    },
+    async signIn({ account }) {
+      const auth_type = await getAndDeleteCookie("mysite_auth_type");
+
+      if (auth_type === "signin" && account) {
+        return true;
+      } else if (auth_type === "signup" && !account) {
+        return true;
+      } else {
+        return false;
+      }
     },
   },
 });
