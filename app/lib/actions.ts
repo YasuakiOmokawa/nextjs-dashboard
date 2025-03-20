@@ -51,7 +51,18 @@ export async function authenticateWithGithub(
   }
 }
 
-export async function authenticateWithEmailLink(
+async function isExistsUser(email: string) {
+  try {
+    const userCount = await prisma.user.count({
+      where: { email: email },
+    });
+    return userCount > 0 ? true : false;
+  } catch (e) {
+    throw new Error(`Failed to count User: ${e}`);
+  }
+}
+
+export async function loginWithEmailLink(
   redirectPath: string,
   _prevState: unknown,
   formData: FormData
@@ -62,6 +73,12 @@ export async function authenticateWithEmailLink(
 
   if (submission.status !== "success") {
     return submission.reply();
+  }
+
+  if (!(await isExistsUser(submission.value.email))) {
+    return submission.reply({
+      formErrors: ["ユーザーが存在しません。"],
+    });
   }
 
   try {
