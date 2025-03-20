@@ -35,7 +35,7 @@ export async function signOut() {
   await SignOut({ redirectTo: "/" });
 }
 
-export async function authenticateWithGithub(
+export async function loginWithGithub(
   redirectPath: string,
   _formData: FormData
 ) {
