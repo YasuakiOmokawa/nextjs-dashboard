@@ -4,12 +4,11 @@ import { GalleryVerticalEnd } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import githubIcon from "@/app/ui/icons/github-mark.png";
 import Image from "next/image";
 import { authenticateWithGithub } from "@/app/lib/actions";
 import { useRedirectPath } from "@/app/lib/hooks/login/useRedirectPath";
+import EmailLinkForm from "@/app/ui/email-link-form";
 
 export function LoginForm({
   className,
@@ -33,22 +32,7 @@ export function LoginForm({
             </a>
           </div>
         </div>
-        <form>
-          <div className="flex flex-col gap-6">
-            <div className="grid gap-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="m@example.com"
-                required
-              />
-            </div>
-            <Button type="submit" className="w-full">
-              Login
-            </Button>
-          </div>
-        </form>
+        <EmailLinkForm />
         <div className="relative text-center text-sm after:absolute after:inset-0 after:top-1/2 after:z-0 after:flex after:items-center after:border-t after:border-border">
           <span className="relative z-10 bg-background px-2 text-muted-foreground">
             Or
