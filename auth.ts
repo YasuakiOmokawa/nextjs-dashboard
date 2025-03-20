@@ -8,7 +8,7 @@ import bcrypt from "bcrypt";
 import { credentialLoginSchema } from "./app/lib/schema/login/schema";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/prisma";
-import { getAndDeleteCookie, isExistsAccount } from "@/lib/auth/serverUtils";
+import { getAndDeleteCookie } from "@/lib/auth/serverUtils";
 
 async function getUser(email: string, password: string) {
   try {
