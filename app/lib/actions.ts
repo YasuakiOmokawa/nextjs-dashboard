@@ -15,6 +15,7 @@ import { prisma } from "@/prisma";
 import { setFlash } from "@/lib/flash-toaster";
 import { deleteUserSchema, userSchema } from "./schema/profile/schema";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
+import { setCustomCookie } from "@/lib/auth/serverUtils";
 
 // for create/update
 export type State = {
@@ -39,6 +40,8 @@ export async function loginWithGithub(
   redirectPath: string,
   _formData: FormData
 ) {
+  setCustomCookie("mysite_auth_type", "signin");
+
   try {
     await signIn("github", {
       redirectTo: redirectPath,
