@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useActionState } from "react";
-import { authenticateWithEmailLink } from "@/app/lib/actions";
+import { loginWithEmailLink } from "@/app/lib/actions";
 import { useRedirectPath } from "@/app/lib/hooks/login/useRedirectPath";
 import { useForm } from "@conform-to/react";
 import { parseWithZod } from "@conform-to/zod";
@@ -13,7 +13,7 @@ import { ExclamationCircleIcon } from "@heroicons/react/24/outline";
 
 export default function EmailLinkForm() {
   const [lastResult, action] = useActionState(
-    authenticateWithEmailLink.bind(null, useRedirectPath()),
+    loginWithEmailLink.bind(null, useRedirectPath()),
     undefined
   );
   const [form, fields] = useForm({

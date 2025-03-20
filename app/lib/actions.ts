@@ -51,7 +51,7 @@ export async function authenticateWithGithub(
   }
 }
 
-export async function authenticateWithEmailLink(
+export async function loginWithEmailLink(
   redirectPath: string,
   _prevState: unknown,
   formData: FormData
