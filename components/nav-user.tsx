@@ -8,7 +8,7 @@ import {
   LogOut,
   Sparkles,
 } from "lucide-react";
-
+import { Cog6ToothIcon } from "@heroicons/react/24/outline";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -88,8 +88,8 @@ export function NavUser({
             <DropdownMenuGroup>
               <Link href="/setting/profile">
                 <DropdownMenuItem>
-                  <BadgeCheck />
-                  Account
+                  <Cog6ToothIcon />
+                  設定
                 </DropdownMenuItem>
               </Link>
               <DropdownMenuItem>
