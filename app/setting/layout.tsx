@@ -1,4 +1,4 @@
-import { AppSidebar } from "@/components/app-sidebar";
+import { SettingSidebar } from "@/components/setting-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
@@ -8,7 +8,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <SidebarProvider className="flex flex-col">
         <SiteHeader />
         <div className="flex flex-1">
-          <AppSidebar />
+          <SettingSidebar />
           <SidebarInset>{children}</SidebarInset>
         </div>
       </SidebarProvider>
