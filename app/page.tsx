@@ -75,12 +75,12 @@ export default function Page() {
               <div className="flex flex-col justify-center space-y-4">
                 <div className="space-y-2">
                   <h1 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">
-                    シンプルで使いやすい
+                    シンプルでしかない
                     <br />
                     ソリューション
                   </h1>
                   <p className="max-w-[600px] text-muted-foreground md:text-xl">
-                    お客様のビジネスを効率化し、成長をサポートします。
+                    ソリューションと言っておけば大体なんとかなる。
                   </p>
                 </div>
                 <div className="flex flex-col gap-2 min-[400px]:flex-row">
