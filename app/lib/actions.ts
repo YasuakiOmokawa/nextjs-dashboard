@@ -33,6 +33,10 @@ export type State = {
 };
 
 export async function signOut() {
+  await setFlash({
+    type: "success",
+    message: "ログアウトしました。",
+  });
   await SignOut({ redirectTo: "/" });
 }
 
