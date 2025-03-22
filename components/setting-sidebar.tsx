@@ -2,9 +2,6 @@
 
 import * as React from "react";
 import { Command } from "lucide-react";
-import { BanknotesIcon } from "@heroicons/react/24/outline";
-
-import { NavMain } from "@/components/nav-main";
 import { NavUser } from "@/components/nav-user";
 import {
   Sidebar,
@@ -17,8 +14,12 @@ import {
 } from "@/components/ui/sidebar";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
+import { Cog6ToothIcon, UserIcon } from "@heroicons/react/24/outline";
+import { NavProjects } from "./nav-projects";
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+export function SettingSidebar({
+  ...props
+}: React.ComponentProps<typeof Sidebar>) {
   const { data: session } = useSession();
   const data = {
     user: {
@@ -26,22 +27,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       email: session?.user?.email ?? "",
       avatar: session?.user?.image ?? "",
     },
-    navMain: [
+    projects: [
       {
-        title: "ダッシュボード",
-        url: "/dashboard",
-        icon: BanknotesIcon,
-        isActive: true,
-        items: [
-          {
-            title: "請求書",
-            url: "/dashboard/invoices",
-          },
-          {
-            title: "顧客リスト",
-            url: "/dashboard/customers",
-          },
-        ],
+        name: "プロフィール",
+        url: "/setting/profile",
+        icon: UserIcon,
+      },
+      {
+        name: "アカウント",
+        url: "/setting/account",
+        icon: Cog6ToothIcon,
       },
     ],
   };
@@ -69,7 +64,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={data.navMain} />
+        <NavProjects title="基本設定" projects={data.projects} />
       </SidebarContent>
       <SidebarFooter>
         <NavUser user={data.user} />
