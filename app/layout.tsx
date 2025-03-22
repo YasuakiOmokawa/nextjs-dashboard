@@ -11,7 +11,7 @@ export default async function RootLayout({
 }) {
   return (
     <SessionProvider>
-      <html lang="en">
+      <html>
         <body className={`${inter.className} antialiased`}>
           {children}
           <FlashToaster />
