@@ -33,6 +33,10 @@ export type State = {
 };
 
 export async function signOut() {
+  await setFlash({
+    type: "success",
+    message: "ログアウトしました。",
+  });
   await SignOut({ redirectTo: "/" });
 }
 
@@ -79,9 +83,11 @@ export async function loginWithEmailLink(
   }
 
   if (!(await isExistsUser(submission.value.email))) {
-    return submission.reply({
-      formErrors: ["ユーザーが存在しません。"],
+    await setFlash({
+      type: "error",
+      message: "アカウントが存在しません。",
     });
+    return submission.reply();
   }
 
   try {
