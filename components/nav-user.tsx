@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  BadgeCheck,
   Bell,
   ChevronsUpDown,
   CreditCard,

@@ -6,10 +6,7 @@ import { validatesCreateInvoice, validatesUpdateInvoice } from "./validates";
 import { signIn } from "@/auth";
 import { AuthError } from "next-auth";
 import { parseWithZod } from "@conform-to/zod";
-import {
-  credentialLoginSchema,
-  emailLinkLoginSchema,
-} from "./schema/login/schema";
+import { emailLinkLoginSchema } from "./schema/login/schema";
 import { signOut as SignOut } from "@/auth";
 import { prisma } from "@/prisma";
 import { setFlash } from "@/lib/flash-toaster";
@@ -135,40 +132,6 @@ export async function updateUser(
 
   revalidatePath("/setting/profile");
   return submission.reply();
-}
-
-export async function authenticateWithCredential(
-  redirectPath: string,
-  _prevState: unknown,
-  formData: FormData
-) {
-  const submission = parseWithZod(formData, { schema: credentialLoginSchema });
-
-  if (submission.status !== "success") {
-    return submission.reply();
-  }
-
-  try {
-    await signIn("credentials", {
-      email: submission.value.email,
-      password: submission.value.password,
-      redirectTo: redirectPath,
-    });
-  } catch (e) {
-    if (e instanceof AuthError) {
-      switch (e.type) {
-        case "CredentialsSignin":
-          return submission.reply({
-            formErrors: ["Invalid Credentials."],
-          });
-        default:
-          return submission.reply({
-            formErrors: ["Something went wrong."],
-          });
-      }
-    }
-    throw e;
-  }
 }
 
 export async function createInvoice(_prevState: State, formData: FormData) {
