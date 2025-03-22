@@ -9,6 +9,7 @@ import { credentialLoginSchema } from "./app/lib/schema/login/schema";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/prisma";
 import { getAndDeleteCookie } from "@/lib/auth/serverUtils";
+import { setFlash } from "./lib/flash-toaster";
 
 async function getUser(email: string, password: string) {
   try {
@@ -97,12 +98,20 @@ export const {
     async signIn({ account }) {
       const auth_type = await getAndDeleteCookie("mysite_auth_type");
 
-      if (auth_type === "signin" && account) {
-        return true;
-      } else if (auth_type === "signup" && !account) {
-        return true;
+      if (auth_type === "signin" && !account) {
+        await setFlash({
+          type: "error",
+          message: "アカウントが存在しません。",
+        });
+        return "/login";
+      } else if (auth_type === "signup" && account) {
+        await setFlash({
+          type: "error",
+          message: "アカウントがすでに存在します。",
+        });
+        return "/signup";
       } else {
-        return false;
+        return true;
       }
     },
   },
