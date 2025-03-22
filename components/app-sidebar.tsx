@@ -37,6 +37,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             title: "請求書",
             url: "/dashboard/invoices",
           },
+          {
+            title: "顧客リスト",
+            url: "/dashboard/customers",
+          },
         ],
       },
     ],
