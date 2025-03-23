@@ -8,10 +8,10 @@ export const buildNextAuthResponse = (
   const loggedIn = isLoggedIn(auth);
   if (
     isAuthorizeRequest(loggedIn, url) ||
-    isNotLoggedInSignInRequest(loggedIn, url)
+    isNotLoggedInAuthenticateRequest(loggedIn, url)
   ) {
     return true;
-  } else if (isLoggedInSignInRequest(loggedIn, url)) {
+  } else if (isLoggedInAuthenticateRequest(loggedIn, url)) {
     return Response.redirect(new URL("/dashboard", url));
   } else if (loggedIn) {
     return true;
@@ -29,15 +29,18 @@ const isAuthorizeRequest = (isLoggedIn: boolean, url: NextURL): boolean =>
     ? true
     : false;
 
-const isLoggedInSignInRequest = (isLoggedIn: boolean, url: NextURL): boolean =>
-  isLoggedIn && new RegExp("^/$|^/login$|^/login/*").test(url.pathname)
-    ? true
-    : false;
-
-const isNotLoggedInSignInRequest = (
+const isLoggedInAuthenticateRequest = (
   isLoggedIn: boolean,
   url: NextURL
 ): boolean =>
-  !isLoggedIn && new RegExp("^/$|^/login$|^/login/*").test(url.pathname)
+  isLoggedIn && new RegExp("^/$|^/login$|^/signup$").test(url.pathname)
+    ? true
+    : false;
+
+const isNotLoggedInAuthenticateRequest = (
+  isLoggedIn: boolean,
+  url: NextURL
+): boolean =>
+  !isLoggedIn && new RegExp("^/$|^/login$|^/signup$").test(url.pathname)
     ? true
     : false;
