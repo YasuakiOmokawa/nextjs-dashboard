@@ -1,10 +1,10 @@
 "use client";
 
-import { GalleryVerticalEnd } from "lucide-react";
-
 import { cn } from "@/lib/utils";
 import EmailLinkForm from "@/app/ui/email-link-form";
 import GithubAuthForm from "@/app/ui/github-auth-form";
+import Link from "next/link";
+import NoMoreBakusokuLogo from "./no-more-bakusoku-logo";
 
 export function LoginForm({
   className,
@@ -14,17 +14,20 @@ export function LoginForm({
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <div className="flex flex-col gap-6">
         <div className="flex flex-col items-center gap-2">
-          <a href="#" className="flex flex-col items-center gap-2 font-medium">
+          <Link
+            href="/"
+            className="flex flex-col items-center gap-2 font-medium"
+          >
             <div className="flex h-8 w-8 items-center justify-center rounded-md">
-              <GalleryVerticalEnd className="size-6" />
+              <NoMoreBakusokuLogo />
             </div>
-            <span className="sr-only">Acme Inc.</span>
-          </a>
-          <h1 className="text-xl font-bold">Welcome to Acme Inc.</h1>
+            <span className="sr-only">No more 爆速</span>
+          </Link>
+          <h1 className="text-xl font-bold">No more 爆速 へログイン</h1>
           <div className="text-center text-sm">
-            Don&apos;t have an account?{" "}
+            アカウントをお持ちでない方は{" "}
             <a href="#" className="underline underline-offset-4">
-              Sign up
+              こちら
             </a>
           </div>
         </div>
@@ -34,13 +37,13 @@ export function LoginForm({
             Or
           </span>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4">
           <GithubAuthForm />
         </div>
       </div>
       <div className="text-balance text-center text-xs text-muted-foreground [&_a]:underline [&_a]:underline-offset-4 hover:[&_a]:text-primary  ">
-        By clicking continue, you agree to our <a href="#">Terms of Service</a>{" "}
-        and <a href="#">Privacy Policy</a>.
+        登録またはログインすることで、<a href="#">利用規約</a> または{" "}
+        <a href="#">プライバシーポリシー</a>に同意したものとみなします。
       </div>
     </div>
   );
