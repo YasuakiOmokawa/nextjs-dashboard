@@ -6,18 +6,18 @@ import Image from "next/image";
 import { loginWithGithub } from "@/app/lib/actions";
 import { useRedirectPath } from "@/app/lib/hooks/login/useRedirectPath";
 
-export default function GithubAuthForm() {
+export default function GithubAuthSignupForm() {
   return (
     <form action={loginWithGithub.bind(null, useRedirectPath())}>
       <Button variant="outline" className="w-full">
         <Image
           src={githubIcon}
-          alt="GitHub icon for login"
+          alt="GitHub icon for signup"
           width={100}
           height={100}
           className="h-5 w-5"
         />
-        GitHub でログイン
+        GitHub で登録
       </Button>
     </form>
   );

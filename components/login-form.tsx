@@ -5,6 +5,7 @@ import EmailLinkForm from "@/app/ui/email-link-form";
 import GithubAuthForm from "@/app/ui/github-auth-form";
 import AuthFormHeader from "./auth-form-header";
 import MyServiceName from "./my-service-name";
+import Link from "next/link";
 
 export function LoginForm({
   className,
@@ -20,9 +21,9 @@ export function LoginForm({
           </h1>
           <div className="text-center text-sm">
             アカウントをお持ちでない方は{" "}
-            <a href="/signup" className="underline underline-offset-4">
+            <Link href="/signup" className="underline underline-offset-4">
               こちら
-            </a>
+            </Link>
           </div>
         </div>
         <EmailLinkForm />

@@ -53,16 +53,30 @@ export const {
 
       return session;
     },
-    async signIn({ account }) {
+    async signIn({ account, profile }) {
       const auth_type = await getAndDeleteCookie("mysite_auth_type");
+      const adapter = PrismaAdapter(prisma);
+      const email = profile?.email ?? "";
 
-      if (auth_type === "signin" && !account) {
+      if (
+        auth_type === "githubSignin" &&
+        (await adapter.getUserByEmail?.(email))
+      ) {
+        await setFlash({
+          type: "error",
+          message:
+            "同じEmailのアカウントが存在します。ログインして連携してください。",
+        });
+        return "/login";
+      }
+      if (auth_type === "githubSignin" && !account) {
         await setFlash({
           type: "error",
           message: "アカウントが存在しません。",
         });
         return "/login";
-      } else if (auth_type === "signup" && account) {
+      }
+      if (auth_type === "signup" && account) {
         await setFlash({
           type: "error",
           message: "アカウントがすでに存在します。",
