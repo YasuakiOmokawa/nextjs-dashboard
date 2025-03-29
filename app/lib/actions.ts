@@ -41,18 +41,12 @@ export async function loginWithGithub(
   redirectPath: string,
   _formData: FormData
 ) {
-  setCustomCookie("mysite_auth_type", "signin");
+  setCustomCookie("mysite_auth_type", "githubSignin");
 
-  try {
-    await signIn("github", {
-      redirectTo: redirectPath,
-    });
-  } catch (e) {
-    if (e instanceof AuthError) {
-      return redirect(`/?error=${e.type}`);
-    }
-    throw e;
-  }
+  // NOTE: OAuth認証の場合、Auth.js内部のエラーハンドリングの仕組みに任せるのでtry-catchしない
+  await signIn("github", {
+    redirectTo: redirectPath,
+  });
 }
 
 async function isExistsUser(email: string) {
