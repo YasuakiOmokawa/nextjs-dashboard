@@ -21,14 +21,14 @@ export async function buildProviderAuthResponse(
     });
     return "/login";
   }
-  if (await isSigninButNotExistsLinkedAccount(props)) {
+  if (await isSigninWithoutLinkedAccount(props)) {
     await setFlash({
       type: "error",
       message: "アカウントが存在しません。",
     });
     return "/login";
   }
-  if (await isSignupButExistsLinkedAccount(props)) {
+  if (await isSignupWithExistingLinkedAccount(props)) {
     await setFlash({
       type: "error",
       message: "アカウントがすでに存在します。ログインしてください。",
@@ -55,25 +55,21 @@ async function userExistsWithoutLinkedAccount(props: Props): Promise<boolean> {
   return (
     ["githubSignup", "githubSignin"].includes(props.authType) &&
     !!(await adapter.getUserByEmail?.(props.profileEmail)) &&
-    !(await isExistsLinkedAccount(props))
+    !(await hasLinkedAccount(props))
   );
 }
 
-async function isSigninButNotExistsLinkedAccount(
+async function isSigninWithoutLinkedAccount(props: Props): Promise<boolean> {
+  return props.authType === "githubSignin" && !(await hasLinkedAccount(props));
+}
+
+async function isSignupWithExistingLinkedAccount(
   props: Props
 ): Promise<boolean> {
-  return (
-    props.authType === "githubSignin" && !(await isExistsLinkedAccount(props))
-  );
+  return props.authType === "githubSignup" && (await hasLinkedAccount(props));
 }
 
-async function isSignupButExistsLinkedAccount(props: Props): Promise<boolean> {
-  return (
-    props.authType === "githubSignup" && (await isExistsLinkedAccount(props))
-  );
-}
-
-async function isExistsLinkedAccount(props: Props): Promise<boolean> {
+async function hasLinkedAccount(props: Props): Promise<boolean> {
   return !!(await adapter.getUserByAccount?.({
     providerAccountId: props.providerAccountId,
     provider: props.provider,
