@@ -1,10 +1,10 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import EmailLinkForm from "@/app/ui/email-link-form";
 import GithubAuthForm from "@/app/ui/github-auth-form";
 import AuthFormHeader from "./auth-form-header";
 import MyServiceName from "./my-service-name";
+import EmailLinkSignupForm from "@/app/ui/email-link-signup-form";
 
 export function SignUpForm({
   className,
@@ -25,7 +25,7 @@ export function SignUpForm({
             </a>
           </div>
         </div>
-        <EmailLinkForm />
+        <EmailLinkSignupForm />
         <div className="relative text-center text-sm after:absolute after:inset-0 after:top-1/2 after:z-0 after:flex after:items-center after:border-t after:border-border">
           <span className="relative z-10 bg-background px-2 text-muted-foreground">
             Or
