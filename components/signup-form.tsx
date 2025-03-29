@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import EmailLinkForm from "@/app/ui/email-link-form";
 import GithubAuthForm from "@/app/ui/github-auth-form";
 import AuthFormHeader from "./auth-form-header";
+import MyServiceName from "./my-service-name";
 
 export function SignUpForm({
   className,
@@ -14,7 +15,9 @@ export function SignUpForm({
       <div className="flex flex-col gap-6">
         <div className="flex flex-col items-center gap-2">
           <AuthFormHeader />
-          <h1 className="text-xl font-bold">No more 爆速 へ登録</h1>
+          <h1 className="text-xl font-bold">
+            <MyServiceName /> へ登録
+          </h1>
           <div className="text-center text-sm">
             アカウントをお持ちの方は{" "}
             <a href="/login" className="underline underline-offset-4">
