@@ -17,7 +17,7 @@ export default function GithubAuthForm() {
           height={100}
           className="h-5 w-5"
         />
-        Continue with GitHub
+        GitHub でログイン
       </Button>
     </form>
   );
