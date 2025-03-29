@@ -5,7 +5,7 @@ import GitHub from "next-auth/providers/github";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/prisma";
 import { getAndDeleteCookie } from "@/lib/auth/serverUtils";
-import { setFlash } from "./lib/flash-toaster";
+import { buildProviderAuthResponse } from "./lib/auth/buildProviderAuthResponse";
 
 export const {
   handlers: { GET, POST },
@@ -54,63 +54,12 @@ export const {
       return session;
     },
     async signIn({ account, profile }) {
-      const auth_type = (await getAndDeleteCookie("mysite_auth_type")) ?? "";
-      const adapter = PrismaAdapter(prisma);
-
-      if (
-        ["githubSignup", "githubSignin"].includes(auth_type) &&
-        (await adapter.getUserByEmail?.(profile?.email ?? "")) &&
-        !(await adapter.getUserByAccount?.({
-          providerAccountId: account?.providerAccountId ?? "",
-          provider: account?.provider ?? "",
-        }))
-      ) {
-        await setFlash({
-          type: "error",
-          message: `Email: ${profile?.email} のアカウントが存在します。ログインして連携してください。`,
-        });
-        return "/login";
-      }
-      if (
-        auth_type === "githubSignin" &&
-        !(await adapter.getUserByAccount?.({
-          providerAccountId: account?.providerAccountId ?? "",
-          provider: account?.provider ?? "",
-        }))
-      ) {
-        await setFlash({
-          type: "error",
-          message: "アカウントが存在しません。",
-        });
-        return "/login";
-      }
-      if (
-        auth_type === "githubSignup" &&
-        (await adapter.getUserByAccount?.({
-          providerAccountId: account?.providerAccountId ?? "",
-          provider: account?.provider ?? "",
-        }))
-      ) {
-        await setFlash({
-          type: "error",
-          message: "アカウントがすでに存在します。ログインしてください。",
-        });
-        return "/login";
-      } else {
-        if (auth_type === "githubSignin") {
-          await setFlash({
-            type: "success",
-            message: "ログインしました。",
-          });
-        }
-        if (auth_type === "githubSignup") {
-          await setFlash({
-            type: "success",
-            message: "アカウントを登録しました。",
-          });
-        }
-        return true;
-      }
+      return buildProviderAuthResponse({
+        authType: (await getAndDeleteCookie("mysite_auth_type")) ?? "",
+        profileEmail: profile?.email ?? "",
+        providerAccountId: account?.providerAccountId ?? "",
+        provider: account?.provider ?? "",
+      });
     },
   },
 });
