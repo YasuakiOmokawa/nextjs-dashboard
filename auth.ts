@@ -56,11 +56,14 @@ export const {
     async signIn({ account, profile }) {
       const auth_type = await getAndDeleteCookie("mysite_auth_type");
       const adapter = PrismaAdapter(prisma);
-      const email = profile?.email ?? "";
 
       if (
         auth_type === "githubSignin" &&
-        (await adapter.getUserByEmail?.(email))
+        (await adapter.getUserByEmail?.(profile?.email ?? "")) &&
+        !(await adapter.getUserByAccount?.({
+          providerAccountId: account?.providerAccountId ?? "",
+          provider: account?.provider ?? "",
+        }))
       ) {
         await setFlash({
           type: "error",
@@ -69,17 +72,29 @@ export const {
         });
         return "/login";
       }
-      if (auth_type === "githubSignin" && !account) {
+      if (
+        auth_type === "githubSignin" &&
+        !(await adapter.getUserByAccount?.({
+          providerAccountId: account?.providerAccountId ?? "",
+          provider: account?.provider ?? "",
+        }))
+      ) {
         await setFlash({
           type: "error",
           message: "アカウントが存在しません。",
         });
         return "/login";
       }
-      if (auth_type === "signup" && account) {
+      if (
+        auth_type === "signup" &&
+        (await adapter.getUserByAccount?.({
+          providerAccountId: account?.providerAccountId ?? "",
+          provider: account?.provider ?? "",
+        }))
+      ) {
         await setFlash({
           type: "error",
-          message: "アカウントがすでに存在します。",
+          message: "アカウントがすでに存在します。ログインしてください。",
         });
         return "/signup";
       } else {
