@@ -109,6 +109,49 @@ export async function loginWithEmailLink(
   }
 }
 
+export async function signupWithEmailLink(
+  redirectPath: string,
+  _prevState: unknown,
+  formData: FormData
+) {
+  const submission = parseWithZod(formData, {
+    schema: emailLinkLoginSchema,
+  });
+
+  if (submission.status !== "success") {
+    return submission.reply();
+  }
+
+  if (await isExistsUser(submission.value.email)) {
+    await setFlash({
+      type: "error",
+      message: "アカウントがすでに存在します。",
+    });
+    return submission.reply();
+  }
+
+  try {
+    await signIn("resend", {
+      email: submission.value.email,
+      redirectTo: redirectPath,
+    });
+  } catch (e) {
+    if (e instanceof AuthError) {
+      switch (e.type) {
+        case "EmailSignInError":
+          return submission.reply({
+            formErrors: ["Email SignIn Error."],
+          });
+        default:
+          return submission.reply({
+            formErrors: ["Something went wrong."],
+          });
+      }
+    }
+    throw e;
+  }
+}
+
 export async function updateUser(
   id: string,
   _prevState: unknown,
