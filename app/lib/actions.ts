@@ -49,6 +49,18 @@ export async function loginWithGithub(
   });
 }
 
+export async function signupWithGithub(
+  redirectPath: string,
+  _formData: FormData
+) {
+  setCustomCookie("mysite_auth_type", "githubSignup");
+
+  // NOTE: OAuth認証の場合、Auth.js内部のエラーハンドリングの仕組みに任せるのでtry-catchしない
+  await signIn("github", {
+    redirectTo: redirectPath,
+  });
+}
+
 async function isExistsUser(email: string) {
   try {
     const userCount = await prisma.user.count({

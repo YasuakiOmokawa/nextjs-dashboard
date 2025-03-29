@@ -54,11 +54,11 @@ export const {
       return session;
     },
     async signIn({ account, profile }) {
-      const auth_type = await getAndDeleteCookie("mysite_auth_type");
+      const auth_type = (await getAndDeleteCookie("mysite_auth_type")) ?? "";
       const adapter = PrismaAdapter(prisma);
 
       if (
-        auth_type === "githubSignin" &&
+        ["githubSignup", "githubSignin"].includes(auth_type) &&
         (await adapter.getUserByEmail?.(profile?.email ?? "")) &&
         !(await adapter.getUserByAccount?.({
           providerAccountId: account?.providerAccountId ?? "",
@@ -67,8 +67,7 @@ export const {
       ) {
         await setFlash({
           type: "error",
-          message:
-            "同じEmailのアカウントが存在します。ログインして連携してください。",
+          message: `Email: ${profile?.email} のアカウントが存在します。ログインして連携してください。`,
         });
         return "/login";
       }
@@ -86,7 +85,7 @@ export const {
         return "/login";
       }
       if (
-        auth_type === "signup" &&
+        auth_type === "githubSignup" &&
         (await adapter.getUserByAccount?.({
           providerAccountId: account?.providerAccountId ?? "",
           provider: account?.provider ?? "",
@@ -96,8 +95,20 @@ export const {
           type: "error",
           message: "アカウントがすでに存在します。ログインしてください。",
         });
-        return "/signup";
+        return "/login";
       } else {
+        if (auth_type === "githubSignin") {
+          await setFlash({
+            type: "success",
+            message: "ログインしました。",
+          });
+        }
+        if (auth_type === "githubSignup") {
+          await setFlash({
+            type: "success",
+            message: "アカウントを登録しました。",
+          });
+        }
         return true;
       }
     },

@@ -1,11 +1,12 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import EmailLinkForm from "@/app/ui/email-link-form";
 import GithubAuthForm from "@/app/ui/github-auth-form";
 import AuthFormHeader from "./auth-form-header";
 import MyServiceName from "./my-service-name";
 import Link from "next/link";
+import EmailLinkLoginForm from "@/app/ui/email-link-login-form";
+import AuthFormFooter from "./auth-form-footer";
 
 export function LoginForm({
   className,
@@ -26,7 +27,7 @@ export function LoginForm({
             </Link>
           </div>
         </div>
-        <EmailLinkForm />
+        <EmailLinkLoginForm />
         <div className="relative text-center text-sm after:absolute after:inset-0 after:top-1/2 after:z-0 after:flex after:items-center after:border-t after:border-border">
           <span className="relative z-10 bg-background px-2 text-muted-foreground">
             Or
@@ -36,10 +37,7 @@ export function LoginForm({
           <GithubAuthForm />
         </div>
       </div>
-      <div className="text-balance text-center text-xs text-muted-foreground [&_a]:underline [&_a]:underline-offset-4 hover:[&_a]:text-primary  ">
-        登録またはログインすることで、<a href="#">利用規約</a>または
-        <a href="#">プライバシーポリシー</a>に同意したものとみなします。
-      </div>
+      <AuthFormFooter />
     </div>
   );
 }

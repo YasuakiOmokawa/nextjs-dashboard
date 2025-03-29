@@ -11,7 +11,7 @@ import { parseWithZod } from "@conform-to/zod";
 import { emailLinkLoginSchema } from "@/app/lib/schema/login/schema";
 import { ExclamationCircleIcon } from "@heroicons/react/24/outline";
 
-export default function EmailLinkForm() {
+export default function EmailLinkLoginForm() {
   const [lastResult, action] = useActionState(
     loginWithEmailLink.bind(null, useRedirectPath()),
     undefined
@@ -44,7 +44,7 @@ export default function EmailLinkForm() {
           )}
         </div>
         <Button type="submit" className="w-full">
-          Login
+          ログイン
         </Button>
         {form.errors && (
           <div
