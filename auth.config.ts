@@ -1,5 +1,5 @@
 import type { NextAuthConfig } from "next-auth";
-import { buildNextAuthResponse } from "./lib/auth/utils";
+import { buildNextAuthResponse } from "./lib/auth/buildNextAuthResponse";
 
 export const authConfig = {
   pages: {
