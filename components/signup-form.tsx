@@ -1,11 +1,12 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import GithubAuthForm from "@/app/ui/github-auth-form";
 import AuthFormHeader from "./auth-form-header";
 import MyServiceName from "./my-service-name";
 import EmailLinkSignupForm from "@/app/ui/email-link-signup-form";
 import Link from "next/link";
+import GithubAuthSignupForm from "@/app/ui/github-auth-signup-form";
+import AuthFormFooter from "./auth-form-footer";
 
 export function SignUpForm({
   className,
@@ -33,13 +34,10 @@ export function SignUpForm({
           </span>
         </div>
         <div className="grid gap-4">
-          <GithubAuthForm />
+          <GithubAuthSignupForm />
         </div>
       </div>
-      <div className="text-balance text-center text-xs text-muted-foreground [&_a]:underline [&_a]:underline-offset-4 hover:[&_a]:text-primary  ">
-        登録またはログインすることで、<a href="#">利用規約</a>または
-        <a href="#">プライバシーポリシー</a>に同意したものとみなします。
-      </div>
+      <AuthFormFooter />
     </div>
   );
 }
