@@ -11,8 +11,10 @@ type Props = {
   provider: string;
 };
 
-export async function buildProviderAuthResponse(props: Props) {
-  if (await isExistsUserButAccountNotLinked(props)) {
+export async function buildProviderAuthResponse(
+  props: Props
+): Promise<boolean | string> {
+  if (await userExistsWithoutLinkedAccount(props)) {
     await setFlash({
       type: "error",
       message: `Email: ${props.profileEmail} のアカウントが存在します。ログインして連携してください。`,
@@ -49,7 +51,7 @@ export async function buildProviderAuthResponse(props: Props) {
   }
 }
 
-async function isExistsUserButAccountNotLinked(props: Props): Promise<boolean> {
+async function userExistsWithoutLinkedAccount(props: Props): Promise<boolean> {
   return (
     ["githubSignup", "githubSignin"].includes(props.authType) &&
     !!(await adapter.getUserByEmail?.(props.profileEmail)) &&
