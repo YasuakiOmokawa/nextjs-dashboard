@@ -2,6 +2,7 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { meQuery, teamsQuery } from "@/api";
 import { Card } from "@/components/ui/card";
+import CardMessage from "@/dashboard/card-message";
 
 export default function TeamsPage() {
   const { data: me } = useSuspenseQuery(meQuery);
@@ -50,13 +51,5 @@ function TeamsFrame({ children }: { children: ReactNode }) {
       </div>
       <Card className="overflow-hidden">{children}</Card>
     </div>
-  );
-}
-
-function CardMessage({ children }: { children: ReactNode }) {
-  return (
-    <p className="px-6 py-10 text-center text-sm text-muted-foreground">
-      {children}
-    </p>
   );
 }
