@@ -15,6 +15,7 @@ import { CompanyContext } from "./company-context";
 import {
   CompanyMembers,
   type MemberListError,
+  type Unauthenticated,
 } from "./company-members-service";
 import { Db } from "./db-service";
 import { LevelFromForm } from "./level";
@@ -372,7 +373,11 @@ export class TeamManagement extends Context.Service<
       userId: string,
     ): Effect.Effect<
       void,
-      TeamNotFound | MemberListError | NotCompanyMember | TeamServiceError,
+      | TeamNotFound
+      | MemberListError
+      | Unauthenticated
+      | NotCompanyMember
+      | TeamServiceError,
       CompanyContext
     >;
     unassign(

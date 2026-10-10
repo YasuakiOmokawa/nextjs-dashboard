@@ -3,7 +3,7 @@ import { NAME_MAX_LENGTH } from "@/db/drizzle/schema";
 import type { TeamFailure } from "@/src/services/team-errors";
 
 // hc は状態コードで応答の型を絞るので、成功の 2xx を混ぜない
-type FailureStatus = 403 | 404 | 409 | 422 | 500 | 502 | 503;
+type FailureStatus = 401 | 403 | 404 | 409 | 422 | 500 | 502 | 503;
 
 type FailureHandling = {
   readonly message: string;
@@ -51,6 +51,7 @@ const handlingOf = (failure: TeamFailure) =>
     NotAssigned: () =>
       expectedFailure("チームに割り当てられた人だけが記入できます", 403),
     InvalidLevel: () => expectedFailure("レベルの値が正しくありません", 422),
+    Unauthenticated: () => expectedFailure("ログインし直してください", 401),
     MemberListError: ({ cause }) =>
       unexpectedFailure("メンバー一覧を取得できませんでした", 502, () =>
         console.error("listMembers failed", cause),

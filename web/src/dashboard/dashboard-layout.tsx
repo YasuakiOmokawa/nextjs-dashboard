@@ -1,5 +1,5 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { Link, Outlet } from "@tanstack/react-router";
+import { Link, type LinkProps, Outlet } from "@tanstack/react-router";
 import { meQuery } from "@/api";
 import MyServiceName from "@/components/my-service-name";
 
@@ -14,15 +14,9 @@ export default function DashboardLayout() {
           <Link to="/dashboard/teams" className="text-lg font-bold text-brand">
             <MyServiceName />
           </Link>
-          <nav className="text-sm font-medium">
-            <Link
-              to="/dashboard/teams"
-              className="hover:text-foreground"
-              activeProps={{ className: "text-foreground" }}
-              inactiveProps={{ className: "text-muted-foreground" }}
-            >
-              チーム
-            </Link>
+          <nav className="flex gap-4 text-sm font-medium">
+            <NavLink to="/dashboard/teams">チーム</NavLink>
+            <NavLink to="/dashboard/members">メンバー</NavLink>
           </nav>
           <div className="ml-auto flex items-center gap-4 text-sm">
             <span className="truncate">{me.name}</span>
@@ -49,6 +43,19 @@ export default function DashboardLayout() {
         </Link>
       </footer>
     </div>
+  );
+}
+
+function NavLink({ to, children }: { to: LinkProps["to"]; children: string }) {
+  return (
+    <Link
+      to={to}
+      className="hover:text-foreground"
+      activeProps={{ className: "text-foreground" }}
+      inactiveProps={{ className: "text-muted-foreground" }}
+    >
+      {children}
+    </Link>
   );
 }
 

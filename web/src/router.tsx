@@ -6,8 +6,9 @@ import {
   type RouterHistory,
   redirect,
 } from "@tanstack/react-router";
-import { meQuery, teamsQuery } from "@/api";
+import { membersQuery, meQuery, teamsQuery } from "@/api";
 import DashboardLayout, { DashboardError } from "@/dashboard/dashboard-layout";
+import MembersPage, { MembersError } from "@/dashboard/members-page";
 import TeamsPage, { TeamsError } from "@/dashboard/teams-page";
 import LandingPage from "@/landing/landing-page";
 import PrivacyPage from "@/privacy/privacy-page";
@@ -47,6 +48,13 @@ const routeTree = rootRoute.addChildren([
       loader: ({ context }) => context.queryClient.fetchQuery(teamsQuery),
       component: TeamsPage,
       errorComponent: TeamsError,
+    }),
+    createRoute({
+      getParentRoute: () => dashboardRoute,
+      path: "/members",
+      loader: ({ context }) => context.queryClient.fetchQuery(membersQuery),
+      component: MembersPage,
+      errorComponent: MembersError,
     }),
   ]),
 ]);

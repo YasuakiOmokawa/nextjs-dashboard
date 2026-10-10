@@ -22,3 +22,8 @@ export const teamsQuery = queryOptions({
   queryKey: ["teams"],
   queryFn: () => parseResponse(api.teams.$get()),
 });
+
+export const membersQuery = queryOptions({
+  queryKey: ["members"],
+  queryFn: () => parseResponse(api.members.$get()),
+});

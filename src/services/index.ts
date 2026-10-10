@@ -4,12 +4,16 @@ import { withCompanyScope } from "@/db/scoped";
 import { reportUnexpectedFailure } from "@/src/lib/team-failure";
 import { AuthorizationContext } from "./authorization-context";
 import { CompanyContext } from "./company-context";
+import { CompanyMembers } from "./company-members-service";
 import { Db, DbUnavailable } from "./db-service";
 import type { TeamFailure } from "./team-errors";
 import { TeamService } from "./team-service";
 
 export type RequestSession = CompanyContext["Service"] &
-  AuthorizationContext["Service"] & { readonly userName: string };
+  AuthorizationContext["Service"] & {
+    readonly userName: string;
+    readonly companyMembers: CompanyMembers["Service"];
+  };
 
 const Live = Layer.empty;
 type LiveServices = Layer.Success<typeof Live>;
@@ -19,17 +23,52 @@ const RequestScoped = TeamService.layer;
 
 const runtime = ManagedRuntime.make(Live);
 
-type ProvidedPerRequest = Db | CompanyContext | AuthorizationContext;
+type ProvidedPerRequest =
+  | CompanyContext
+  | AuthorizationContext
+  | CompanyMembers;
 
-// CompanyContext・AuthorizationContext を Live に含めると session 無しで実行できてしまう (docs/adr/0002 D3)
-type _NoRequestContextInLive = [CompanyContext] extends [LiveServices]
-  ? "ERROR: CompanyContext must NOT be in Live"
-  : [AuthorizationContext] extends [LiveServices]
-    ? "ERROR: AuthorizationContext must NOT be in Live"
-    : [Db] extends [LiveServices]
-      ? "ERROR: Db must NOT be in Live"
-      : true;
+// 要求ごとの Service を Live に含めると session 無しで実行できてしまう (docs/adr/0002 D3)
+type _NoRequestContextInLive = [
+  Extract<LiveServices, ProvidedPerRequest | Db>,
+] extends [never]
+  ? true
+  : "ERROR: per-request services must NOT be in Live";
 const _assertNoRequestContextInLive: _NoRequestContextInLive = true;
+
+declare const fromExecutor: unique symbol;
+// resultJson が実行口を通さずに作った Result を受けないための印
+export type ServiceResult<A, E> = Result.Result<A, E> & {
+  readonly [fromExecutor]: true;
+};
+
+const reported = <A, E extends TeamFailure>(result: Result.Result<A, E>) => {
+  if (Result.isFailure(result)) reportUnexpectedFailure(result.failure);
+  return result as ServiceResult<A, E>;
+};
+
+const provideSession =
+  (session: RequestSession) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(
+      Effect.provideService(CompanyContext, { companyId: session.companyId }),
+      Effect.provideService(AuthorizationContext, {
+        userId: session.userId,
+        role: session.role,
+      }),
+      Effect.provideService(CompanyMembers, session.companyMembers),
+    );
+
+// SQL を流さない本体に、transaction の接続と BEGIN・set_config・COMMIT を払わせない
+export const runServiceWithoutDb = async <A, E extends TeamFailure>(
+  session: RequestSession,
+  body: () => Effect.Effect<A, E, LiveServices | ProvidedPerRequest>,
+): Promise<ServiceResult<A, E>> =>
+  reported(
+    await runtime.runPromise(
+      Effect.result(Effect.suspend(body).pipe(provideSession(session))),
+    ),
+  );
 
 class BodyDefect {
   constructor(readonly defect: unknown) {}
@@ -46,9 +85,9 @@ export const runScopedService = async <A, E extends TeamFailure>(
   body: () => Effect.Effect<
     A,
     E,
-    LiveServices | Layer.Success<typeof RequestScoped> | ProvidedPerRequest
+    LiveServices | Layer.Success<typeof RequestScoped> | ProvidedPerRequest | Db
   >,
-): Promise<Result.Result<A, E | DbUnavailable>> => {
+): Promise<ServiceResult<A, E | DbUnavailable>> => {
   let result: Result.Result<A, E | DbUnavailable>;
   try {
     result = await withCompanyScope(db, session.companyId, async (tx) => {
@@ -58,13 +97,7 @@ export const runScopedService = async <A, E extends TeamFailure>(
             Effect.suspend(body).pipe(
               Effect.provide(RequestScoped),
               Effect.provideService(Db, tx),
-              Effect.provideService(CompanyContext, {
-                companyId: session.companyId,
-              }),
-              Effect.provideService(AuthorizationContext, {
-                userId: session.userId,
-                role: session.role,
-              }),
+              provideSession(session),
             ),
           ),
         )
@@ -82,6 +115,5 @@ export const runScopedService = async <A, E extends TeamFailure>(
         ? Result.fail(error.failure)
         : Result.fail(new DbUnavailable({ cause: error }));
   }
-  if (Result.isFailure(result)) reportUnexpectedFailure(result.failure);
-  return result;
+  return reported(result);
 };
