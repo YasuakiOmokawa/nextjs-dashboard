@@ -1,5 +1,8 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { MemberListError } from "@/src/services/company-members-service";
+import {
+  MemberListError,
+  Unauthenticated,
+} from "@/src/services/company-members-service";
 import { DbUnavailable } from "@/src/services/db-service";
 import {
   DuplicateName,
@@ -51,8 +54,14 @@ const handlingByTag = {
     "notReported",
     422,
   ],
+  Unauthenticated: [
+    new Unauthenticated({ reason: "SESSION_NOT_FOUND" }),
+    "ログインし直してください",
+    "notReported",
+    401,
+  ],
   MemberListError: [
-    new MemberListError({ cause: 2 }),
+    new MemberListError({ cause: "UNSPECIFIED" }),
     "メンバー一覧を取得できませんでした",
     "reported",
     502,

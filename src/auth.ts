@@ -5,12 +5,14 @@ import {
   createAuthGuard,
   createServiceKeyInterceptor,
   extractSessionTokenFromCookieHeader,
+  type ListMembersResult,
   Result,
   type SessionData,
   type VerifyResult,
 } from "@taimei-code/auth-client";
 import { CompanyId } from "@/db/ids";
 import type { RequestSession } from "@/src/services";
+import { CompanyMembers } from "@/src/services/company-members-service";
 
 export type AuthEnv = {
   readonly AUTH: { fetch: typeof fetch };
@@ -41,31 +43,45 @@ const authClientOf = (env: AuthEnv) => {
   });
 };
 
-export const verifySession = async (
-  env: AuthEnv,
-  cookieHeader: string | undefined,
-): Promise<VerifyResult> => {
-  const result = await createAuthGuard({
+// ponytail: 引数を見ずに最初の結果を返す。SDK が引数を取る関数を cache で包む版に上がったら引数で引く
+const once = <Args extends readonly unknown[], R>(fn: (...args: Args) => R) => {
+  let called: { readonly value: R } | undefined;
+  return (...args: Args) => {
+    called ??= { value: fn(...args) };
+    return called.value;
+  };
+};
+
+// SDK の listMembers は getSession を呼び直すので、1 要求の guard で VerifySession を 1 回にする
+export const authGuardOf = (env: AuthEnv, cookieHeader: string | undefined) => {
+  const guard = createAuthGuard({
     client: authClientOf(env),
     getSessionToken: async () =>
       extractSessionTokenFromCookieHeader(cookieHeader ?? ""),
-  }).getSession();
-  if (!result.ok && result.reason === Result.UNSPECIFIED)
-    console.error("taimei-auth で session を確かめられなかった");
-  return result;
+    cache: once,
+  });
+  return {
+    verifySession: async (): Promise<VerifyResult> => {
+      const result = await guard.getSession();
+      if (!result.ok && result.reason === Result.UNSPECIFIED)
+        console.error("taimei-auth で session を確かめられなかった");
+      return result;
+    },
+    listMembers: guard.listMembers,
+  };
 };
 
-export const requestSessionOf = ({
-  companyId,
-  user,
-  role,
-}: SessionData): RequestSession | undefined =>
+export const requestSessionOf = (
+  { companyId, user, role }: SessionData,
+  listMembers: () => Promise<ListMembersResult>,
+): RequestSession | undefined =>
   companyId
     ? {
         companyId: CompanyId.make(companyId),
         userId: user.id,
         userName: user.name,
         role,
+        companyMembers: CompanyMembers.fromListMembers(listMembers),
       }
     : undefined;
 
@@ -109,12 +125,24 @@ const authErrorLocation = (
 };
 
 // taimei-auth の画面は service_name と絶対 URL の redirect_url しか受け付けない (allowlist の検査)
-const companySignUpLocation = (authUrl: string, returnTo: string) => {
-  const url = new URL("/auth/signup/company", authUrl);
+const authScreenLocation = (
+  authUrl: string,
+  path: string,
+  returnTo: string,
+) => {
+  const url = new URL(path, authUrl);
   url.searchParams.set("service_name", "taimei");
   url.searchParams.set("redirect_url", returnTo);
   return url.toString();
 };
+
+// 招待を受けると現在の事業所が招待先になるので、/dashboard がその事業所の画面になる (#561)
+export const inviteMembersLocation = (authUrl: string, origin: string) =>
+  authScreenLocation(
+    authUrl,
+    "/account/members",
+    new URL(DEFAULT_LANDING_PATH, origin).toString(),
+  );
 
 export const afterSignInLocation = (
   result: VerifyResult,
@@ -124,7 +152,8 @@ export const afterSignInLocation = (
 ) => {
   if (!result.ok) return authErrorLocation(authUrl, "signin_failed");
   const landing = new URL(callbackPath, origin).toString();
-  if (!result.data.companyId) return companySignUpLocation(authUrl, landing);
+  if (!result.data.companyId)
+    return authScreenLocation(authUrl, "/auth/signup/company", landing);
   return landing;
 };
 

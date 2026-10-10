@@ -1,14 +1,16 @@
 import { readFileSync } from "node:fs";
 import { buildAuthLoginUrl } from "@taimei-code/auth-client";
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { teams } from "@/db/drizzle/schema";
 import { CompanyId } from "@/db/ids";
+import { type RequestSession, runServiceWithoutDb } from "@/src/services";
 import { withRollbackDb } from "@/src/services/__tests__/db/test-db";
+import { CompanyMembers } from "@/src/services/company-members-service";
 import { TeamNotFound } from "@/src/services/team-errors";
 import { app, type Env } from "../app";
-import { runJson, type SessionVariables } from "../run-json";
+import { resultJson } from "../run-json";
 
 vi.mock("@/db/drizzle/client", async () => ({
   db: (await import("@/src/services/__tests__/db/test-db")).dbInRollback,
@@ -49,14 +51,29 @@ const sessionError = () =>
   Response.json({ error: { reason: "RESULT_SESSION_NOT_FOUND" } });
 
 let binding: ReturnType<typeof vi.fn<typeof fetch>>;
-const envWith = (response: () => Response | Promise<Response>): Env => {
-  binding = vi.fn<typeof fetch>(async () => response());
+const envWithBinding = (fetch: typeof binding): Env => {
+  binding = fetch;
   return {
     AUTH: { fetch: binding },
     AUTH_URL,
     HYPERDRIVE: { connectionString: "unused" },
   };
 };
+
+const envWith = (response: () => Response | Promise<Response>) =>
+  envWithBinding(vi.fn<typeof fetch>(async () => response()));
+
+const envWithMembers = (list: () => Response, session: SessionOptions = {}) =>
+  envWithBinding(
+    vi.fn<typeof fetch>(async (input) =>
+      String(input).endsWith("/VerifySession") ? sessionOk(session) : list(),
+    ),
+  );
+
+const membersOk = (
+  members: readonly Record<string, string>[],
+  companyId = "cmp_app_a",
+) => Response.json({ ok: { companyId, members } });
 
 const get = (path: string, env: Env, headers: HeadersInit = COOKIE) =>
   app.request(`${ORIGIN}${path}`, { headers }, env);
@@ -123,6 +140,7 @@ describe("全ての route の認証", () => {
     "GET /auth/after-signin",
     "GET /auth/after-signup",
     "GET /auth/account",
+    "GET /auth/account/members",
   ];
   const nonPublicRoutes = routes.filter(
     (r) => !PUBLIC_ENDPOINTS.includes(routeKey(r)),
@@ -136,7 +154,11 @@ describe("全ての route の認証", () => {
 
   it("公開でない route がある", () => {
     expect(nonPublicRoutes.map(routeKey)).toEqual(
-      expect.arrayContaining(["GET /api/me", "GET /api/teams"]),
+      expect.arrayContaining([
+        "GET /api/me",
+        "GET /api/teams",
+        "GET /api/members",
+      ]),
     );
   });
 
@@ -219,6 +241,143 @@ describe("GET /api/teams", () => {
         teams: [{ id: a.id, name: "A のチーム" }],
       });
     }));
+});
+
+describe("GET /api/members", () => {
+  const rpcNames = () =>
+    binding.mock.calls.map(([input]) => new URL(String(input)).pathname);
+
+  it("名前・メールアドレス・role だけを返す", async () => {
+    const response = await get(
+      "/api/members",
+      envWithMembers(() =>
+        membersOk([
+          {
+            userId: "u_1",
+            name: "山田 花子",
+            email: "hanako@example.com",
+            role: "ROLE_OWNER",
+          },
+        ]),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      members: [
+        { name: "山田 花子", email: "hanako@example.com", role: "OWNER" },
+      ],
+    });
+  });
+
+  it.each([
+    ["空白だけの名前はメールアドレスにする", "  ", "taro@example.com"],
+    ["名前の前後の空白は除く", " 山田 ", "山田"],
+  ])("%s", async (_, name, shown) => {
+    const response = await get(
+      "/api/members",
+      envWithMembers(() =>
+        membersOk([
+          {
+            userId: "u_2",
+            name,
+            email: "taro@example.com",
+            role: "ROLE_MEMBER",
+          },
+        ]),
+      ),
+    );
+
+    expect((await response.json()).members[0].name).toBe(shown);
+  });
+
+  it("SDK が知らない role の人には role を載せない", async () => {
+    const response = await get(
+      "/api/members",
+      envWithMembers(() =>
+        membersOk([
+          {
+            userId: "u_2",
+            name: "山田",
+            email: "taro@example.com",
+            role: "ROLE_UNSPECIFIED",
+          },
+        ]),
+      ),
+    );
+
+    expect((await response.json()).members[0]).not.toHaveProperty("role");
+  });
+
+  it.each([
+    ["role の無い", undefined],
+    ["MEMBER の", "ROLE_MEMBER"],
+  ] as const)(
+    "%s session にも一覧を返す (taimei-auth は事業所のメンバーなら誰にでも返す)",
+    async (_, role) => {
+      const response = await get(
+        "/api/members",
+        envWithMembers(
+          () =>
+            membersOk([
+              {
+                userId: "u_2",
+                name: "山田",
+                email: "taro@example.com",
+                role: "ROLE_ADMIN",
+              },
+            ]),
+          { role },
+        ),
+      );
+
+      expect(response.status).toBe(200);
+      expect((await response.json()).members).toHaveLength(1);
+    },
+  );
+
+  it("session の確認と一覧の取得で taimei-auth を 2 回だけ呼ぶ", async () => {
+    await get(
+      "/api/members",
+      envWithMembers(() => membersOk([])),
+    );
+
+    expect(rpcNames()).toEqual([
+      "/rpc/auth.v1.AuthService/VerifySession",
+      "/rpc/auth.v1.AuthService/ListCurrentCompanyMembers",
+    ]);
+  });
+
+  it.each([
+    [
+      "一覧の RPC が失敗を返す",
+      () => Response.json({ error: { reason: "RESULT_UNSPECIFIED" } }),
+    ],
+    ["一覧の事業所が session の事業所と違う", () => membersOk([], "cmp_app_b")],
+  ])("%s と 502 で、1 回報告する", async (_, list) => {
+    const response = await get("/api/members", envWithMembers(list));
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      _tag: "MemberListError",
+      message: "メンバー一覧を取得できませんでした",
+    });
+    expect(consoleError).toHaveBeenCalledExactlyOnceWith(
+      "listMembers failed",
+      expect.anything(),
+    );
+  });
+
+  it("一覧の RPC が session の失敗を返すと 401 で、報告しない", async () => {
+    const response = await get("/api/members", envWithMembers(sessionError));
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      _tag: "Unauthenticated",
+      message: "ログインし直してください",
+    });
+    expect(consoleError).not.toHaveBeenCalled();
+  });
 });
 
 describe("GET /api/me", () => {
@@ -472,47 +631,76 @@ describe("/auth の着地", () => {
   });
 });
 
-describe("runJson", () => {
-  const session = {
+describe("GET /auth/account/members", () => {
+  it("taimei-auth のメンバー画面へ、戻り先を /dashboard にして移す", async () => {
+    const response = await get(
+      "/auth/account/members",
+      envWith(sessionError),
+      {},
+    );
+
+    const location = locationOf(response);
+    expect(response.status).toBe(302);
+    expect(location.origin + location.pathname).toBe(
+      `${AUTH_URL}/account/members`,
+    );
+    expect(location.searchParams.get("service_name")).toBe("taimei");
+    expect(location.searchParams.get("redirect_url")).toBe(
+      `${ORIGIN}/dashboard`,
+    );
+  });
+});
+
+describe("resultJson", () => {
+  const session: RequestSession = {
     companyId: CompanyId.make("cmp_app_a"),
     userId: "u_1",
+    role: undefined,
     userName: "山田 花子",
-    role: "OWNER" as const,
+    companyMembers: CompanyMembers.of({ list: Effect.succeed([]) }),
   };
-  const withSession = () =>
-    new Hono<SessionVariables>().use((c, next) => {
-      c.set("session", session);
-      return next();
-    });
 
-  it("失敗は表の状態コードと文言で返す", () =>
-    withRollbackDb(async () => {
-      const response = await withSession()
-        .get("/x", (c) =>
-          runJson(c, Schema.Struct({}), () =>
+  it("失敗は表の状態コードと文言で返す", async () => {
+    const response = await new Hono()
+      .get("/x", async (c) =>
+        resultJson(
+          c,
+          Schema.Struct({}),
+          await runServiceWithoutDb(session, () =>
             Effect.fail(new TeamNotFound({ teamId: "t" })),
           ),
-        )
-        .request("/x");
+        ),
+      )
+      .request("/x");
 
-      expect(response.status).toBe(404);
-      expect(await response.json()).toEqual({
-        _tag: "TeamNotFound",
-        message: "チームが見つかりません",
-      });
-    }));
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      _tag: "TeamNotFound",
+      message: "チームが見つかりません",
+    });
+  });
 
-  it("成功は schema に無い key を落として返す", () =>
-    withRollbackDb(async () => {
-      const response = await withSession()
-        .get("/x", (c) =>
-          runJson(c, Schema.Struct({ id: Schema.String }), () =>
+  it("成功は schema に無い key を落として返す", async () => {
+    const response = await new Hono()
+      .get("/x", async (c) =>
+        resultJson(
+          c,
+          Schema.Struct({ id: Schema.String }),
+          await runServiceWithoutDb(session, () =>
             Effect.succeed({ id: "t", email: "leak@example.com" }),
           ),
-        )
-        .request("/x");
+        ),
+      )
+      .request("/x");
 
-      expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ id: "t" });
-    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ id: "t" });
+  });
+
+  it("実行口を通さない Result は型エラーになる (bun run typecheck で見る)", () => {
+    new Hono().get("/x", (c) =>
+      // @ts-expect-error 実行口 (runServiceWithoutDb・runScopedService) の結果だけを受ける
+      resultJson(c, Schema.Struct({}), Result.succeed({})),
+    );
+  });
 });

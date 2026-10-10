@@ -1,5 +1,8 @@
 import { Schema } from "effect";
-import type { MemberListError } from "./company-members-service";
+import type {
+  MemberListError,
+  Unauthenticated,
+} from "./company-members-service";
 import type { DbUnavailable } from "./db-service";
 
 export class TeamNotFound extends Schema.TaggedError<TeamNotFound>()(
@@ -59,6 +62,7 @@ export type TeamFailure =
   | SkillNotFound
   | NotCompanyMember
   | MemberListError
+  | Unauthenticated
   | InvalidName
   | DuplicateName
   | NotAssigned
