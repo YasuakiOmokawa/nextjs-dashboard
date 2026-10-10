@@ -40,6 +40,6 @@ SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = current_user;
 ## Consequences
 
 - 展開の順序: `withCompanyScope` のコードを先に本番へ展開し、その後に 0009 を merge する。0009 の後に `DATABASE_URL` を `taimei_app` に切り替える。切り替えるまでアプリは owner で接続し、policy は効かないが壊しもしない
-- 割り当て (`TeamManagement.assign`) は transaction の中で taimei-auth への RPC (メンバー一覧) を待ち、その間も接続を 1 本持つ。待つのは RPC の timeout (10 秒) まで。DB を使わないメンバー一覧の画面は transaction を開かない (`runService`)
+- 割り当て (`TeamManagement.assign`) は transaction の中で taimei-auth への RPC (メンバー一覧) を待ち、その間も接続を 1 本持つ。待つのは RPC の timeout (10 秒) まで。DB を使わないメンバー一覧の画面は transaction を開かない (`runServiceWithoutDb`)
 - 新しい表を足す時は、`company_id` と policy を同じ migration に入れる。`ALTER DEFAULT PRIVILEGES` で `taimei_app` の権限は自動で付く
 - test と e2e の DB は superuser なので、アプリの分離のテスト (`team-service.test.ts`、e2e) は RLS を通らない。RLS の回帰は `rls.test.ts` だけが捕まえる
