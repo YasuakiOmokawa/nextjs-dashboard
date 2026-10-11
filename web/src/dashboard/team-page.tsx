@@ -1,4 +1,8 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import {
   type ErrorComponentProps,
   Link,
@@ -6,16 +10,31 @@ import {
 } from "@tanstack/react-router";
 import { DetailedError } from "hono/client";
 import { ChevronLeft } from "lucide-react";
-import type { ReactNode } from "react";
-import { meQuery, teamQuery } from "@/api";
+import type { FormEvent, ReactNode } from "react";
+import {
+  failureMessageOf,
+  meQuery,
+  saveMyLevels,
+  teamQuery,
+  writeSavedMyLevels,
+} from "@/api";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import CardMessage from "@/dashboard/card-message";
-import { levels } from "@/dashboard/level";
+import {
+  levelEntriesOf,
+  levelFieldName,
+  levels,
+  wantsToLearnFieldName,
+} from "@/dashboard/level";
 import {
   BIAS_RULE,
   type Cell,
+  type MyLevelEntry,
   type Roster,
+  type TeamDetail,
   teamSkillMatrix,
+  withMyLevels,
 } from "@/dashboard/skill-matrix";
 
 type ReadyRoster = Extract<Roster, { _tag: "MatrixReady" }>;
@@ -33,9 +52,14 @@ export default function TeamPage() {
   const { teamId } = useParams({ from: "/dashboard/teams/$teamId" });
   const { data: me } = useSuspenseQuery(meQuery);
   const {
-    data: { team, members },
+    data: { team: savedTeam, members },
   } = useSuspenseQuery(teamQuery(teamId));
-  const { roster } = teamSkillMatrix(team, members, me.userId);
+  const { teamWithPendingSave: team, ...myLevelsForm } = useSaveMyLevels(
+    teamId,
+    me.userId,
+    savedTeam,
+  );
+  const { myCells, roster } = teamSkillMatrix(team, members, me.userId);
 
   return (
     <TeamFrame title={team.name}>
@@ -46,6 +70,7 @@ export default function TeamPage() {
           <CardMessage>{messagesWithoutMatrix[roster._tag]}</CardMessage>
         )}
       </Section>
+      <MyLevelsForm cells={myCells} {...myLevelsForm} />
       <div className="grid items-start gap-6 lg:grid-cols-2">
         <Section title="スキル" description="星取表の列になります">
           <NameList
@@ -71,6 +96,114 @@ export default function TeamPage() {
       </div>
     </TeamFrame>
   );
+}
+
+const UNRECORDED_MARK = "—";
+
+const symbolOrBlank = (symbol: string) => symbol || "空欄";
+
+// 記入した値は消せない (消す API が無い) ので、未記入は記入していないスキルにだけ出す
+const UNRECORDED_VALUE = "";
+const unrecordedOption = (
+  <option value={UNRECORDED_VALUE}>{`${UNRECORDED_MARK}: 未記入`}</option>
+);
+
+const levelOptions = Object.entries(levels).map(
+  ([level, { symbol, label }]) => (
+    <option key={level} value={level}>
+      {`${symbolOrBlank(symbol)}: ${label}`}
+    </option>
+  ),
+);
+
+function MyLevelsForm({
+  cells,
+  saving,
+  failure,
+  onSave,
+}: {
+  cells: readonly Cell[];
+  saving: boolean;
+  failure: string | undefined;
+  onSave: (entries: readonly MyLevelEntry[]) => void;
+}) {
+  if (cells.length === 0) return null;
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onSave(levelEntriesOf(cells, new FormData(event.currentTarget)));
+  };
+
+  return (
+    <Section
+      title="自分のレベル"
+      description="記入すると星取表の自分の行に出ます"
+    >
+      <form onSubmit={submit} className="space-y-4 px-6 pb-6">
+        <ul className="divide-y border-y">
+          {cells.map((cell) => (
+            <li
+              key={cell.skill.id}
+              className="flex min-h-14 flex-wrap items-center gap-x-6 gap-y-2 py-2 text-sm"
+            >
+              <span className="min-w-32 font-medium">{cell.skill.name}</span>
+              <select
+                name={levelFieldName(cell.skill.id)}
+                aria-label={`${cell.skill.name} のレベル`}
+                defaultValue={cell.recorded ? cell.level : UNRECORDED_VALUE}
+                className="rounded-md border-input font-symbol text-sm"
+              >
+                {cell.recorded ? null : unrecordedOption}
+                {levelOptions}
+              </select>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  name={wantsToLearnFieldName(cell.skill.id)}
+                  aria-label={`${cell.skill.name} を学びたい`}
+                  defaultChecked={cell.wantsToLearn}
+                  className="size-4 rounded border-input text-primary focus:ring-ring"
+                />
+                学びたい
+              </label>
+            </li>
+          ))}
+        </ul>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <Button type="submit" size="sm" disabled={saving}>
+            保存
+          </Button>
+          {failure ? (
+            <p role="alert" className="text-sm text-destructive">
+              {failure}
+            </p>
+          ) : null}
+        </div>
+      </form>
+    </Section>
+  );
+}
+
+function useSaveMyLevels(
+  teamId: string,
+  myUserId: string,
+  savedTeam: TeamDetail,
+) {
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (entries: readonly MyLevelEntry[]) =>
+      saveMyLevels(teamId, entries),
+    onSuccess: (_saved, entries) =>
+      writeSavedMyLevels(queryClient, teamId, myUserId, entries),
+  });
+  return {
+    teamWithPendingSave: save.isPending
+      ? withMyLevels(savedTeam, myUserId, save.variables)
+      : savedTeam,
+    saving: save.isPending,
+    failure: save.isError ? failureMessageOf(save.error) : undefined,
+    onSave: save.mutate,
+  };
 }
 
 export function TeamError({ error }: ErrorComponentProps) {
@@ -231,8 +364,6 @@ function SummaryRows({ summaries }: { summaries: ReadyRoster["summaries"] }) {
   );
 }
 
-const UNRECORDED_MARK = "—";
-
 function Legend() {
   return (
     <p className="flex flex-wrap gap-x-4 gap-y-1 px-6 py-4 text-xs text-muted-foreground">
@@ -241,7 +372,7 @@ function Legend() {
         .map(({ symbol, label }) => (
           <span key={label}>
             <span className="font-symbol font-semibold text-foreground">
-              {symbol || "空欄"}
+              {symbolOrBlank(symbol)}
             </span>{" "}
             {label}
           </span>

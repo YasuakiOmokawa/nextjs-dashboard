@@ -1,6 +1,11 @@
 import { expect, it } from "vitest";
 import type { Level } from "../level";
-import { type Member, type TeamDetail, teamSkillMatrix } from "../skill-matrix";
+import {
+  type Member,
+  type TeamDetail,
+  teamSkillMatrix,
+  withMyLevels,
+} from "../skill-matrix";
 
 const member = (userId: string): Member => ({ userId, name: userId });
 
@@ -247,4 +252,33 @@ it("スキル 1 つと事業所にいる割り当てたメンバー 1 人がそ�
   });
 
   expect(rows).toHaveLength(1);
+});
+
+it("自分の保存を重ねると、送ったスキルの自分の記録だけが送った値になり、他人と送っていないスキルの記録は変わらない", () => {
+  const [s1, s2, s3] = [skill(1), skill(2), skill(3)];
+  const before = team({
+    skills: [s1, s2, s3],
+    assignedUserIds: ["u_1", "u_2"],
+    levels: [
+      recorded("u_1", s1, 1),
+      recorded("u_1", s2, 2, true),
+      recorded("u_2", s1, 3),
+    ],
+  });
+
+  const after = withMyLevels(before, "u_1", [
+    { skillId: s1.id, level: 3, wantsToLearn: true },
+    { skillId: s3.id, level: 0, wantsToLearn: true },
+  ]);
+
+  expect(after).toEqual({
+    ...before,
+    levels: expect.arrayContaining([
+      recorded("u_1", s1, 3, true),
+      recorded("u_1", s2, 2, true),
+      recorded("u_1", s3, 0, true),
+      recorded("u_2", s1, 3),
+    ]),
+  });
+  expect(after.levels).toHaveLength(4);
 });
