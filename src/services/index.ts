@@ -2,13 +2,13 @@ import { Effect, Layer, ManagedRuntime, Result } from "effect";
 import { db } from "@/db/drizzle/client";
 import { withCompanyScope } from "@/db/scoped";
 import { reportUnexpectedFailure } from "@/src/lib/team-failure";
-import { AuthorizationContext } from "./authorization-context";
+import { AuthorizationContext, isManager } from "./authorization-context";
 import { CompanyContext } from "./company-context";
 import { CompanyMembers } from "./company-members-service";
 import { Db, DbUnavailable, ReadDb } from "./db-service";
-import type { TeamFailure } from "./team-errors";
+import { NotManager, type TeamFailure } from "./team-errors";
 import { TeamReads } from "./team-reads";
-import { TeamService } from "./team-service";
+import { TeamManagement, TeamService } from "./team-service";
 
 export type RequestSession = CompanyContext["Service"] &
   AuthorizationContext["Service"] & {
@@ -21,6 +21,8 @@ type LiveServices = Layer.Success<typeof Live>;
 
 // Db を要る Service。実行口が request ごとに、RLS の事業所を設定した transaction の Db で作る (docs/adr/0005)
 const RequestScoped = TeamService.layer;
+// 組み立てが管理者でないと NotManager で失敗するので、メンバーも通る RequestScoped に混ぜない
+const ManagerScoped = TeamManagement.layer;
 
 const runtime = ManagedRuntime.make(Live);
 
@@ -97,13 +99,9 @@ class BodyFailure<E> {
 }
 
 // companyId を引数で受けず session から導く理由は docs/adr/0002-company-data-scoping.md (D3)
-export const runScopedService = async <A, E extends TeamFailure>(
+const runInCompanyScope = async <A, E extends TeamFailure>(
   session: RequestSession,
-  body: () => Effect.Effect<
-    A,
-    E,
-    LiveServices | Layer.Success<typeof RequestScoped> | ProvidedPerRequest | Db
-  >,
+  body: () => Effect.Effect<A, E, LiveServices | ProvidedPerRequest | Db>,
 ): Promise<ServiceResult<A, E | DbUnavailable>> => {
   let result: Result.Result<A, E | DbUnavailable>;
   try {
@@ -112,7 +110,6 @@ export const runScopedService = async <A, E extends TeamFailure>(
         .runPromise(
           Effect.result(
             Effect.suspend(body).pipe(
-              Effect.provide(RequestScoped),
               Effect.provideService(Db, tx),
               provideSession(session),
             ),
@@ -134,3 +131,27 @@ export const runScopedService = async <A, E extends TeamFailure>(
   }
   return reported(result);
 };
+
+export const runScopedService = <A, E extends TeamFailure>(
+  session: RequestSession,
+  body: () => Effect.Effect<
+    A,
+    E,
+    LiveServices | Layer.Success<typeof RequestScoped> | ProvidedPerRequest | Db
+  >,
+) =>
+  runInCompanyScope(session, () => body().pipe(Effect.provide(RequestScoped)));
+
+export const runManagerScopedService = async <A, E extends TeamFailure>(
+  session: RequestSession,
+  body: () => Effect.Effect<
+    A,
+    E,
+    LiveServices | Layer.Success<typeof ManagerScoped> | ProvidedPerRequest | Db
+  >,
+): Promise<ServiceResult<A, E | NotManager | DbUnavailable>> =>
+  isManager(session.role)
+    ? runInCompanyScope(session, () =>
+        body().pipe(Effect.provide(ManagerScoped)),
+      )
+    : reported(Result.fail(new NotManager()));

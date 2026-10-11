@@ -15,7 +15,13 @@ import { CompanyMembers, MemberListError } from "../company-members-service";
 import { Db } from "../db-service";
 import type { Level } from "../level";
 import { TeamManagement, TeamService } from "../team-service";
-import { seedAssignment, seedLevel, seedSkill, seedTeam } from "./db/seed";
+import {
+  seedAssignment,
+  seedLevel,
+  seedSkill,
+  seedTeam,
+  teamName,
+} from "./db/seed";
 import {
   switchToRoleWithoutRlsBypass,
   type TestDb,
@@ -90,14 +96,6 @@ const countRows = async (
 ) => {
   const [row] = await tx.select({ n: count() }).from(table).where(where);
   return row.n;
-};
-
-const teamName = async (tx: TestDb, id: TeamId) => {
-  const [row] = await tx
-    .select({ name: teams.name })
-    .from(teams)
-    .where(eq(teams.id, id));
-  return row?.name;
 };
 
 describe("TeamManagement", () => {

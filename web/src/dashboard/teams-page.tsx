@@ -1,9 +1,19 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { meQuery, teamsQuery } from "@/api";
+import {
+  createTeam,
+  markTeamListStaleWithoutRefetch,
+  meQuery,
+  teamsQuery,
+} from "@/api";
 import { Card } from "@/components/ui/card";
 import CardMessage from "@/dashboard/card-message";
+import NameForm from "@/dashboard/name-form";
 
 export default function TeamsPage() {
   const { data: me } = useSuspenseQuery(meQuery);
@@ -13,6 +23,7 @@ export default function TeamsPage() {
 
   return (
     <TeamsFrame>
+      <CreateTeamForm canManage={me.canManage} />
       {teams.length === 0 ? (
         <CardMessage>
           {me.canManage
@@ -35,6 +46,35 @@ export default function TeamsPage() {
         </ul>
       )}
     </TeamsFrame>
+  );
+}
+
+function CreateTeamForm({ canManage }: { canManage: boolean }) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const create = useMutation({
+    mutationFn: createTeam,
+    onSuccess: async ({ id }) => {
+      await markTeamListStaleWithoutRefetch(queryClient);
+      await navigate({
+        to: "/dashboard/teams/$teamId",
+        params: { teamId: id },
+      });
+    },
+  });
+  if (!canManage) return null;
+
+  return (
+    <div className="border-b p-6">
+      <NameForm
+        label="チーム名"
+        submitLabel="チームを作る"
+        pending={create.isPending}
+        error={create.error}
+        fallbackMessage="チームを作れませんでした"
+        onSubmit={create.mutate}
+      />
+    </div>
   );
 }
 

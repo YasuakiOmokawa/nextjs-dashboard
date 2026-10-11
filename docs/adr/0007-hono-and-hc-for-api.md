@@ -35,7 +35,7 @@ API を呼ぶのは同じ repo で同時に build して配る SPA だけで、�
 
 - SPA の bundle に effect が入らない。API 層は安定版の Hono に乗り、taimei-auth と同じ構成で運用できる
 - `HttpApi` なら構造で止まった入力の検証と応答の項目の書き忘れが、lint (`biome-plugins/` の規則、#580) で止める形に下がる。lint は書き方の形だけを見るので穴がある。規則と、規則に当たらない書き方は `src/CLAUDE.md`
-- 型のまま保てるもの: path と method、成功の本文の型、宣言していない失敗を返さないこと、事業所のデータに session 無しで触れないこと (Service が `CompanyContext` を要求し、provide できるのは `src/services/index.ts` の `runServiceWithoutDb`・`runReadService`・`runScopedService` だけ。ADR-0002)
+- 型のまま保てるもの: path と method、成功の本文の型、宣言していない失敗を返さないこと、事業所のデータに session 無しで触れないこと (Service が `CompanyContext` を要求し、provide できるのは `src/services/index.ts` の実行口だけ。実行口の一覧は `src/services/CLAUDE.md`。ADR-0002)
 - どちらの方式でも型の外に残るもの: 認証の掛け忘れ (全 route を cookie 無しで叩くと 401 になるテストで止める) と、アプリの外の失敗 (Workers の打ち切り、network、本体の defect)
 - 認証の middleware は、session を見ない公開の route (`/auth*`) の後に全 path へ掛けるので、後から足した route にも掛かる。middleware より前に登録した route には掛からない (#580)
 - 次のどれかが起きたら、`HttpApi` か schema-first の契約を採り直す。決め手は規模 (行数) ではなく、呼び手の数と規則を守らせる相手の多さ

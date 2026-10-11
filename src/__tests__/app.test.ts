@@ -1,17 +1,23 @@
 import { readFileSync } from "node:fs";
 import { buildAuthLoginUrl } from "@taimei-code/auth-client";
-import { asc } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { memberSkills } from "@/db/drizzle/schema";
-import { CompanyId, SkillId } from "@/db/ids";
+import {
+  memberSkills,
+  skills,
+  teamAssignments,
+  teams,
+} from "@/db/drizzle/schema";
+import { CompanyId, SkillId, type TeamId } from "@/db/ids";
 import { type RequestSession, runServiceWithoutDb } from "@/src/services";
 import {
   seedAssignment,
   seedLevel,
   seedSkill,
   seedTeam,
+  teamName,
 } from "@/src/services/__tests__/db/seed";
 import {
   dbInRollback,
@@ -75,6 +81,9 @@ const envWithBinding = (fetch: typeof binding): Env => {
 const envWith = (response: () => Response | Promise<Response>) =>
   envWithBinding(vi.fn<typeof fetch>(async () => response()));
 
+const envWithRole = (role: NonNullable<SessionOptions["role"]>) =>
+  envWith(() => sessionOk({ role }));
+
 const envWithMembers = (list: () => Response, session: SessionOptions = {}) =>
   envWithBinding(
     vi.fn<typeof fetch>(async (input) =>
@@ -89,6 +98,27 @@ const membersOk = (
 
 const get = (path: string, env: Env, headers: HeadersInit = COOKIE) =>
   app.request(`${ORIGIN}${path}`, { headers }, env);
+
+const sendSameOriginRequest = (
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  env: Env,
+  body?: string,
+  contentType = "application/json",
+) =>
+  app.request(
+    `${ORIGIN}${path}`,
+    {
+      method,
+      headers: {
+        ...COOKIE,
+        Origin: ORIGIN,
+        ...(body === undefined ? {} : { "Content-Type": contentType }),
+      },
+      body,
+    },
+    env,
+  );
 
 const EVERY_PATH = "/*";
 const routes = [
@@ -169,7 +199,10 @@ describe("全ての route の認証", () => {
       expect.arrayContaining([
         "GET /api/me",
         "GET /api/teams",
+        "POST /api/teams",
         "GET /api/teams/:teamId",
+        "PATCH /api/teams/:teamId",
+        "DELETE /api/teams/:teamId",
         "PUT /api/teams/:teamId/my-levels",
         "GET /api/members",
       ]),
@@ -246,10 +279,7 @@ describe("GET /api/teams", () => {
       const a = await seedTeam(tx, "cmp_app_a", "A のチーム");
       await seedTeam(tx, "cmp_app_b", "B のチーム");
 
-      const response = await get(
-        "/api/teams",
-        envWith(() => sessionOk({ role: "ROLE_OWNER" })),
-      );
+      const response = await get("/api/teams", envWithRole("ROLE_OWNER"));
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({
@@ -266,10 +296,7 @@ describe("GET /api/teams", () => {
       }),
     );
 
-    const response = await get(
-      "/api/teams",
-      envWith(() => sessionOk({ role: "ROLE_OWNER" })),
-    );
+    const response = await get("/api/teams", envWithRole("ROLE_OWNER"));
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
@@ -444,14 +471,12 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
     env: Env,
     contentType = "application/json",
   ) =>
-    app.request(
-      `${ORIGIN}/api/teams/${teamId}/my-levels`,
-      {
-        method: "PUT",
-        headers: { ...COOKIE, Origin: ORIGIN, "Content-Type": contentType },
-        body,
-      },
+    sendSameOriginRequest(
+      "PUT",
+      `/api/teams/${teamId}/my-levels`,
       env,
+      body,
+      contentType,
     );
 
   const levelsBody = (
@@ -462,9 +487,6 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
       userId?: string;
     }[],
   ) => JSON.stringify({ levels });
-
-  const envWithMemberSession = () =>
-    envWith(() => sessionOk({ role: "ROLE_MEMBER" }));
 
   const levelRows = (tx: TestDb) =>
     tx
@@ -486,7 +508,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
       const response = await putMyLevels(
         teamId,
         levelsBody([{ skillId, level: 3, wantsToLearn: true }]),
-        envWithMemberSession(),
+        envWithRole("ROLE_MEMBER"),
       );
 
       expect(response.status).toBe(200);
@@ -519,7 +541,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
       const response = await putMyLevels(
         teamId,
         levelsBody([{ skillId, level: 3, wantsToLearn: true, userId: "u_2" }]),
-        envWithMemberSession(),
+        envWithRole("ROLE_MEMBER"),
       );
 
       expect(response.status).toBe(200);
@@ -537,7 +559,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
       const response = await putMyLevels(
         teamId,
         levelsBody([{ skillId, level: 2, wantsToLearn: false }]),
-        envWith(() => sessionOk({ role: "ROLE_ADMIN" })),
+        envWithRole("ROLE_ADMIN"),
       );
 
       expect(response.status).toBe(403);
@@ -566,7 +588,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
           { skillId, level: 2, wantsToLearn: false },
           { skillId: otherSkillId, level: 2, wantsToLearn: false },
         ]),
-        envWithMemberSession(),
+        envWithRole("ROLE_MEMBER"),
       );
 
       expect(response.status).toBe(404);
@@ -589,7 +611,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
           { skillId, level: 2, wantsToLearn: false },
           { skillId: otherSkillId, level: 4, wantsToLearn: false },
         ]),
-        envWithMemberSession(),
+        envWithRole("ROLE_MEMBER"),
       );
 
       expect(response.status).toBe(422);
@@ -622,7 +644,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
       const response = await putMyLevels(
         otherTeamId,
         levelsBody([{ skillId: otherSkillId, level: 3, wantsToLearn: true }]),
-        envWithMemberSession(),
+        envWithRole("ROLE_MEMBER"),
       );
 
       expect(response.status).toBe(404);
@@ -643,7 +665,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
       const response = await putMyLevels(
         teamId,
         levelsBody([{ skillId, level, wantsToLearn: false }]),
-        envWithMemberSession(),
+        envWithRole("ROLE_MEMBER"),
         contentType,
       );
 
@@ -673,7 +695,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
             wantsToLearn: false,
           })),
         ),
-        envWithMemberSession(),
+        envWithRole("ROLE_MEMBER"),
       );
 
       expect(response.status).toBe(status);
@@ -685,12 +707,277 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
     withRollbackDb(async (tx) => {
       const { teamId } = await seedAssignedTeam(tx);
 
-      const response = await putMyLevels(teamId, "{", envWithMemberSession());
+      const response = await putMyLevels(
+        teamId,
+        "{",
+        envWithRole("ROLE_MEMBER"),
+      );
 
       expect(response.status).toBe(400);
       expect(await levelRows(tx)).toEqual([]);
       expect(consoleError).not.toHaveBeenCalled();
     }));
+});
+
+const teamRows = (tx: TestDb) =>
+  tx
+    .select({ id: teams.id, companyId: teams.companyId, name: teams.name })
+    .from(teams)
+    .orderBy(asc(teams.name));
+
+describe("POST /api/teams", () => {
+  it.each(["ROLE_OWNER", "ROLE_ADMIN"] as const)(
+    "%s は名前の前後の空白を除いてチームを作り、事業所スコープの transaction の中で書いて、200 の { id } を返す",
+    (role) =>
+      withRollbackDb(async (tx) => {
+        const db = spyOnDb();
+
+        const response = await sendSameOriginRequest(
+          "POST",
+          "/api/teams",
+          envWithRole(role),
+          JSON.stringify({ name: "  開発  " }),
+        );
+
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        expect(body).toEqual({ id: expect.any(String) });
+        expect(await teamRows(tx)).toEqual([
+          { id: body.id, companyId: "cmp_app_a", name: "開発" },
+        ]);
+        expect(db.transaction).toHaveBeenCalledOnce();
+        expect(consoleError).not.toHaveBeenCalled();
+      }),
+  );
+
+  it.each([
+    [
+      "メンバー",
+      403,
+      "NotManager",
+      "管理者だけが操作できます",
+      "ROLE_MEMBER",
+      { name: "営業" },
+    ],
+    [
+      "空白だけの名前",
+      422,
+      "InvalidName",
+      "名前は 1〜50 文字で入力してください",
+      "ROLE_ADMIN",
+      { name: "   " },
+    ],
+    [
+      "51 文字の名前",
+      422,
+      "InvalidName",
+      "名前は 1〜50 文字で入力してください",
+      "ROLE_ADMIN",
+      { name: "あ".repeat(51) },
+    ],
+    [
+      "同じ事業所にある名前",
+      409,
+      "DuplicateName",
+      "同じ名前がすでにあります",
+      "ROLE_ADMIN",
+      { name: " 開発 " },
+    ],
+    [
+      "name が数の body",
+      400,
+      "InvalidRequest",
+      "送った内容の形が正しくありません",
+      "ROLE_ADMIN",
+      { name: 1 },
+    ],
+    [
+      "name の無い body",
+      400,
+      "InvalidRequest",
+      "送った内容の形が正しくありません",
+      "ROLE_ADMIN",
+      {},
+    ],
+  ] as const)(
+    "%s は %i の %s で、チームを作らない",
+    (_, status, tag, message, role, body) =>
+      withRollbackDb(async (tx) => {
+        await seedTeam(tx, "cmp_app_a", "開発");
+
+        const response = await sendSameOriginRequest(
+          "POST",
+          "/api/teams",
+          envWithRole(role),
+          JSON.stringify(body),
+        );
+
+        expect(response.status).toBe(status);
+        expect(await response.json()).toEqual({ _tag: tag, message });
+        expect(await teamRows(tx)).toMatchObject([{ name: "開発" }]);
+        expect(consoleError).not.toHaveBeenCalled();
+      }),
+  );
+
+  it("50 文字の名前は作れる", () =>
+    withRollbackDb(async (tx) => {
+      const name = "あ".repeat(50);
+
+      const response = await sendSameOriginRequest(
+        "POST",
+        "/api/teams",
+        envWithRole("ROLE_ADMIN"),
+        JSON.stringify({ name }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await teamRows(tx)).toMatchObject([{ name }]);
+    }));
+});
+
+describe("PATCH /api/teams/:teamId", () => {
+  it("管理者は名前の前後の空白を除いて名前を変え、事業所スコープの transaction の中で書いて、200 の {} を返す", () =>
+    withRollbackDb(async (tx) => {
+      const teamId = await seedTeam(tx, "cmp_app_a", "旧");
+      const db = spyOnDb();
+
+      const response = await sendSameOriginRequest(
+        "PATCH",
+        `/api/teams/${teamId}`,
+        envWithRole("ROLE_ADMIN"),
+        JSON.stringify({ name: "  新  " }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({});
+      expect(await teamName(tx, teamId)).toBe("新");
+      expect(db.transaction).toHaveBeenCalledOnce();
+      expect(consoleError).not.toHaveBeenCalled();
+    }));
+
+  it.each([
+    ["メンバー", 403, "NotManager", "ROLE_MEMBER", "cmp_app_a", { name: "新" }],
+    [
+      "他社のチーム",
+      404,
+      "TeamNotFound",
+      "ROLE_ADMIN",
+      "cmp_app_b",
+      { name: "新" },
+    ],
+    [
+      "空白だけの名前",
+      422,
+      "InvalidName",
+      "ROLE_ADMIN",
+      "cmp_app_a",
+      { name: "   " },
+    ],
+    [
+      "name が数の body",
+      400,
+      "InvalidRequest",
+      "ROLE_ADMIN",
+      "cmp_app_a",
+      { name: 1 },
+    ],
+    [
+      "同じ事業所の別のチームの名前",
+      409,
+      "DuplicateName",
+      "ROLE_ADMIN",
+      "cmp_app_a",
+      { name: "開発" },
+    ],
+  ] as const)(
+    "%s は %i の %s で、名前を変えない",
+    (_, status, tag, role, companyId, body) =>
+      withRollbackDb(async (tx) => {
+        await seedTeam(tx, "cmp_app_a", "開発");
+        const teamId = await seedTeam(tx, companyId, "旧");
+
+        const response = await sendSameOriginRequest(
+          "PATCH",
+          `/api/teams/${teamId}`,
+          envWithRole(role),
+          JSON.stringify(body),
+        );
+
+        expect(response.status).toBe(status);
+        expect(await response.json()).toMatchObject({ _tag: tag });
+        expect(await teamName(tx, teamId)).toBe("旧");
+        expect(consoleError).not.toHaveBeenCalled();
+      }),
+  );
+});
+
+describe("DELETE /api/teams/:teamId", () => {
+  const deleteTeam = (teamId: string, env: Env) =>
+    sendSameOriginRequest("DELETE", `/api/teams/${teamId}`, env);
+
+  const seedTeamWithSkillAssignmentAndLevel = async (
+    tx: TestDb,
+    companyId: string,
+  ) => {
+    const teamId = await seedTeam(
+      tx,
+      companyId,
+      `チーム ${crypto.randomUUID()}`,
+    );
+    const skillId = await seedSkill(tx, companyId, teamId, "設計");
+    await seedAssignment(tx, companyId, teamId, "u_1");
+    await seedLevel(tx, { companyId, teamId, skillId, userId: "u_1" });
+    return teamId;
+  };
+
+  const rowCountsOfTeam = async (tx: TestDb, teamId: TeamId) =>
+    Promise.all(
+      [
+        teams.id,
+        skills.teamId,
+        teamAssignments.teamId,
+        memberSkills.teamId,
+      ].map(
+        async (column) =>
+          (await tx.select().from(column.table).where(eq(column, teamId)))
+            .length,
+      ),
+    );
+
+  it("管理者はチームを消し、そのスキル・割り当て・記入も消え、同じ事業所の別のチームは残る", () =>
+    withRollbackDb(async (tx) => {
+      const deleted = await seedTeamWithSkillAssignmentAndLevel(
+        tx,
+        "cmp_app_a",
+      );
+      const kept = await seedTeamWithSkillAssignmentAndLevel(tx, "cmp_app_a");
+
+      const response = await deleteTeam(deleted, envWithRole("ROLE_ADMIN"));
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({});
+      expect(await rowCountsOfTeam(tx, deleted)).toEqual([0, 0, 0, 0]);
+      expect(await rowCountsOfTeam(tx, kept)).toEqual([1, 1, 1, 1]);
+      expect(consoleError).not.toHaveBeenCalled();
+    }));
+
+  it.each([
+    ["メンバー", 403, "NotManager", "ROLE_MEMBER", "cmp_app_a"],
+    ["他社のチーム", 404, "TeamNotFound", "ROLE_ADMIN", "cmp_app_b"],
+  ] as const)(
+    "%s は %i の %s で、チームを消さない",
+    (_, status, tag, role, companyId) =>
+      withRollbackDb(async (tx) => {
+        const teamId = await seedTeamWithSkillAssignmentAndLevel(tx, companyId);
+
+        const response = await deleteTeam(teamId, envWithRole(role));
+
+        expect(response.status).toBe(status);
+        expect(await response.json()).toMatchObject({ _tag: tag });
+        expect(await rowCountsOfTeam(tx, teamId)).toEqual([1, 1, 1, 1]);
+        expect(consoleError).not.toHaveBeenCalled();
+      }),
+  );
 });
 
 describe("GET /api/members", () => {

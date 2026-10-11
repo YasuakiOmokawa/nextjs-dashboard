@@ -2,7 +2,9 @@ import { QueryClient } from "@tanstack/react-query";
 import { DetailedError } from "hono/client";
 import { afterEach, expect, it, vi } from "vitest";
 import {
+  deleteTeam,
   failureMessageOf,
+  renameTeam,
   saveMyLevels,
   type TeamPage,
   teamQuery,
@@ -19,15 +21,25 @@ it("保存の level に文字列を渡すと型エラーになる (bun run typec
     saveMyLevels("t", [{ skillId: "s", level: "2", wantsToLearn: false }]);
 });
 
-it("保存は teamId を escape して path に入れる", async () => {
+it.each([
+  [
+    "保存",
+    () => saveMyLevels("../members", []),
+    "/api/teams/..%2Fmembers/my-levels",
+  ],
+  [
+    "名前の変更",
+    () => renameTeam("../members", "x"),
+    "/api/teams/..%2Fmembers",
+  ],
+  ["削除", () => deleteTeam("../members"), "/api/teams/..%2Fmembers"],
+])("%s は teamId を escape して path に入れる", async (_, send, path) => {
   const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({}));
   vi.stubGlobal("fetch", fetch);
 
-  await saveMyLevels("../members", []);
+  await send();
 
-  expect(String(fetch.mock.calls[0]?.[0])).toBe(
-    "/api/teams/..%2Fmembers/my-levels",
-  );
+  expect(String(fetch.mock.calls[0]?.[0])).toBe(path);
 });
 
 const failedResponse = (data: unknown) =>
@@ -43,6 +55,7 @@ it("失敗の文言は、API の本文の message", () => {
         _tag: "NotAssigned",
         message: "チームに割り当てられた人だけが記入できます",
       }),
+      "保存できませんでした",
     ),
   ).toBe("チームに割り当てられた人だけが記入できます");
 });
@@ -54,8 +67,10 @@ it.each([
   ],
   ["本文に message の無い応答", failedResponse({ _tag: "NotAssigned" })],
   ["応答の無い網の失敗", new TypeError("Failed to fetch")],
-])("%s の文言は「保存できませんでした」", (_, error) => {
-  expect(failureMessageOf(error)).toBe("保存できませんでした");
+])("%s の文言は、呼び手が渡した操作ごとの文言", (_, error) => {
+  expect(failureMessageOf(error, "チームを削除できませんでした")).toBe(
+    "チームを削除できませんでした",
+  );
 });
 
 const TEAM_ID = "00000000-0000-4000-8000-0000000000aa";
