@@ -11,6 +11,7 @@ import {
   type VerifyResult,
 } from "@taimei-code/auth-client";
 import { CompanyId } from "@/db/ids";
+import type { CheckMemberships } from "@/src/lib/purge-departed";
 import type { RequestSession } from "@/src/services";
 import { CompanyMembers } from "@/src/services/company-members-service";
 
@@ -41,6 +42,11 @@ const authClientOf = (env: AuthEnv) => {
         : [],
     }),
   });
+};
+
+export const checkMembershipsOf = (env: AuthEnv): CheckMemberships => {
+  const { companyService } = authClientOf(env);
+  return (request) => companyService.checkMemberships(request);
 };
 
 // ponytail: 引数を見ずに最初の結果を返す。SDK が引数を取る関数を cache で包む版に上がったら引数で引く

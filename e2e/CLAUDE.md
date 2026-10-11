@@ -23,4 +23,5 @@ E2E は認証・決済など、壊れたら致命的な導線だけに書く。�
 
 - ログインは `http://localhost:3000/auth` から taimei-auth のフォームでその email に Magic Link を送り、`bun run qa:login` が出す file を開く (token は出力に出ず、file は 30 秒で消える)。開くと `/dashboard/teams` に着く
 - taimei の Worker は `AUTH_URL` (ログインの画面の移り先) と `AUTH_SERVICE_URL` (session を確かめる RPC の送り先) を `http://localhost:3110` にして動く。手元の taimei-auth は Bun のサーバーで Service Binding が届かないので、`AUTH_SERVICE_URL` があると RPC はその URL へ送る
+- 定期処理 (`scheduled` の purge-departed) は `curl 'http://localhost:3000/cdn-cgi/handler/scheduled?cron=17+*+*+*+*'` で起こす。結果は `${TMPDIR:-/tmp}/taimei-qa/app.log` に `purge-departed` の行で出る
 - 終わったら `bun run qa:down` で server を止め、DB を消す

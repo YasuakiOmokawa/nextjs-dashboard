@@ -261,6 +261,10 @@ describe("Worker に届く path", () => {
         : path === pattern,
     );
 
+  it("purge-departed は毎時 17 分の Cron Trigger で動く", () => {
+    expect(wranglerConfig.triggers?.crons).toEqual(["17 * * * *"]);
+  });
+
   it("全ての route の path は run_worker_first に当たる", () => {
     expect(
       routes
