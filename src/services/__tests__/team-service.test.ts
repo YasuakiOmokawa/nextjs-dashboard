@@ -504,7 +504,7 @@ describe("saveMyLevels", () => {
         tx,
         MEMBER,
       )((s) =>
-        s.saveMyLevels(teamId, [{ skillId, level: "2", wantsToLearn: true }]),
+        s.saveMyLevels(teamId, [{ skillId, level: 2, wantsToLearn: true }]),
       );
 
       expect(failureTag(result)).toBe("success");
@@ -525,14 +525,14 @@ describe("saveMyLevels", () => {
       const teamId = await seedTeam(tx, "cmp_a", "X");
       const skillId = await seedSkill(tx, "cmp_a", teamId, "設計");
       await seedAssignment(tx, "cmp_a", teamId, MEMBER.userId);
-      const save = (level: string, wantsToLearn: boolean) =>
+      const save = (level: number, wantsToLearn: boolean) =>
         runAs(
           tx,
           MEMBER,
         )((s) => s.saveMyLevels(teamId, [{ skillId, level, wantsToLearn }]));
-      await save("2", true);
+      await save(2, true);
 
-      const result = await save("3", false);
+      const result = await save(3, false);
 
       expect(failureTag(result)).toBe("success");
       expect(await memberSkillRows(tx)).toMatchObject([
@@ -550,14 +550,14 @@ describe("saveMyLevels", () => {
         tx,
         MEMBER,
       )((s) =>
-        s.saveMyLevels(teamId, [{ skillId, level: "1", wantsToLearn: true }]),
+        s.saveMyLevels(teamId, [{ skillId, level: 1, wantsToLearn: true }]),
       );
 
       await runAs(
         tx,
         ADMIN,
       )((s) =>
-        s.saveMyLevels(teamId, [{ skillId, level: "3", wantsToLearn: false }]),
+        s.saveMyLevels(teamId, [{ skillId, level: 3, wantsToLearn: false }]),
       );
 
       const rows = await memberSkillRows(tx);
@@ -583,7 +583,7 @@ describe("saveMyLevels", () => {
         tx,
         ADMIN,
       )((s) =>
-        s.saveMyLevels(teamId, [{ skillId, level: "2", wantsToLearn: false }]),
+        s.saveMyLevels(teamId, [{ skillId, level: 2, wantsToLearn: false }]),
       );
 
       expect(failureTag(result)).toBe("NotAssigned");
@@ -599,7 +599,7 @@ describe("saveMyLevels", () => {
         tx,
         MEMBER,
       )((s) =>
-        s.saveMyLevels(teamId, [{ skillId, level: "2", wantsToLearn: false }]),
+        s.saveMyLevels(teamId, [{ skillId, level: 2, wantsToLearn: false }]),
       );
 
       expect(failureTag(result)).toBe("TeamNotFound");
@@ -616,7 +616,7 @@ describe("saveMyLevels", () => {
         tx,
         NO_ROLE,
       )((s) =>
-        s.saveMyLevels(teamId, [{ skillId, level: "1", wantsToLearn: false }]),
+        s.saveMyLevels(teamId, [{ skillId, level: 1, wantsToLearn: false }]),
       );
 
       expect(failureTag(result)).toBe("success");
@@ -641,7 +641,7 @@ describe("saveMyLevels", () => {
         tx,
         MEMBER,
       )((s) =>
-        s.saveMyLevels(teamId, [{ skillId, level: "3", wantsToLearn: true }]),
+        s.saveMyLevels(teamId, [{ skillId, level: 3, wantsToLearn: true }]),
       );
 
       expect(failureTag(result)).toBe("TeamNotFound");
@@ -660,26 +660,29 @@ describe("saveMyLevels", () => {
       expect(failureTag(result)).toBe("TeamNotFound");
     }));
 
-  it("0〜3 でないレベルが 1 つでもあれば、どの値も保存しない", () =>
-    withRollback(async (tx) => {
-      const teamId = await seedTeam(tx, "cmp_a", "X");
-      const valid = await seedSkill(tx, "cmp_a", teamId, "設計");
-      const invalid = await seedSkill(tx, "cmp_a", teamId, "テスト");
-      await seedAssignment(tx, "cmp_a", teamId, MEMBER.userId);
+  it.each([4, -1, 1.5])(
+    "0〜3 の整数でないレベル (%s) が 1 つでもあれば、どの値も保存しない",
+    (outOfRange) =>
+      withRollback(async (tx) => {
+        const teamId = await seedTeam(tx, "cmp_a", "X");
+        const valid = await seedSkill(tx, "cmp_a", teamId, "設計");
+        const invalid = await seedSkill(tx, "cmp_a", teamId, "テスト");
+        await seedAssignment(tx, "cmp_a", teamId, MEMBER.userId);
 
-      const result = await runAs(
-        tx,
-        MEMBER,
-      )((s) =>
-        s.saveMyLevels(teamId, [
-          { skillId: valid, level: "2", wantsToLearn: false },
-          { skillId: invalid, level: "4", wantsToLearn: false },
-        ]),
-      );
+        const result = await runAs(
+          tx,
+          MEMBER,
+        )((s) =>
+          s.saveMyLevels(teamId, [
+            { skillId: valid, level: 2, wantsToLearn: false },
+            { skillId: invalid, level: outOfRange, wantsToLearn: false },
+          ]),
+        );
 
-      expect(failureTag(result)).toBe("InvalidLevel");
-      expect(await memberSkillRows(tx)).toEqual([]);
-    }));
+        expect(failureTag(result)).toBe("InvalidLevel");
+        expect(await memberSkillRows(tx)).toEqual([]);
+      }),
+  );
 
   it("ほかのチームのスキルが 1 つでもあれば、どの値も保存しない", () =>
     withRollback(async (tx) => {
@@ -694,8 +697,8 @@ describe("saveMyLevels", () => {
         MEMBER,
       )((s) =>
         s.saveMyLevels(teamId, [
-          { skillId: valid, level: "2", wantsToLearn: false },
-          { skillId: otherTeamSkill, level: "2", wantsToLearn: false },
+          { skillId: valid, level: 2, wantsToLearn: false },
+          { skillId: otherTeamSkill, level: 2, wantsToLearn: false },
         ]),
       );
 
@@ -722,9 +725,7 @@ describe("saveMyLevels", () => {
         tx,
         MEMBER,
       )((s) =>
-        s.saveMyLevels(x, [
-          { skillId: ySkill, level: "3", wantsToLearn: true },
-        ]),
+        s.saveMyLevels(x, [{ skillId: ySkill, level: 3, wantsToLearn: true }]),
       );
 
       expect(failureTag(result)).toBe("SkillNotFound");
@@ -755,7 +756,7 @@ describe("saveMyLevels", () => {
         MEMBER,
       )((s) =>
         s.saveMyLevels(teamId, [
-          { skillId: otherSkill, level: "3", wantsToLearn: true },
+          { skillId: otherSkill, level: 3, wantsToLearn: true },
         ]),
       );
       await tx.execute(sql`RESET ROLE`);
@@ -784,7 +785,7 @@ describe("saveMyLevels", () => {
         tx,
         MEMBER,
       )((s) =>
-        s.saveMyLevels(teamId, [{ skillId, level: "2", wantsToLearn: false }]),
+        s.saveMyLevels(teamId, [{ skillId, level: 2, wantsToLearn: false }]),
       );
       await tx.execute(sql`RESET ROLE`);
 
@@ -802,7 +803,7 @@ describe("saveMyLevels", () => {
         MEMBER,
       )((s) =>
         s.saveMyLevels(teamId, [
-          { skillId: "not-a-uuid", level: "2", wantsToLearn: false },
+          { skillId: "not-a-uuid", level: 2, wantsToLearn: false },
         ]),
       );
 
@@ -821,7 +822,7 @@ describe("saveMyLevels", () => {
       const result = await runAs(
         tx,
         MEMBER,
-      )((s) => s.saveMyLevels(teamId, [{ skillId, level: "0", wantsToLearn }]));
+      )((s) => s.saveMyLevels(teamId, [{ skillId, level: 0, wantsToLearn }]));
 
       expect(failureTag(result)).toBe("success");
       expect(await memberSkillRows(tx)).toMatchObject([
@@ -835,14 +836,14 @@ describe("saveMyLevels", () => {
       const teamId = await seedTeam(tx, "cmp_a", "X");
       const skillId = await seedSkill(tx, "cmp_a", teamId, "設計");
       await seedAssignment(tx, "cmp_a", teamId, MEMBER.userId);
-      const save = (level: string, wantsToLearn: boolean) =>
+      const save = (level: number, wantsToLearn: boolean) =>
         runAs(
           tx,
           MEMBER,
         )((s) => s.saveMyLevels(teamId, [{ skillId, level, wantsToLearn }]));
-      await save("2", true);
+      await save(2, true);
 
-      const result = await save("0", false);
+      const result = await save(0, false);
 
       expect(failureTag(result)).toBe("success");
       expect(await memberSkillRows(tx)).toMatchObject([
@@ -880,8 +881,8 @@ describe("saveMyLevels", () => {
         MEMBER,
       )((s) =>
         s.saveMyLevels(teamId, [
-          { skillId, level: "1", wantsToLearn: false },
-          { skillId, level: "3", wantsToLearn: true },
+          { skillId, level: 1, wantsToLearn: false },
+          { skillId, level: 3, wantsToLearn: true },
         ]),
       );
 
@@ -902,9 +903,9 @@ describe("saveMyLevels", () => {
         MEMBER,
       )((s) =>
         s.saveMyLevels(teamId, [
-          { skillId: "not-a-uuid", level: "2", wantsToLearn: false },
-          { skillId, level: "4", wantsToLearn: false },
-          { skillId: otherTeamSkill, level: "2", wantsToLearn: false },
+          { skillId: "not-a-uuid", level: 2, wantsToLearn: false },
+          { skillId, level: 4, wantsToLearn: false },
+          { skillId: otherTeamSkill, level: 2, wantsToLearn: false },
         ]),
       );
 
