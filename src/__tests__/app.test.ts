@@ -1641,6 +1641,26 @@ describe("CSRF と CORS", () => {
     expect(response.status).toBe(401);
   });
 
+  it.each(endpointPaths)(
+    "%s への別の origin からの preflight に Access-Control-Allow-Origin を付けない",
+    async (path) => {
+      const response = await app.request(
+        `${ORIGIN}${path}`,
+        {
+          method: "OPTIONS",
+          headers: {
+            Origin: "https://evil.example",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+          },
+        },
+        envWith(sessionOk),
+      );
+
+      expect(response.headers.has("Access-Control-Allow-Origin")).toBe(false);
+    },
+  );
+
   it("別の origin の GET にも Access-Control-Allow-Origin を付けない", async () => {
     const response = await get("/api/me", envWith(sessionOk), {
       ...COOKIE,
