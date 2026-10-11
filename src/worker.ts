@@ -1,10 +1,15 @@
+// biome-ignore lint/style/noRestrictedImports: Sentry の SDK を使うのは Worker の入口だけ (src/lib/CLAUDE.md)
+import * as Sentry from "@sentry/cloudflare";
 import type { ExecutionContext } from "hono";
 import { db } from "@/db/drizzle/client";
 // biome-ignore lint/style/noRestrictedImports: 要求ごとの Pool を開くのは Worker の入口だけ (db/CLAUDE.md)
 import { runWithRequestPool } from "@/db/drizzle/pool";
 import { purgeDeparted } from "@/src/lib/purge-departed";
+import { sendErrorReportsTo } from "@/src/lib/report-error";
 import { app, type Env } from "./app";
 import { checkMembershipsOf } from "./auth";
+
+sendErrorReportsTo(Sentry.captureException);
 
 const inRequestPool = <T>(
   env: Env,
@@ -32,4 +37,7 @@ export const handler = {
   },
 };
 
-export default handler;
+export default Sentry.withSentry(
+  (env: Env) => ({ dsn: env.SENTRY_DSN }),
+  handler,
+);

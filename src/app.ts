@@ -3,7 +3,9 @@ import { Effect, Schema } from "effect";
 import { type Context, Hono } from "hono";
 import { csrf } from "hono/csrf";
 import { createMiddleware } from "hono/factory";
+import { HTTPException } from "hono/http-exception";
 import { validator } from "hono/validator";
+import { reportError } from "@/src/lib/report-error";
 import { reportUnexpectedFailure } from "@/src/lib/team-failure";
 import {
   runManagerScopedService,
@@ -42,6 +44,7 @@ import {
 
 export type Env = AuthEnv & {
   readonly HYPERDRIVE: { connectionString: string };
+  readonly SENTRY_DSN?: string;
 };
 type AppEnv = { Bindings: Env } & SessionVariables;
 
@@ -155,6 +158,11 @@ const callbackPathValidator = validator("query", (query, c) => ({
 }));
 
 export const app = new Hono<AppEnv>()
+  .onError((error, c) => {
+    if (error instanceof HTTPException) return error.getResponse();
+    reportError(error);
+    return c.text("Internal Server Error", 500);
+  })
   .use(csrf())
   .get("/auth", callbackPathValidator, (c) =>
     c.redirect(

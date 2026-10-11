@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   MemberListError,
   Unauthenticated,
@@ -16,6 +16,7 @@ import {
   TeamNotFound,
   TeamServiceError,
 } from "@/src/services/team-errors";
+import { sendErrorReportsTo } from "../report-error";
 import {
   type ApiFailure,
   failureMessage,
@@ -25,8 +26,13 @@ import {
 } from "../team-failure";
 
 const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+const send = vi.fn();
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  sendErrorReportsTo(send);
+});
+afterEach(() => sendErrorReportsTo(() => {}));
 
 type Reporting = "reported" | "notReported";
 type Handling = readonly [ApiFailure, string, Reporting, number];
@@ -131,6 +137,7 @@ it.each(handlings.filter(([, , reporting]) => reporting === "reported"))(
     reportUnexpectedFailure(failure);
 
     expect(consoleError).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledOnce();
   },
 );
 
@@ -140,6 +147,7 @@ it.each(handlings.filter(([, , reporting]) => reporting === "notReported"))(
     reportUnexpectedFailure(failure);
 
     expect(consoleError).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
   },
 );
 
@@ -154,10 +162,18 @@ it.each([new TeamServiceError({ cause }), new DbUnavailable({ cause })])(
   },
 );
 
-it("メンバー一覧の取得の失敗は、listMembers failed と reason で報告する", () => {
-  reportUnexpectedFailure(new MemberListError({ cause: 2 }));
+it("メンバー一覧の取得の失敗は、原因を message と cause に付けた listMembers failed の Error で報告する", () => {
+  const cause = new Error("UNSPECIFIED");
 
-  expect(consoleError).toHaveBeenCalledExactlyOnceWith("listMembers failed", 2);
+  reportUnexpectedFailure(new MemberListError({ cause }));
+
+  expect(send).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({
+      message: "listMembers failed: Error: UNSPECIFIED",
+      cause,
+    }),
+  );
+  expect(send.mock.calls[0][0]).toBeInstanceOf(Error);
 });
 
 it("要求の形の失敗は、Service の失敗の型に入らない (bun run typecheck で見る)", () => {

@@ -12,6 +12,7 @@ import {
 } from "@taimei-code/auth-client";
 import { CompanyId } from "@/db/ids";
 import type { CheckMemberships } from "@/src/lib/purge-departed";
+import { reportError } from "@/src/lib/report-error";
 import type { RequestSession } from "@/src/services";
 import { CompanyMembers } from "@/src/services/company-members-service";
 
@@ -70,7 +71,7 @@ export const authGuardOf = (env: AuthEnv, cookieHeader: string | undefined) => {
     verifySession: async (): Promise<VerifyResult> => {
       const result = await guard.getSession();
       if (!result.ok && result.reason === Result.UNSPECIFIED)
-        console.error("taimei-auth で session を確かめられなかった");
+        reportError(new Error("taimei-auth で session を確かめられなかった"));
       return result;
     },
     listMembers: guard.listMembers,

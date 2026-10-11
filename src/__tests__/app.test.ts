@@ -11,6 +11,7 @@ import {
   teams,
 } from "@/db/drizzle/schema";
 import { CompanyId, SkillId, type TeamId } from "@/db/ids";
+import { sendErrorReportsTo } from "@/src/lib/report-error";
 import { type RequestSession, runServiceWithoutDb } from "@/src/services";
 import {
   seedAssignment,
@@ -172,7 +173,12 @@ describe("/api の session", () => {
     );
 
     expect(response.status).toBe(401);
-    expect(consoleError).toHaveBeenCalledOnce();
+    expect(consoleError).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        message: "taimei-auth で session を確かめられなかった",
+      }),
+    );
+    expect(consoleError.mock.calls[0][0]).toBeInstanceOf(Error);
   });
 });
 
@@ -315,6 +321,24 @@ describe("GET /api/teams", () => {
   });
 });
 
+describe("route の defect", () => {
+  afterEach(() => sendErrorReportsTo(() => {}));
+
+  it("本体の defect は 500 の Internal Server Error で、defect を 1 回報告する", async () => {
+    const send = vi.fn();
+    sendErrorReportsTo(send);
+    // 戻り値の rows を読む所で TypeError になり、Effect の失敗ではなく defect になる
+    vi.spyOn(dbInRollback, "execute").mockResolvedValue(undefined as never);
+
+    const response = await get("/api/teams", envWithRole("ROLE_OWNER"));
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).toBe("Internal Server Error");
+    expect(send).toHaveBeenCalledOnce();
+    expect(send.mock.calls[0][0]).toBeInstanceOf(TypeError);
+  });
+});
+
 const seedAssignedTeam = async (tx: TestDb) => {
   const teamId = await seedTeam(tx, "cmp_app_a", "開発");
   const skillId = await seedSkill(tx, "cmp_app_a", teamId, "設計");
@@ -413,8 +437,9 @@ describe("GET /api/teams/:teamId", () => {
         members: null,
       });
       expect(consoleError).toHaveBeenCalledExactlyOnceWith(
-        "listMembers failed",
-        expect.anything(),
+        expect.objectContaining({
+          message: "listMembers failed: UNSPECIFIED",
+        }),
       );
     }));
 
@@ -1469,8 +1494,9 @@ describe("GET /api/members", () => {
       message: "メンバー一覧を取得できませんでした",
     });
     expect(consoleError).toHaveBeenCalledExactlyOnceWith(
-      "listMembers failed",
-      expect.anything(),
+      expect.objectContaining({
+        message: "listMembers failed: UNSPECIFIED",
+      }),
     );
   });
 
@@ -1548,6 +1574,17 @@ describe("CSRF と CORS", () => {
       expect(response.status).toBe(403);
     },
   );
+
+  it("別の origin の form の POST を止めた 403 は報告しない", async () => {
+    const response = await formRequest("https://evil.example", {
+      path: "/api/teams",
+      method: "POST",
+      type: "application/x-www-form-urlencoded",
+    });
+
+    expect(response.status).toBe(403);
+    expect(consoleError).not.toHaveBeenCalled();
+  });
 
   it("同じ origin の form の POST は CSRF で止めない", async () => {
     const response = await formRequest(ORIGIN, {

@@ -5,10 +5,19 @@ import { db } from "@/db/drizzle/client";
 // biome-ignore lint/style/noRestrictedImports: 定期処理が要求ごとの Pool の中で動くことを確かめる
 import { currentPool } from "@/db/drizzle/pool";
 import { purgeDeparted } from "@/src/lib/purge-departed";
+import { reportError } from "@/src/lib/report-error";
 import type { Env } from "../app";
-import { handler } from "../worker";
+import worker, { handler } from "../worker";
 
 vi.mock("@/src/lib/purge-departed", () => ({ purgeDeparted: vi.fn() }));
+
+const sentry = vi.hoisted(() => ({
+  withSentry: vi.fn((_options: unknown, wrapped: unknown) => wrapped),
+  captureException: vi.fn(),
+}));
+vi.mock("@sentry/cloudflare", () => sentry);
+// 各 test の後の restoreAllMocks が呼び出しの記録を消すので、import の時の呼び出しを先に控える
+const withSentryCallsAtImport = [...sentry.withSentry.mock.calls];
 
 const CONNECTION_STRING = "postgres://scheduled@127.0.0.1:1/taimei";
 const PURGE_REPORT = {
@@ -120,4 +129,24 @@ it("定期処理は purgeDeparted の結果を 1 回 console.info に出す", as
   await handler.scheduled({}, envWithBinding(), collectingContext().ctx);
 
   expect(info).toHaveBeenCalledExactlyOnceWith("purge-departed", PURGE_REPORT);
+});
+
+it("Worker の入口は handler を withSentry で包み、DSN を env から渡す", () => {
+  expect(withSentryCallsAtImport).toHaveLength(1);
+  const [options, wrapped] = withSentryCallsAtImport[0];
+  expect(wrapped).toBe(handler);
+  expect(worker).toBe(handler);
+  expect(
+    (options as (env: Partial<Env>) => unknown)({ SENTRY_DSN: "https://dsn" }),
+  ).toEqual({ dsn: "https://dsn" });
+});
+
+it("Worker の入口は、報告した値を Sentry の captureException に渡す", () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  sentry.captureException.mockClear();
+  const error = new Error("boom");
+
+  reportError(error);
+
+  expect(sentry.captureException).toHaveBeenCalledExactlyOnceWith(error);
 });

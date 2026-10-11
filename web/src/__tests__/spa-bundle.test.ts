@@ -3,12 +3,14 @@ import { build, type Rollup } from "vite";
 import { afterEach, expect, it, vi } from "vitest";
 
 const webRoot = path.resolve(import.meta.dirname, "../..");
-const SERVER_ONLY_PACKAGE_PATH = /\/node_modules\/(pg|pg-[^/]+|drizzle-orm)\//;
+const SERVER_ONLY_PACKAGE_PATH =
+  /\/node_modules\/(pg|pg-[^/]+|drizzle-orm|@sentry\/[^/]+)\//;
 const SECRET_NAMES = [
   "AUTH_SERVICE_KEY",
   "AUTH_SERVICE_URL",
   "HYPERDRIVE",
   "DATABASE_URL",
+  "SENTRY_DSN",
 ];
 
 afterEach(() => {
