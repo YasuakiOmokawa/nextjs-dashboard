@@ -12,7 +12,9 @@ import {
   runServiceWithoutDb,
 } from "@/src/services";
 import { isManager } from "@/src/services/authorization-context";
+import type { CompanyContext } from "@/src/services/company-context";
 import { CompanyMembers } from "@/src/services/company-members-service";
+import type { TeamFailure } from "@/src/services/team-errors";
 import { Team, TeamDetail, TeamReads } from "@/src/services/team-reads";
 import {
   LevelEntry,
@@ -64,7 +66,7 @@ const MyLevelsRequest = Schema.Struct({
 });
 const EmptyResponse = Schema.Struct({});
 
-const TeamNameRequest = Schema.Struct({ name: Schema.String });
+const NameRequest = Schema.Struct({ name: Schema.String });
 const CreatedTeam = Schema.Struct({ id: Schema.String });
 
 const authGuardOfRequest = (c: Context<AppEnv>) =>
@@ -116,10 +118,33 @@ const teamMembersOrNullWhenListFails = CompanyMembers.use(
   ),
 );
 
+const managementJson = async <E extends TeamFailure>(
+  c: Context<AppEnv>,
+  write: (
+    management: TeamManagement["Service"],
+  ) => Effect.Effect<void, E, CompanyContext>,
+) =>
+  resultJson(
+    c,
+    EmptyResponse,
+    await runManagerScopedService(c.var.session, () =>
+      TeamManagement.use(write).pipe(Effect.as({})),
+    ),
+  );
+
 const originOf = (url: string) => new URL(url).origin;
 
 const teamParamValidator = validator("param", ({ teamId }) => ({
   teamId,
+}));
+
+const skillParamValidator = validator("param", ({ skillId }) => ({
+  skillId,
+}));
+
+const assignmentParamValidator = validator("param", ({ teamId, userId }) => ({
+  teamId,
+  userId,
 }));
 
 const callbackPathValidator = validator("query", (query, c) => ({
@@ -183,7 +208,7 @@ export const app = new Hono<AppEnv>()
       ),
     ),
   )
-  .post("/api/teams", jsonBody(TeamNameRequest), async (c) => {
+  .post("/api/teams", jsonBody(NameRequest), async (c) => {
     const { name } = c.req.valid("json");
     return resultJson(
       c,
@@ -212,33 +237,55 @@ export const app = new Hono<AppEnv>()
   .patch(
     "/api/teams/:teamId",
     teamParamValidator,
-    jsonBody(TeamNameRequest),
+    jsonBody(NameRequest),
     async (c) => {
       const { teamId } = c.req.valid("param");
       const { name } = c.req.valid("json");
-      return resultJson(
-        c,
-        EmptyResponse,
-        await runManagerScopedService(c.var.session, () =>
-          TeamManagement.use((management) =>
-            management.renameTeam(teamId, name),
-          ).pipe(Effect.as({})),
-        ),
+      return managementJson(c, (management) =>
+        management.renameTeam(teamId, name),
       );
     },
   )
   .delete("/api/teams/:teamId", teamParamValidator, async (c) => {
     const { teamId } = c.req.valid("param");
-    return resultJson(
-      c,
-      EmptyResponse,
-      await runManagerScopedService(c.var.session, () =>
-        TeamManagement.use((management) => management.deleteTeam(teamId)).pipe(
-          Effect.as({}),
-        ),
-      ),
-    );
+    return managementJson(c, (management) => management.deleteTeam(teamId));
   })
+  .post(
+    "/api/teams/:teamId/skills",
+    teamParamValidator,
+    jsonBody(NameRequest),
+    async (c) => {
+      const { teamId } = c.req.valid("param");
+      const { name } = c.req.valid("json");
+      return managementJson(c, (management) =>
+        management.addSkill(teamId, name),
+      );
+    },
+  )
+  .delete("/api/skills/:skillId", skillParamValidator, async (c) => {
+    const { skillId } = c.req.valid("param");
+    return managementJson(c, (management) => management.removeSkill(skillId));
+  })
+  .put(
+    "/api/teams/:teamId/assignments/:userId",
+    assignmentParamValidator,
+    async (c) => {
+      const { teamId, userId } = c.req.valid("param");
+      return managementJson(c, (management) =>
+        management.assign(teamId, userId),
+      );
+    },
+  )
+  .delete(
+    "/api/teams/:teamId/assignments/:userId",
+    assignmentParamValidator,
+    async (c) => {
+      const { teamId, userId } = c.req.valid("param");
+      return managementJson(c, (management) =>
+        management.unassign(teamId, userId),
+      );
+    },
+  )
   .put(
     "/api/teams/:teamId/my-levels",
     teamParamValidator,

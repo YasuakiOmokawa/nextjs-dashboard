@@ -378,7 +378,9 @@ test("メンバーにはチームの管理の部品が出ず、API を直に呼�
   const teamName = `開発 ${crypto.randomUUID()}`;
   const email = await createTestUser({ companyId, role: "MEMBER" });
   const teamId = await insertTeam(companyId, teamName);
-  await assignMember(companyId, teamId, await userIdOf(email));
+  const skillId = await insertSkill(companyId, teamId, "設計");
+  const myId = await userIdOf(email);
+  await assignMember(companyId, teamId, myId);
   const context = await signInWithMagicLink(browser, email);
   const page = await context.newPage();
   await openTeams(page);
@@ -398,6 +400,10 @@ test("メンバーにはチームの管理の部品が出ず、API を直に呼�
   await expect(page.getByRole("button", { name: "チームを削除" })).toHaveCount(
     0,
   );
+  await expect(page.getByLabel("スキル名")).toHaveCount(0);
+  await expect(page.getByLabel("割り当てるメンバー")).toHaveCount(0);
+  for (const name of ["スキルを足す", "割り当てる", /を削除$/, /を外す$/])
+    await expect(page.getByRole("button", { name })).toHaveCount(0);
 
   const headers = { Origin: new URL(page.url()).origin };
   for (const response of [
@@ -410,6 +416,17 @@ test("メンバーにはチームの管理の部品が出ず、API を直に呼�
       headers,
     }),
     await context.request.delete(`/api/teams/${teamId}`, { headers }),
+    await context.request.post(`/api/teams/${teamId}/skills`, {
+      data: { name: "足せない" },
+      headers,
+    }),
+    await context.request.delete(`/api/skills/${skillId}`, { headers }),
+    await context.request.put(`/api/teams/${teamId}/assignments/${myId}`, {
+      headers,
+    }),
+    await context.request.delete(`/api/teams/${teamId}/assignments/${myId}`, {
+      headers,
+    }),
   ]) {
     expect(response.status()).toBe(403);
     expect((await response.json())._tag).toBe("NotManager");
@@ -418,7 +435,153 @@ test("メンバーにはチームの管理の部品が出ず、API を直に呼�
     `/api/teams/${teamId}`,
   );
   expect(teamAfterRejectedRequests.status()).toBe(200);
-  expect((await teamAfterRejectedRequests.json()).team.name).toBe(teamName);
+  const { team } = await teamAfterRejectedRequests.json();
+  expect(team.name).toBe(teamName);
+  expect(team.skills).toEqual([{ id: skillId, name: "設計" }]);
+  expect(team.assignedUserIds).toEqual([myId]);
+
+  await context.close();
+});
+
+const nextDialog = (page: Page, answer: "accept" | "dismiss") => {
+  const message = Promise.withResolvers<string>();
+  page.once("dialog", (dialog) => {
+    message.resolve(dialog.message());
+    void dialog[answer]();
+  });
+  return message.promise;
+};
+
+const createNamedUser = async (
+  companyId: string,
+  role: "OWNER" | "MEMBER",
+  label: string,
+) => {
+  const email = await createTestUser({ companyId, role });
+  const id = await userIdOf(email);
+  const name = `${label} ${crypto.randomUUID()}`;
+  await setUserName(id, name);
+  return { email, id, name };
+};
+
+test("管理者はチームの画面でスキルを足し・消し、メンバーを割り当て・外せる", async ({
+  browser,
+}) => {
+  const companyId = uniqueCompanyId("k");
+  const teamName = `開発 ${crypto.randomUUID()}`;
+  const [owner, assigned, candidate] = await Promise.all([
+    createNamedUser(companyId, "OWNER", "管理者"),
+    createNamedUser(companyId, "MEMBER", "割り当て済み"),
+    createNamedUser(companyId, "MEMBER", "候補"),
+  ]);
+  const departedId = `departed-${crypto.randomUUID()}`;
+  const teamId = await insertTeam(companyId, teamName);
+  await insertSkill(companyId, teamId, "設計");
+  await assignMember(companyId, teamId, assigned.id);
+  await assignMember(companyId, teamId, departedId);
+  const context = await signInWithMagicLink(browser, owner.email);
+  const page = await context.newPage();
+  await page.goto(`/dashboard/teams/${teamId}`);
+  await expect(teamTitle(page, teamName)).toBeVisible();
+  const skillItem = (name: string) =>
+    page.getByRole("listitem").filter({ hasText: name });
+  const skillName = page.getByLabel("スキル名");
+  const addSkillButton = page.getByRole("button", { name: "スキルを足す" });
+  const memberSelect = page.getByLabel("割り当てるメンバー");
+
+  const options = memberSelect.locator("option");
+  await expect(options).toHaveCount(2);
+  expect(
+    await options.evaluateAll((elements) =>
+      elements
+        .map((e) => [e.textContent, (e as HTMLOptionElement).value])
+        .sort(),
+    ),
+  ).toEqual(
+    [
+      [owner.name, owner.id],
+      [candidate.name, candidate.id],
+    ].sort(),
+  );
+
+  await skillName.fill("実装");
+  await addSkillButton.click();
+
+  await expect(skillItem("実装")).toBeVisible();
+  await expect(skillName).toHaveValue("");
+
+  await skillName.fill("設計");
+  await addSkillButton.click();
+
+  await expect(page.getByRole("alert")).toHaveText("同じ名前がすでにあります");
+
+  await memberSelect.selectOption(candidate.id);
+  await page.getByRole("button", { name: "割り当てる" }).click();
+
+  await expect(matrixRowOf(page, candidate.name)).toBeVisible();
+
+  const unassignMessage = nextDialog(page, "accept");
+  await page.getByRole("button", { name: `${candidate.name} を外す` }).click();
+
+  expect(await unassignMessage).toBe(
+    `${candidate.name} をこのチームから外します。このチームに記入したレベルも消え、元に戻せません。`,
+  );
+  await expect(matrixRowOf(page, candidate.name)).toHaveCount(0);
+
+  const removeSkill = page.getByRole("button", { name: "実装 を削除" });
+  const dismissedMessage = nextDialog(page, "dismiss");
+  await removeSkill.click();
+
+  expect(await dismissedMessage).toBe(
+    "スキル「実装」を削除します。このスキルに記入したレベルも消え、元に戻せません。",
+  );
+  await expect(skillItem("実装")).toBeVisible();
+
+  const removeMessage = nextDialog(page, "accept");
+  await removeSkill.click();
+  await removeMessage;
+
+  await expect(skillItem("実装")).toHaveCount(0);
+
+  await expect(
+    page.getByRole("heading", { name: "事業所にいない人の割り当て" }),
+  ).toBeVisible();
+  await expect(page.getByText(departedId)).toBeVisible();
+  const departedMessage = nextDialog(page, "accept");
+  await page.getByRole("button", { name: `${departedId} を外す` }).click();
+  await departedMessage;
+
+  await expect(page.getByText(departedId)).toHaveCount(0);
+
+  await context.close();
+});
+
+test("メンバー一覧が取れないと、管理者にも割り当ての部品を出さず、その旨を出す", async ({
+  browser,
+}) => {
+  const companyId = uniqueCompanyId("u");
+  const email = await createTestUser({ companyId });
+  const teamName = `開発 ${crypto.randomUUID()}`;
+  const teamId = await insertTeam(companyId, teamName);
+  await assignMember(companyId, teamId, await userIdOf(email));
+  const context = await signInWithMagicLink(browser, email);
+  const page = await context.newPage();
+  await page.route(`**/api/teams/${teamId}`, async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({
+      response,
+      json: { ...(await response.json()), members: null },
+    });
+  });
+
+  await page.goto(`/dashboard/teams/${teamId}`);
+
+  await expect(page.getByRole("heading", { name: "星取表" })).toBeVisible();
+  await expect(
+    page.getByText("メンバー一覧を取得できませんでした"),
+  ).toHaveCount(2);
+  await expect(page.getByLabel("割り当てるメンバー")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /を外す$/ })).toHaveCount(0);
 
   await context.close();
 });

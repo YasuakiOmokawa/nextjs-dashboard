@@ -45,12 +45,8 @@ export const markTeamListStaleWithoutRefetch = (queryClient: QueryClient) =>
 export const createTeam = (name: string) =>
   parseResponse(api.teams.$post({ json: { name } }));
 
+// hc は path の param を escape しないので、param は全て encodeURIComponent して渡す
 const teamApi = api.teams[":teamId"];
-
-// hc は path の param を escape しない
-const escapedTeamParam = (teamId: string) => ({
-  teamId: encodeURIComponent(teamId),
-});
 
 export type TeamPage = InferResponseType<typeof teamApi.$get, 200>;
 
@@ -58,19 +54,23 @@ export const teamQuery = (teamId: string) =>
   queryOptions({
     queryKey: ["team", teamId],
     queryFn: () =>
-      parseResponse(teamApi.$get({ param: escapedTeamParam(teamId) })),
+      parseResponse(
+        teamApi.$get({ param: { teamId: encodeURIComponent(teamId) } }),
+      ),
   });
 
 export const renameTeam = (teamId: string, name: string) =>
   parseResponse(
     teamApi.$patch({
-      param: escapedTeamParam(teamId),
+      param: { teamId: encodeURIComponent(teamId) },
       json: { name },
     }),
   );
 
 export const deleteTeam = (teamId: string) =>
-  parseResponse(teamApi.$delete({ param: escapedTeamParam(teamId) }));
+  parseResponse(
+    teamApi.$delete({ param: { teamId: encodeURIComponent(teamId) } }),
+  );
 
 const myLevelsApi = teamApi["my-levels"];
 
@@ -80,8 +80,45 @@ export const saveMyLevels = (
 ) =>
   parseResponse(
     myLevelsApi.$put({
-      param: escapedTeamParam(teamId),
+      param: { teamId: encodeURIComponent(teamId) },
       json: { levels },
+    }),
+  );
+
+export const addSkill = (teamId: string, name: string) =>
+  parseResponse(
+    teamApi.skills.$post({
+      param: { teamId: encodeURIComponent(teamId) },
+      json: { name },
+    }),
+  );
+
+export const removeSkill = (skillId: string) =>
+  parseResponse(
+    api.skills[":skillId"].$delete({
+      param: { skillId: encodeURIComponent(skillId) },
+    }),
+  );
+
+const assignmentApi = teamApi.assignments[":userId"];
+
+export const assignMember = (teamId: string, userId: string) =>
+  parseResponse(
+    assignmentApi.$put({
+      param: {
+        teamId: encodeURIComponent(teamId),
+        userId: encodeURIComponent(userId),
+      },
+    }),
+  );
+
+export const unassignMember = (teamId: string, userId: string) =>
+  parseResponse(
+    assignmentApi.$delete({
+      param: {
+        teamId: encodeURIComponent(teamId),
+        userId: encodeURIComponent(userId),
+      },
     }),
   );
 

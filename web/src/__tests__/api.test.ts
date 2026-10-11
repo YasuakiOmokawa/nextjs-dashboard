@@ -2,12 +2,16 @@ import { QueryClient } from "@tanstack/react-query";
 import { DetailedError } from "hono/client";
 import { afterEach, expect, it, vi } from "vitest";
 import {
+  addSkill,
+  assignMember,
   deleteTeam,
   failureMessageOf,
+  removeSkill,
   renameTeam,
   saveMyLevels,
   type TeamPage,
   teamQuery,
+  unassignMember,
   writeSavedMyLevels,
 } from "../api";
 
@@ -33,14 +37,33 @@ it.each([
     "/api/teams/..%2Fmembers",
   ],
   ["削除", () => deleteTeam("../members"), "/api/teams/..%2Fmembers"],
-])("%s は teamId を escape して path に入れる", async (_, send, path) => {
-  const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({}));
-  vi.stubGlobal("fetch", fetch);
+  [
+    "スキルの追加",
+    () => addSkill("../members", "x"),
+    "/api/teams/..%2Fmembers/skills",
+  ],
+  ["スキルの削除", () => removeSkill("../me"), "/api/skills/..%2Fme"],
+  [
+    "割り当て",
+    () => assignMember("../members", "a/b"),
+    "/api/teams/..%2Fmembers/assignments/a%2Fb",
+  ],
+  [
+    "外す",
+    () => unassignMember("../members", "a/b"),
+    "/api/teams/..%2Fmembers/assignments/a%2Fb",
+  ],
+])(
+  "%s は path の param を escape して path に入れる",
+  async (_, send, path) => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({}));
+    vi.stubGlobal("fetch", fetch);
 
-  await send();
+    await send();
 
-  expect(String(fetch.mock.calls[0]?.[0])).toBe(path);
-});
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(path);
+  },
+);
 
 const failedResponse = (data: unknown) =>
   new DetailedError("403 Forbidden", {
