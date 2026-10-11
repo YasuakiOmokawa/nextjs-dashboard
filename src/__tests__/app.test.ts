@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import { buildAuthLoginUrl } from "@taimei-code/auth-client";
+import { asc } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { memberSkills } from "@/db/drizzle/schema";
 import { CompanyId, SkillId } from "@/db/ids";
 import { type RequestSession, runServiceWithoutDb } from "@/src/services";
 import {
@@ -18,6 +20,7 @@ import {
 } from "@/src/services/__tests__/db/test-db";
 import { CompanyMembers } from "@/src/services/company-members-service";
 import { TeamNotFound } from "@/src/services/team-errors";
+import { MAX_LEVEL_ENTRIES_PER_SAVE } from "@/src/services/team-service";
 import { app, type Env } from "../app";
 import { jsonBody, resultJson } from "../run-json";
 
@@ -167,6 +170,7 @@ describe("全ての route の認証", () => {
         "GET /api/me",
         "GET /api/teams",
         "GET /api/teams/:teamId",
+        "PUT /api/teams/:teamId/my-levels",
         "GET /api/members",
       ]),
     );
@@ -276,11 +280,16 @@ describe("GET /api/teams", () => {
   });
 });
 
+const seedAssignedTeam = async (tx: TestDb) => {
+  const teamId = await seedTeam(tx, "cmp_app_a", "開発");
+  const skillId = await seedSkill(tx, "cmp_app_a", teamId, "設計");
+  await seedAssignment(tx, "cmp_app_a", teamId, "u_1");
+  return { teamId, skillId };
+};
+
 describe("GET /api/teams/:teamId", () => {
   const seedTeamPage = async (tx: TestDb) => {
-    const teamId = await seedTeam(tx, "cmp_app_a", "開発");
-    const skillId = await seedSkill(tx, "cmp_app_a", teamId, "設計");
-    await seedAssignment(tx, "cmp_app_a", teamId, "u_1");
+    const { teamId, skillId } = await seedAssignedTeam(tx);
     await seedLevel(tx, {
       companyId: "cmp_app_a",
       teamId,
@@ -425,6 +434,262 @@ describe("GET /api/teams/:teamId", () => {
 
       expect(response.status).toBe(404);
       expect(db.execute).not.toHaveBeenCalled();
+    }));
+});
+
+describe("PUT /api/teams/:teamId/my-levels", () => {
+  const putMyLevels = (
+    teamId: string,
+    body: string,
+    env: Env,
+    contentType = "application/json",
+  ) =>
+    app.request(
+      `${ORIGIN}/api/teams/${teamId}/my-levels`,
+      {
+        method: "PUT",
+        headers: { ...COOKIE, Origin: ORIGIN, "Content-Type": contentType },
+        body,
+      },
+      env,
+    );
+
+  const levelsBody = (
+    levels: readonly {
+      skillId: string;
+      level: unknown;
+      wantsToLearn: boolean;
+      userId?: string;
+    }[],
+  ) => JSON.stringify({ levels });
+
+  const envWithMemberSession = () =>
+    envWith(() => sessionOk({ role: "ROLE_MEMBER" }));
+
+  const levelRows = (tx: TestDb) =>
+    tx
+      .select({
+        companyId: memberSkills.companyId,
+        skillId: memberSkills.skillId,
+        userId: memberSkills.userId,
+        level: memberSkills.level,
+        wantsToLearn: memberSkills.wantsToLearn,
+      })
+      .from(memberSkills)
+      .orderBy(asc(memberSkills.userId), asc(memberSkills.skillId));
+
+  it("割り当てられた人の保存は、事業所スコープの transaction の中で自分の行に入り、200 の {} を返す", () =>
+    withRollbackDb(async (tx) => {
+      const { teamId, skillId } = await seedAssignedTeam(tx);
+      const db = spyOnDb();
+
+      const response = await putMyLevels(
+        teamId,
+        levelsBody([{ skillId, level: 3, wantsToLearn: true }]),
+        envWithMemberSession(),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({});
+      expect(await levelRows(tx)).toEqual([
+        {
+          companyId: "cmp_app_a",
+          skillId,
+          userId: "u_1",
+          level: 3,
+          wantsToLearn: true,
+        },
+      ]);
+      expect(db.transaction).toHaveBeenCalledOnce();
+      expect(consoleError).not.toHaveBeenCalled();
+    }));
+
+  it("body に同僚の user id を足しても、書くのは送った人の行だけで、同僚の行は変わらない", () =>
+    withRollbackDb(async (tx) => {
+      const { teamId, skillId } = await seedAssignedTeam(tx);
+      await seedAssignment(tx, "cmp_app_a", teamId, "u_2");
+      await seedLevel(tx, {
+        companyId: "cmp_app_a",
+        teamId,
+        skillId,
+        userId: "u_2",
+        level: 1,
+      });
+
+      const response = await putMyLevels(
+        teamId,
+        levelsBody([{ skillId, level: 3, wantsToLearn: true, userId: "u_2" }]),
+        envWithMemberSession(),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await levelRows(tx)).toMatchObject([
+        { userId: "u_1", level: 3, wantsToLearn: true },
+        { userId: "u_2", level: 1, wantsToLearn: false },
+      ]);
+    }));
+
+  it("割り当てられていない管理者は 403 で、行を書かない", () =>
+    withRollbackDb(async (tx) => {
+      const teamId = await seedTeam(tx, "cmp_app_a", "開発");
+      const skillId = await seedSkill(tx, "cmp_app_a", teamId, "設計");
+
+      const response = await putMyLevels(
+        teamId,
+        levelsBody([{ skillId, level: 2, wantsToLearn: false }]),
+        envWith(() => sessionOk({ role: "ROLE_ADMIN" })),
+      );
+
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({
+        _tag: "NotAssigned",
+        message: "チームに割り当てられた人だけが記入できます",
+      });
+      expect(await levelRows(tx)).toEqual([]);
+      expect(consoleError).not.toHaveBeenCalled();
+    }));
+
+  it("別のチームのスキルを含めると 404 で、どの行も書かない", () =>
+    withRollbackDb(async (tx) => {
+      const { teamId, skillId } = await seedAssignedTeam(tx);
+      const otherTeamId = await seedTeam(tx, "cmp_app_a", "営業");
+      const otherSkillId = await seedSkill(
+        tx,
+        "cmp_app_a",
+        otherTeamId,
+        "提案",
+      );
+
+      const response = await putMyLevels(
+        teamId,
+        levelsBody([
+          { skillId, level: 2, wantsToLearn: false },
+          { skillId: otherSkillId, level: 2, wantsToLearn: false },
+        ]),
+        envWithMemberSession(),
+      );
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({
+        _tag: "SkillNotFound",
+        message: "スキルが見つかりません",
+      });
+      expect(await levelRows(tx)).toEqual([]);
+      expect(consoleError).not.toHaveBeenCalled();
+    }));
+
+  it("範囲外のレベル (4) を含めると 422 で、どの行も書かない", () =>
+    withRollbackDb(async (tx) => {
+      const { teamId, skillId } = await seedAssignedTeam(tx);
+      const otherSkillId = await seedSkill(tx, "cmp_app_a", teamId, "テスト");
+
+      const response = await putMyLevels(
+        teamId,
+        levelsBody([
+          { skillId, level: 2, wantsToLearn: false },
+          { skillId: otherSkillId, level: 4, wantsToLearn: false },
+        ]),
+        envWithMemberSession(),
+      );
+
+      expect(response.status).toBe(422);
+      expect(await response.json()).toEqual({
+        _tag: "InvalidLevel",
+        message: "レベルの値が正しくありません",
+      });
+      expect(await levelRows(tx)).toEqual([]);
+      expect(consoleError).not.toHaveBeenCalled();
+    }));
+
+  it("他社のチームは 404 で、他社の行は変わらない", () =>
+    withRollbackDb(async (tx) => {
+      const otherTeamId = await seedTeam(tx, "cmp_app_b", "他社");
+      const otherSkillId = await seedSkill(
+        tx,
+        "cmp_app_b",
+        otherTeamId,
+        "設計",
+      );
+      await seedAssignment(tx, "cmp_app_b", otherTeamId, "u_1");
+      await seedLevel(tx, {
+        companyId: "cmp_app_b",
+        teamId: otherTeamId,
+        skillId: otherSkillId,
+        userId: "u_1",
+        level: 1,
+      });
+
+      const response = await putMyLevels(
+        otherTeamId,
+        levelsBody([{ skillId: otherSkillId, level: 3, wantsToLearn: true }]),
+        envWithMemberSession(),
+      );
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toMatchObject({ _tag: "TeamNotFound" });
+      expect(await levelRows(tx)).toMatchObject([
+        { companyId: "cmp_app_b", level: 1, wantsToLearn: false },
+      ]);
+      expect(consoleError).not.toHaveBeenCalled();
+    }));
+
+  it.each([
+    ["レベルを文字列にした body", "2", "application/json"],
+    ["Content-Type が JSON でない要求", 2, "text/plain"],
+  ])("%s は 400 で、行を書かない", (_, level, contentType) =>
+    withRollbackDb(async (tx) => {
+      const { teamId, skillId } = await seedAssignedTeam(tx);
+
+      const response = await putMyLevels(
+        teamId,
+        levelsBody([{ skillId, level, wantsToLearn: false }]),
+        envWithMemberSession(),
+        contentType,
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        _tag: "InvalidRequest",
+        message: "送った内容の形が正しくありません",
+      });
+      expect(await levelRows(tx)).toEqual([]);
+      expect(consoleError).not.toHaveBeenCalled();
+    }),
+  );
+
+  it.each([
+    [MAX_LEVEL_ENTRIES_PER_SAVE + 1, 400],
+    [MAX_LEVEL_ENTRIES_PER_SAVE, 422],
+  ])("%i 件の entry を送ると %i で、行を書かない", (count, status) =>
+    withRollbackDb(async (tx) => {
+      const { teamId, skillId } = await seedAssignedTeam(tx);
+
+      const response = await putMyLevels(
+        teamId,
+        levelsBody(
+          Array.from({ length: count }, () => ({
+            skillId,
+            level: 2,
+            wantsToLearn: false,
+          })),
+        ),
+        envWithMemberSession(),
+      );
+
+      expect(response.status).toBe(status);
+      expect(await levelRows(tx)).toEqual([]);
+    }),
+  );
+
+  it("壊れた JSON は 400 で、行を書かない", () =>
+    withRollbackDb(async (tx) => {
+      const { teamId } = await seedAssignedTeam(tx);
+
+      const response = await putMyLevels(teamId, "{", envWithMemberSession());
+
+      expect(response.status).toBe(400);
+      expect(await levelRows(tx)).toEqual([]);
+      expect(consoleError).not.toHaveBeenCalled();
     }));
 });
 
