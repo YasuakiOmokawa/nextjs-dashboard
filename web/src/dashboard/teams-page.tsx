@@ -1,4 +1,5 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { meQuery, teamsQuery } from "@/api";
 import { Card } from "@/components/ui/card";
@@ -19,11 +20,16 @@ export default function TeamsPage() {
             : "まだどのチームにも割り当てられていません。管理者に割り当てを頼んでください"}
         </CardMessage>
       ) : (
-        // ponytail: チームの画面 (#582) が無いうちは link にしない
         <ul className="divide-y">
           {teams.map((team) => (
-            <li key={team.id} className="px-6 py-4 text-sm font-medium">
-              {team.name}
+            <li key={team.id}>
+              <Link
+                to="/dashboard/teams/$teamId"
+                params={{ teamId: team.id }}
+                className="block px-6 py-4 text-sm font-medium hover:bg-muted/50"
+              >
+                {team.name}
+              </Link>
             </li>
           ))}
         </ul>

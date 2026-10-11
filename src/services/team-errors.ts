@@ -1,4 +1,5 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
+import { TeamId } from "@/db/ids";
 import type {
   MemberListError,
   Unauthenticated,
@@ -11,6 +12,12 @@ export class TeamNotFound extends Schema.TaggedError<TeamNotFound>()(
     teamId: Schema.String,
   },
 ) {}
+
+const decodeUnknownTeamId = Schema.decodeUnknownEffect(TeamId);
+export const decodeTeamId = (teamId: string) =>
+  decodeUnknownTeamId(teamId).pipe(
+    Effect.mapError(() => new TeamNotFound({ teamId })),
+  );
 
 export class SkillNotFound extends Schema.TaggedError<SkillNotFound>()(
   "SkillNotFound",

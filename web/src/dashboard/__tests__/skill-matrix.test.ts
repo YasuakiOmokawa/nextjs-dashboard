@@ -1,30 +1,23 @@
-import type { Member } from "@taimei-code/auth-client";
 import { expect, it } from "vitest";
-import { SkillId, TeamId } from "@/db/ids";
-import type { Level } from "@/src/services/level";
-import type { TeamDetail } from "@/src/services/team-service";
-import { teamSkillMatrix } from "../skill-matrix";
+import type { Level } from "../level";
+import { type Member, type TeamDetail, teamSkillMatrix } from "../skill-matrix";
 
-const member = (userId: string): Member => ({
-  userId,
-  name: userId,
-  email: "",
-});
+const member = (userId: string): Member => ({ userId, name: userId });
 
 const skill = (n: number) => ({
-  id: SkillId.make(`00000000-0000-4000-8000-${String(n).padStart(12, "0")}`),
+  id: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
   name: `スキル${n}`,
 });
 
 const recorded = (
   userId: string,
-  { id }: { id: SkillId },
+  { id }: { id: string },
   level: Level,
   wantsToLearn = false,
 ) => ({ userId, skillId: id, level, wantsToLearn });
 
 const team = (detail: Partial<TeamDetail>): TeamDetail => ({
-  id: TeamId.make("00000000-0000-4000-8000-0000000000aa"),
+  id: "00000000-0000-4000-8000-0000000000aa",
   name: "開発",
   skills: [],
   assignedUserIds: [],

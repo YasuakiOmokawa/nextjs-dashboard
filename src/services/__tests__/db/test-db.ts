@@ -34,12 +34,16 @@ export const withRollback = async (fn: (tx: TestDb) => Promise<void>) => {
 
 let rollbackTx: TestDb | undefined;
 
+const currentRollbackTx = () => {
+  if (!rollbackTx) throw new Error("withRollbackDb の外で db を使った");
+  return rollbackTx;
+};
+
 // db/drizzle/client の db を差し替えて使う。実行口の書き込みを test の終わりに戻し、並行の test に見せない
-export const dbInRollback: Pick<TestDb, "transaction"> = {
-  transaction: <T>(fn: (tx: TestDb) => Promise<T>) => {
-    if (!rollbackTx) throw new Error("withRollbackDb の外で db を使った");
-    return rollbackTx.transaction(fn);
-  },
+export const dbInRollback: Pick<TestDb, "transaction" | "execute"> = {
+  transaction: <T>(fn: (tx: TestDb) => Promise<T>) =>
+    currentRollbackTx().transaction(fn),
+  execute: ((query) => currentRollbackTx().execute(query)) as TestDb["execute"],
 };
 
 export const withRollbackDb = (fn: (tx: TestDb) => Promise<void>) =>

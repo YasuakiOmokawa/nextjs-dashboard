@@ -1,6 +1,11 @@
 import { type BrowserContext, expect, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
-import { insertTeam } from "../db/app-client";
+import {
+  assignMember,
+  insertLevel,
+  insertSkill,
+  insertTeam,
+} from "../db/app-client";
 import { authDb } from "../db/auth-client";
 import { user } from "../db/auth-schema";
 import {
@@ -21,9 +26,8 @@ const userIdOf = async (email: string) => {
   return row.id;
 };
 
-// チームの画面 (#582) が無いうちは、一覧のチームは link でなく項目
 const teamItem = (page: Page, name: string) =>
-  page.getByRole("listitem").filter({ hasText: name });
+  page.getByRole("link", { name, exact: true });
 
 const openTeams = async (page: Page) => {
   await page.goto("/dashboard");
@@ -58,7 +62,10 @@ test("自社のチームが一覧に出て、他の事業所のチームは画�
 
   await openTeams(page);
 
-  await expect(teamItem(page, teamA)).toHaveCount(1);
+  await expect(teamItem(page, teamA)).toHaveAttribute(
+    "href",
+    `/dashboard/teams/${teamAId}`,
+  );
   await expect(teamItem(page, teamB)).toHaveCount(0);
   const body = await (await context.request.get("/api/teams")).text();
   expect(body).toContain(teamAId);
@@ -89,6 +96,67 @@ test("事業所を切り替えると、切り替えた先の事業所のチー�
 
   await expect(teamItem(page, teamB)).toHaveCount(1);
   await expect(teamItem(page, teamA)).toHaveCount(0);
+
+  await context.close();
+});
+
+test("割り当てられたメンバーは一覧からチームを開き、自分と同僚の記入を星取表で見られる", async ({
+  browser,
+}) => {
+  const companyId = uniqueCompanyId("m");
+  const teamName = `開発 ${crypto.randomUUID()}`;
+  const myName = `自分 ${crypto.randomUUID()}`;
+  const colleagueName = `同僚 ${crypto.randomUUID()}`;
+  const myEmail = await createTestUser({ companyId, role: "MEMBER" });
+  const colleagueEmail = await createTestUser({ companyId, role: "ADMIN" });
+  const myId = await userIdOf(myEmail);
+  const colleagueId = await userIdOf(colleagueEmail);
+  await authDb.update(user).set({ name: myName }).where(eq(user.id, myId));
+  await authDb
+    .update(user)
+    .set({ name: colleagueName })
+    .where(eq(user.id, colleagueId));
+  const teamId = await insertTeam(companyId, teamName);
+  const skillId = await insertSkill(companyId, teamId, "設計");
+  for (const [userId, level] of [
+    [myId, 2],
+    [colleagueId, 3],
+  ] as const) {
+    await assignMember(companyId, teamId, userId);
+    await insertLevel(companyId, teamId, skillId, userId, level);
+  }
+  const context = await signInWithMagicLink(browser, myEmail);
+  const page = await context.newPage();
+  await openTeams(page);
+
+  await teamItem(page, teamName).click();
+
+  await expect(page).toHaveURL(new RegExp(`/dashboard/teams/${teamId}$`));
+  await expect(page.getByRole("heading", { name: teamName })).toBeVisible();
+  const rowOf = (name: string) =>
+    page.getByRole("row").filter({ hasText: name });
+  await expect(rowOf(myName)).toContainText("○");
+  await expect(rowOf(colleagueName)).toContainText("◎");
+
+  await context.close();
+});
+
+test("他の事業所のチームの URL を開いても、見つからないと出し、API も 404 を返す", async ({
+  browser,
+}) => {
+  const otherTeamId = await insertTeam(
+    uniqueCompanyId("b"),
+    `B のチーム ${crypto.randomUUID()}`,
+  );
+  const context = await signInWithMagicLink(browser, await createTestUser());
+  const page = await context.newPage();
+
+  await page.goto(`/dashboard/teams/${otherTeamId}`);
+
+  await expect(page.getByText("チームが見つかりません")).toBeVisible();
+  expect(
+    (await context.request.get(`/api/teams/${otherTeamId}`)).status(),
+  ).toBe(404);
 
   await context.close();
 });

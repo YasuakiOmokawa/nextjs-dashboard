@@ -10,6 +10,12 @@ export class Db extends Context.Service<
   PgDatabase<NodePgQueryResultHKT, typeof schema>
 >()("taimei/src/services/Db") {}
 
+// withCompanyScope の transaction の外の接続。自分で set_config を流す読み取りの関数 (drizzle/0012) だけを呼ぶ
+export class ReadDb extends Context.Service<
+  ReadDb,
+  Pick<Db["Service"], "execute">
+>()("taimei/src/services/ReadDb") {}
+
 export class DbUnavailable extends Schema.TaggedError<DbUnavailable>()(
   "DbUnavailable",
   {

@@ -5,8 +5,9 @@ import { reportUnexpectedFailure } from "@/src/lib/team-failure";
 import { AuthorizationContext } from "./authorization-context";
 import { CompanyContext } from "./company-context";
 import { CompanyMembers } from "./company-members-service";
-import { Db, DbUnavailable } from "./db-service";
+import { Db, DbUnavailable, ReadDb } from "./db-service";
 import type { TeamFailure } from "./team-errors";
+import { TeamReads } from "./team-reads";
 import { TeamService } from "./team-service";
 
 export type RequestSession = CompanyContext["Service"] &
@@ -68,6 +69,22 @@ export const runServiceWithoutDb = async <A, E extends TeamFailure>(
     await runtime.runPromise(
       Effect.result(Effect.suspend(body).pipe(provideSession(session))),
     ),
+  );
+
+const ReadScoped = TeamReads.layer.pipe(
+  Layer.provide(Layer.succeed(ReadDb, db)),
+);
+
+export const runReadService = <A, E extends TeamFailure>(
+  session: RequestSession,
+  body: () => Effect.Effect<
+    A,
+    E,
+    LiveServices | Layer.Success<typeof ReadScoped> | ProvidedPerRequest
+  >,
+) =>
+  runServiceWithoutDb(session, () =>
+    Effect.suspend(body).pipe(Effect.provide(ReadScoped)),
   );
 
 class BodyDefect {

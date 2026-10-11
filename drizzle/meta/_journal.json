@@ -85,6 +85,13 @@
       "when": 1791288073421,
       "tag": "0011_drop_legacy_auth_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791676833837,
+      "tag": "0012_team_read_functions",
+      "breakpoints": true
     }
   ]
 }

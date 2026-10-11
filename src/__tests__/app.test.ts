@@ -3,10 +3,19 @@ import { buildAuthLoginUrl } from "@taimei-code/auth-client";
 import { Effect, Result, Schema } from "effect";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { teams } from "@/db/drizzle/schema";
 import { CompanyId } from "@/db/ids";
 import { type RequestSession, runServiceWithoutDb } from "@/src/services";
-import { withRollbackDb } from "@/src/services/__tests__/db/test-db";
+import {
+  seedAssignment,
+  seedLevel,
+  seedSkill,
+  seedTeam,
+} from "@/src/services/__tests__/db/seed";
+import {
+  dbInRollback,
+  type TestDb,
+  withRollbackDb,
+} from "@/src/services/__tests__/db/test-db";
 import { CompanyMembers } from "@/src/services/company-members-service";
 import { TeamNotFound } from "@/src/services/team-errors";
 import { app, type Env } from "../app";
@@ -157,6 +166,7 @@ describe("全ての route の認証", () => {
       expect.arrayContaining([
         "GET /api/me",
         "GET /api/teams",
+        "GET /api/teams/:teamId",
         "GET /api/members",
       ]),
     );
@@ -220,16 +230,17 @@ describe("Worker に届く path", () => {
   });
 });
 
+const spyOnDb = () => ({
+  execute: vi.spyOn(dbInRollback, "execute"),
+  transaction: vi.spyOn(dbInRollback, "transaction"),
+});
+
 describe("GET /api/teams", () => {
-  it("session の事業所のチームだけを id と name で返す", () =>
+  it("session の事業所のチームだけを id と name で、transaction を開かず 1 文で返す", () =>
     withRollbackDb(async (tx) => {
-      const [a] = await tx
-        .insert(teams)
-        .values({ companyId: CompanyId.make("cmp_app_a"), name: "A のチーム" })
-        .returning();
-      await tx
-        .insert(teams)
-        .values({ companyId: CompanyId.make("cmp_app_b"), name: "B のチーム" });
+      const db = spyOnDb();
+      const a = await seedTeam(tx, "cmp_app_a", "A のチーム");
+      await seedTeam(tx, "cmp_app_b", "B のチーム");
 
       const response = await get(
         "/api/teams",
@@ -238,8 +249,182 @@ describe("GET /api/teams", () => {
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({
-        teams: [{ id: a.id, name: "A のチーム" }],
+        teams: [{ id: a, name: "A のチーム" }],
       });
+      expect(db.execute).toHaveBeenCalledOnce();
+      expect(db.transaction).not.toHaveBeenCalled();
+    }));
+
+  it("DB に接続できないと 503 を返し、1 回報告する", async () => {
+    vi.spyOn(dbInRollback, "execute").mockRejectedValue(
+      new Error("Failed query", {
+        cause: new Error("connect ECONNREFUSED 127.0.0.1:5432"),
+      }),
+    );
+
+    const response = await get(
+      "/api/teams",
+      envWith(() => sessionOk({ role: "ROLE_OWNER" })),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      _tag: "DbUnavailable",
+      message: "保存に失敗しました",
+    });
+    expect(consoleError).toHaveBeenCalledOnce();
+  });
+});
+
+describe("GET /api/teams/:teamId", () => {
+  const seedTeamPage = async (tx: TestDb) => {
+    const teamId = await seedTeam(tx, "cmp_app_a", "開発");
+    const skillId = await seedSkill(tx, "cmp_app_a", teamId, "設計");
+    await seedAssignment(tx, "cmp_app_a", teamId, "u_1");
+    await seedLevel(tx, {
+      companyId: "cmp_app_a",
+      teamId,
+      skillId,
+      userId: "u_1",
+      level: 2,
+    });
+    return { teamId, skillId };
+  };
+
+  it("チームと、星取表に要るメンバーの user id と名前だけを、transaction を開かず 1 文で返す", () =>
+    withRollbackDb(async (tx) => {
+      const { teamId, skillId } = await seedTeamPage(tx);
+      const db = spyOnDb();
+
+      const response = await get(
+        `/api/teams/${teamId}`,
+        envWithMembers(
+          () =>
+            membersOk([
+              {
+                userId: "u_1",
+                name: "山田 花子",
+                email: "hanako@example.com",
+                role: "ROLE_MEMBER",
+              },
+              {
+                userId: "u_2",
+                name: " ",
+                email: "taro@example.com",
+                role: "ROLE_ADMIN",
+              },
+            ]),
+          { role: "ROLE_MEMBER" },
+        ),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        team: {
+          id: teamId,
+          name: "開発",
+          skills: [{ id: skillId, name: "設計" }],
+          assignedUserIds: ["u_1"],
+          levels: [{ userId: "u_1", skillId, level: 2, wantsToLearn: false }],
+        },
+        members: [
+          { userId: "u_1", name: "山田 花子" },
+          { userId: "u_2", name: "taro@example.com" },
+        ],
+      });
+      expect(db.execute).toHaveBeenCalledOnce();
+      expect(db.transaction).not.toHaveBeenCalled();
+    }));
+
+  it("他社のチームは 404", () =>
+    withRollbackDb(async (tx) => {
+      const other = await seedTeam(tx, "cmp_app_b", "他社");
+
+      const response = await get(
+        `/api/teams/${other}`,
+        envWithMembers(() => membersOk([])),
+      );
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({
+        _tag: "TeamNotFound",
+        message: "チームが見つかりません",
+      });
+    }));
+
+  it("メンバー一覧が取れなくてもチームを返し、一覧は null にして 1 回報告する", () =>
+    withRollbackDb(async (tx) => {
+      const { teamId } = await seedTeamPage(tx);
+
+      const response = await get(
+        `/api/teams/${teamId}`,
+        envWithMembers(() =>
+          Response.json({ error: { reason: "RESULT_UNSPECIFIED" } }),
+        ),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        team: { id: teamId },
+        members: null,
+      });
+      expect(consoleError).toHaveBeenCalledExactlyOnceWith(
+        "listMembers failed",
+        expect.anything(),
+      );
+    }));
+
+  it("メンバー一覧の RPC が session の失敗を返すと 401 で、報告しない", () =>
+    withRollbackDb(async (tx) => {
+      const { teamId } = await seedTeamPage(tx);
+
+      const response = await get(
+        `/api/teams/${teamId}`,
+        envWithMembers(sessionError),
+      );
+
+      expect(response.status).toBe(401);
+      expect(consoleError).not.toHaveBeenCalled();
+    }));
+
+  it(
+    "チームの文がメンバー一覧の RPC の開始を待っても返る (直列なら timeout で落ちる)",
+    () =>
+      withRollbackDb(async (tx) => {
+        const { teamId } = await seedTeamPage(tx);
+        let markMembersRpcStarted = () => {};
+        const membersRpcStarted = new Promise<void>((resolve) => {
+          markMembersRpcStarted = resolve;
+        });
+        const execute = dbInRollback.execute;
+        vi.spyOn(dbInRollback, "execute").mockImplementation(((query) =>
+          membersRpcStarted.then(() => execute(query))) as typeof execute);
+        const env = envWithBinding(
+          vi.fn<typeof fetch>(async (input) => {
+            if (String(input).endsWith("/VerifySession")) return sessionOk();
+            markMembersRpcStarted();
+            return membersOk([]);
+          }),
+        );
+
+        const response = await get(`/api/teams/${teamId}`, env);
+
+        expect(response.status).toBe(200);
+      }),
+    2_000,
+  );
+
+  it("UUID でない id は文を流さずに 404", () =>
+    withRollbackDb(async () => {
+      const db = spyOnDb();
+
+      const response = await get(
+        "/api/teams/not-a-uuid",
+        envWithMembers(() => membersOk([])),
+      );
+
+      expect(response.status).toBe(404);
+      expect(db.execute).not.toHaveBeenCalled();
     }));
 });
 
@@ -386,7 +571,7 @@ describe("GET /api/me", () => {
     ["ROLE_MEMBER", false],
     [undefined, false],
   ] as const)(
-    "role %s の canManage は %s で、名前と canManage だけを返す",
+    "role %s の canManage は %s で、user id・名前・canManage だけを返す",
     async (role, canManage) => {
       const response = await get(
         "/api/me",
@@ -394,7 +579,11 @@ describe("GET /api/me", () => {
       );
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ name: "山田 花子", canManage });
+      expect(await response.json()).toEqual({
+        userId: "u_1",
+        name: "山田 花子",
+        canManage,
+      });
     },
   );
 });

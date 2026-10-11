@@ -1,4 +1,4 @@
-import { and, asc, eq, exists, type SQL, sql } from "drizzle-orm";
+import { and, eq, type SQL, sql } from "drizzle-orm";
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import {
   MEMBER_SKILLS_ASSIGNMENT_FK,
@@ -8,7 +8,7 @@ import {
   teamAssignments,
   teams,
 } from "@/db/drizzle/schema";
-import { SkillId, TeamId } from "@/db/ids";
+import { SkillId } from "@/db/ids";
 import { companyFilter } from "@/db/scoped";
 import { AuthorizationContext, isManager } from "./authorization-context";
 import { CompanyContext } from "./company-context";
@@ -21,6 +21,7 @@ import { Db } from "./db-service";
 import { LevelFromForm } from "./level";
 import {
   DuplicateName,
+  decodeTeamId,
   InvalidLevel,
   InvalidName,
   NotAssigned,
@@ -32,11 +33,11 @@ import {
 } from "./team-errors";
 import { TeamOrSkillName } from "./team-or-skill-name";
 
-const decodeUnknownTeamId = Schema.decodeUnknownEffect(TeamId);
-const decodeTeamId = (teamId: string) =>
-  decodeUnknownTeamId(teamId).pipe(
-    Effect.mapError(() => new TeamNotFound({ teamId })),
-  );
+const runQuery = <A>(run: () => Promise<A>) =>
+  Effect.tryPromise({
+    try: run,
+    catch: (cause) => new TeamServiceError({ cause }),
+  });
 
 const decodeUnknownSkillId = Schema.decodeUnknownEffect(SkillId);
 const decodeSkillId = (skillId: string) =>
@@ -78,12 +79,6 @@ type LevelEntry = {
   readonly level: string;
   readonly wantsToLearn: boolean;
 };
-
-const runQuery = <A>(run: () => Promise<A>) =>
-  Effect.tryPromise({
-    try: run,
-    catch: (cause) => new TeamServiceError({ cause }),
-  });
 
 // 違反で外側の transaction を中断しないよう、savepoint の中で書く
 const runWrite = <A, E>(
@@ -133,35 +128,11 @@ const findTeam = Effect.fnUntraced(function* (
   return team;
 });
 
-type Team = Pick<typeof teams.$inferSelect, "id" | "name">;
-type Skill = Pick<typeof skills.$inferSelect, "id" | "name">;
-type RecordedLevel = Pick<
-  typeof memberSkills.$inferSelect,
-  "userId" | "skillId" | "level" | "wantsToLearn"
->;
-export type TeamDetail = Team & {
-  readonly skills: readonly Skill[];
-  readonly assignedUserIds: readonly string[];
-  readonly levels: readonly RecordedLevel[];
-};
-
 type RequestContext = CompanyContext | AuthorizationContext;
 
 export class TeamService extends Context.Service<
   TeamService,
   {
-    readonly listTeams: Effect.Effect<
-      readonly Team[],
-      TeamServiceError,
-      RequestContext
-    >;
-    getTeam(
-      teamId: string,
-    ): Effect.Effect<
-      TeamDetail,
-      TeamNotFound | TeamServiceError,
-      RequestContext
-    >;
     saveMyLevels(
       teamId: string,
       entries: readonly LevelEntry[],
@@ -184,23 +155,7 @@ export class TeamService extends Context.Service<
       const visibleTeamCondition = Effect.gen(function* () {
         const { companyId } = yield* CompanyContext;
         const { userId, role } = yield* AuthorizationContext;
-        const inCompany = companyFilter(teams, companyId);
-        if (isManager(role)) return inCompany;
-        return and(
-          inCompany,
-          exists(
-            db
-              .select()
-              .from(teamAssignments)
-              .where(
-                and(
-                  eq(teamAssignments.teamId, teams.id),
-                  eq(teamAssignments.userId, userId),
-                  companyFilter(teamAssignments, companyId),
-                ),
-              ),
-          ),
-        );
+        return sql`team_visible_to(${companyId}, ${teams.id}, ${userId}, ${isManager(role)})`;
       });
 
       const findVisibleTeam = (teamId: string) =>
@@ -209,69 +164,6 @@ export class TeamService extends Context.Service<
         );
 
       return TeamService.of({
-        listTeams: Effect.gen(function* () {
-          const visible = yield* visibleTeamCondition;
-          return yield* runQuery(() =>
-            db
-              .select({ id: teams.id, name: teams.name })
-              .from(teams)
-              .where(visible)
-              .orderBy(asc(teams.createdAt)),
-          );
-        }).pipe(Effect.withSpan("TeamService.listTeams")),
-
-        getTeam: Effect.fn("TeamService.getTeam")(function* (teamId: string) {
-          const team = yield* findVisibleTeam(teamId);
-          const { companyId } = yield* CompanyContext;
-          const [teamSkills, assignments, levels] = yield* Effect.all([
-            runQuery(() =>
-              db
-                .select({ id: skills.id, name: skills.name })
-                .from(skills)
-                .where(
-                  and(
-                    eq(skills.teamId, team.id),
-                    companyFilter(skills, companyId),
-                  ),
-                )
-                .orderBy(asc(skills.createdAt)),
-            ),
-            runQuery(() =>
-              db
-                .select({ userId: teamAssignments.userId })
-                .from(teamAssignments)
-                .where(
-                  and(
-                    eq(teamAssignments.teamId, team.id),
-                    companyFilter(teamAssignments, companyId),
-                  ),
-                ),
-            ),
-            runQuery(() =>
-              db
-                .select({
-                  userId: memberSkills.userId,
-                  skillId: memberSkills.skillId,
-                  level: memberSkills.level,
-                  wantsToLearn: memberSkills.wantsToLearn,
-                })
-                .from(memberSkills)
-                .where(
-                  and(
-                    eq(memberSkills.teamId, team.id),
-                    companyFilter(memberSkills, companyId),
-                  ),
-                ),
-            ),
-          ]);
-          return {
-            ...team,
-            skills: teamSkills,
-            assignedUserIds: assignments.map((a) => a.userId),
-            levels,
-          };
-        }),
-
         saveMyLevels: Effect.fn("TeamService.saveMyLevels")(function* (
           teamId: string,
           entries: readonly LevelEntry[],

@@ -1,17 +1,24 @@
 import { eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { teams } from "@/db/drizzle/schema";
+import { teamAssignments, teams } from "@/db/drizzle/schema";
 import { CompanyId } from "@/db/ids";
-import { type RequestSession, runScopedService, runServiceWithoutDb } from "..";
+import {
+  type RequestSession,
+  runReadService,
+  runScopedService,
+  runServiceWithoutDb,
+} from "..";
 import { AuthorizationContext } from "../authorization-context";
 import { CompanyContext } from "../company-context";
 import { CompanyMembers, MemberListError } from "../company-members-service";
 import { Db, DbUnavailable } from "../db-service";
 import { TeamNotFound, TeamServiceError } from "../team-errors";
-import { TeamService } from "../team-service";
+import { TeamReads } from "../team-reads";
+import { TeamManagement, TeamService } from "../team-service";
 import {
   currentCompanySetting,
+  dbInRollback,
   type TestDb,
   withRollbackDb,
 } from "./db/test-db";
@@ -115,6 +122,55 @@ describe("runServiceWithoutDb", () => {
   });
 });
 
+describe("runReadService", () => {
+  it("transaction を開かずに、session の事業所・user・role で TeamReads を走らせる", () =>
+    withRollbackDb(async (tx) => {
+      await tx.insert(teams).values([
+        { companyId, name: "自社のチーム" },
+        { companyId: CompanyId.make("cmp_other"), name: "他社のチーム" },
+      ]);
+      const transaction = vi.spyOn(dbInRollback, "transaction");
+      const execute = vi.spyOn(dbInRollback, "execute");
+
+      const result = await runReadService(session, () =>
+        TeamReads.use((reads) => reads.listTeams),
+      );
+
+      expect(Result.getOrThrow(result).map((team) => team.name)).toEqual([
+        "自社のチーム",
+      ]);
+      expect(execute).toHaveBeenCalledOnce();
+      expect(transaction).not.toHaveBeenCalled();
+    }));
+
+  it("本体の予期しない失敗は、その失敗を返し、1 回報告する", async () => {
+    const failure = new TeamServiceError({ cause: "connection lost" });
+
+    const result = await runReadService(session, () => Effect.fail(failure));
+
+    expect(result).toEqual(Result.fail(failure));
+    expect(consoleError).toHaveBeenCalledExactlyOnceWith("connection lost");
+  });
+
+  it("本体は Db・TeamService・TeamManagement を要求できない (bun run typecheck で見る)", () => {
+    const requiresDb = () =>
+      // @ts-expect-error runReadService は transaction の Db を provide しない
+      runReadService(session, () => Db.use(() => Effect.void));
+    const requiresTeamService = () =>
+      // @ts-expect-error 書き込みの Service は transaction の外で走らせない
+      runReadService(session, () => TeamService.use(() => Effect.void));
+    const requiresTeamManagement = () =>
+      // @ts-expect-error 書き込みの Service は transaction の外で走らせない
+      runReadService(session, () => TeamManagement.use(() => Effect.void));
+
+    expect([
+      requiresDb,
+      requiresTeamService,
+      requiresTeamManagement,
+    ]).toHaveLength(3);
+  });
+});
+
 describe("runScopedService", () => {
   it("session の companyMembers を CompanyMembers として本体に渡す", () =>
     withRollbackDb(async () => {
@@ -156,15 +212,34 @@ describe("runScopedService", () => {
   it("本体の TeamService は、本体の Db と同じ transaction で読む", () =>
     withRollbackDb(async () => {
       const result = await runScopedService(session, () =>
-        insertTeam("未 commit のチーム").pipe(
-          Effect.andThen(TeamService.use((service) => service.listTeams)),
+        Db.use((scoped) =>
+          Effect.promise(async () => {
+            const [team] = await scoped
+              .insert(teams)
+              .values({ companyId, name: "未 commit のチーム" })
+              .returning({ id: teams.id });
+            await scoped
+              .insert(teamAssignments)
+              .values({ companyId, teamId: team.id, userId: session.userId });
+            return team.id;
+          }),
+        ).pipe(
+          Effect.flatMap((teamId) =>
+            TeamService.use((service) => service.saveMyLevels(teamId, [])),
+          ),
         ),
       );
 
-      expect(Result.getOrThrow(result).map((team) => team.name)).toEqual([
-        "未 commit のチーム",
-      ]);
+      expect(Result.isSuccess(result)).toBe(true);
     }));
+
+  it("本体は TeamReads を要求できない (bun run typecheck で見る)", () => {
+    const requiresTeamReads = () =>
+      // @ts-expect-error 読み取りは transaction を開かない runReadService で走らせる
+      runScopedService(session, () => TeamReads.use(() => Effect.void));
+
+    expect(requiresTeamReads).toBeTypeOf("function");
+  });
 
   it("本体が書いた後に失敗すると、その失敗を返し、書いた行を戻す", () =>
     withRollbackDb(async (tx) => {

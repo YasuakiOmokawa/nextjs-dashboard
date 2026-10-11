@@ -1,7 +1,8 @@
-import type { Member } from "@taimei-code/auth-client";
-import type { Level } from "@/src/services/level";
-import type { TeamDetail } from "@/src/services/team-service";
+import type { TeamPage } from "../api";
+import type { Level } from "./level";
 
+export type TeamDetail = TeamPage["team"];
+export type Member = NonNullable<TeamPage["members"]>[number];
 type Skill = TeamDetail["skills"][number];
 
 export type Cell = {
@@ -35,16 +36,15 @@ export type Roster =
       readonly summaries: readonly SkillSummary[];
     });
 
-const CAN_DO_ALONE: Level = 2;
-const MAX_CAN_DO_ALONE_IN_BIASED_SKILL = 1;
+export const BIAS_RULE = { atOrAboveLevel: 2, atMostPeople: 1 } as const;
 
-const canDoAlone = (level: Level) => level >= CAN_DO_ALONE;
+const canDoAlone = (level: Level) => level >= BIAS_RULE.atOrAboveLevel;
 
 const summaryOf = (skill: Skill, column: readonly Cell[]): SkillSummary => ({
   skill,
   isBiased:
     column.filter((cell) => canDoAlone(cell.level)).length <=
-    MAX_CAN_DO_ALONE_IN_BIASED_SKILL,
+    BIAS_RULE.atMostPeople,
   wantsToLearnCount: column.filter((cell) => cell.wantsToLearn).length,
 });
 
