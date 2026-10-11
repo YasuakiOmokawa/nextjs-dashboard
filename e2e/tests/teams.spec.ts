@@ -264,6 +264,165 @@ test("保存した自分のレベルは、チームを取り直さずに星取�
   await context.close();
 });
 
+const teamTitle = (page: Page, name: string) =>
+  page.getByRole("heading", { name, exact: true, level: 1 });
+
+test("管理者は一覧でチームを作り、チームの画面で名前を変え、確認の後に消せる", async ({
+  browser,
+}) => {
+  const companyId = uniqueCompanyId("g");
+  const existingName = `既存 ${crypto.randomUUID()}`;
+  await insertTeam(companyId, existingName);
+  const context = await signInWithMagicLink(
+    browser,
+    await createTestUser({ companyId }),
+  );
+  const page = await context.newPage();
+  const deleteRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "DELETE") deleteRequests.push(request.url());
+  });
+  await openTeams(page);
+  const nameInput = page.getByLabel("チーム名");
+  const createButton = page.getByRole("button", { name: "チームを作る" });
+
+  await expect(nameInput).toHaveAttribute("required", "");
+  await expect(nameInput).not.toHaveAttribute("maxlength");
+  await expect(createButton).toBeVisible();
+
+  await nameInput.fill(existingName);
+  await createButton.click();
+
+  await expect(page.getByRole("alert")).toHaveText("同じ名前がすでにあります");
+  await expect(page).toHaveURL(/\/dashboard\/teams$/);
+
+  const createdName = `新しいチーム ${crypto.randomUUID()}`;
+  const heldCreate = Promise.withResolvers<Route>();
+  await page.route("**/api/teams", (route) =>
+    route.request().method() === "POST"
+      ? heldCreate.resolve(route)
+      : route.continue(),
+  );
+  const created = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname === "/api/teams",
+  );
+  await nameInput.fill(createdName);
+  await createButton.click();
+  const createRoute = await heldCreate.promise;
+
+  await expect(createButton).toBeDisabled();
+
+  await createRoute.continue();
+  const { id } = await (await created).json();
+  await page.unroute("**/api/teams");
+
+  await expect(page).toHaveURL(new RegExp(`/dashboard/teams/${id}$`));
+  await expect(teamTitle(page, createdName)).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "チーム名", exact: true }),
+  ).toBeVisible();
+  const teamNameInput = page.getByLabel("チーム名");
+  const renameButton = page.getByRole("button", { name: "名前を変える" });
+  const deleteButton = page.getByRole("button", { name: "チームを削除" });
+  await expect(teamNameInput).toHaveValue(createdName);
+  await expect(renameButton).toBeVisible();
+  await expect(deleteButton).toBeVisible();
+
+  await teamNameInput.fill(existingName);
+  await renameButton.click();
+
+  await expect(page.getByRole("alert")).toHaveText("同じ名前がすでにあります");
+  await expect(teamTitle(page, createdName)).toBeVisible();
+  await expect(teamNameInput).toHaveValue(existingName);
+
+  const renamed = `新しい名前 ${crypto.randomUUID()}`;
+  await teamNameInput.fill(`  ${renamed}  `);
+  await renameButton.click();
+
+  await expect(teamTitle(page, renamed)).toBeVisible();
+  await expect(teamNameInput).toHaveValue(renamed);
+
+  let confirmationMessage = "";
+  page.once("dialog", (dialog) => {
+    confirmationMessage = dialog.message();
+    void dialog.dismiss();
+  });
+  await deleteButton.click();
+
+  expect(confirmationMessage).toBe(
+    `「${renamed}」を削除します。スキル・割り当て・記入したレベルも消え、元に戻せません。`,
+  );
+  await expect(teamTitle(page, renamed)).toBeVisible();
+
+  page.once("dialog", (dialog) => void dialog.accept());
+  const deleteResponse = page.waitForResponse(
+    (response) => response.request().method() === "DELETE",
+  );
+  await deleteButton.click();
+
+  expect((await deleteResponse).status()).toBe(200);
+  await expect(page).toHaveURL(/\/dashboard\/teams$/);
+  await expect(teamItem(page, existingName)).toBeVisible();
+  await expect(teamItem(page, renamed)).toHaveCount(0);
+  expect(deleteRequests).toHaveLength(1);
+
+  await context.close();
+});
+
+test("メンバーにはチームの管理の部品が出ず、API を直に呼んでも 403 で、チームは変わらない", async ({
+  browser,
+}) => {
+  const companyId = uniqueCompanyId("n");
+  const teamName = `開発 ${crypto.randomUUID()}`;
+  const email = await createTestUser({ companyId, role: "MEMBER" });
+  const teamId = await insertTeam(companyId, teamName);
+  await assignMember(companyId, teamId, await userIdOf(email));
+  const context = await signInWithMagicLink(browser, email);
+  const page = await context.newPage();
+  await openTeams(page);
+
+  await expect(teamItem(page, teamName)).toBeVisible();
+  await expect(page.getByLabel("チーム名")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "チームを作る" })).toHaveCount(
+    0,
+  );
+
+  await teamItem(page, teamName).click();
+
+  await expect(page.getByRole("heading", { name: "星取表" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "名前を変える" })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole("button", { name: "チームを削除" })).toHaveCount(
+    0,
+  );
+
+  const headers = { Origin: new URL(page.url()).origin };
+  for (const response of [
+    await context.request.post("/api/teams", {
+      data: { name: "作れない" },
+      headers,
+    }),
+    await context.request.patch(`/api/teams/${teamId}`, {
+      data: { name: "変えられない" },
+      headers,
+    }),
+    await context.request.delete(`/api/teams/${teamId}`, { headers }),
+  ]) {
+    expect(response.status()).toBe(403);
+    expect((await response.json())._tag).toBe("NotManager");
+  }
+  const teamAfterRejectedRequests = await context.request.get(
+    `/api/teams/${teamId}`,
+  );
+  expect(teamAfterRejectedRequests.status()).toBe(200);
+  expect((await teamAfterRejectedRequests.json()).team.name).toBe(teamName);
+
+  await context.close();
+});
+
 test("他の事業所のチームの URL を開いても、見つからないと出し、API も 404 を返す", async ({
   browser,
 }) => {
