@@ -43,6 +43,7 @@ it("失敗の文言は、API の本文の message", () => {
         _tag: "NotAssigned",
         message: "チームに割り当てられた人だけが記入できます",
       }),
+      "保存できませんでした",
     ),
   ).toBe("チームに割り当てられた人だけが記入できます");
 });
@@ -54,8 +55,10 @@ it.each([
   ],
   ["本文に message の無い応答", failedResponse({ _tag: "NotAssigned" })],
   ["応答の無い網の失敗", new TypeError("Failed to fetch")],
-])("%s の文言は「保存できませんでした」", (_, error) => {
-  expect(failureMessageOf(error)).toBe("保存できませんでした");
+])("%s の文言は、呼び手が渡した操作ごとの文言", (_, error) => {
+  expect(failureMessageOf(error, "チームを削除できませんでした")).toBe(
+    "チームを削除できませんでした",
+  );
 });
 
 const TEAM_ID = "00000000-0000-4000-8000-0000000000aa";

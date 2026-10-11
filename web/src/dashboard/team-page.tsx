@@ -11,16 +11,11 @@ import {
 import { DetailedError } from "hono/client";
 import { ChevronLeft } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
-import {
-  failureMessageOf,
-  meQuery,
-  saveMyLevels,
-  teamQuery,
-  writeSavedMyLevels,
-} from "@/api";
+import { meQuery, saveMyLevels, teamQuery, writeSavedMyLevels } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import CardMessage from "@/dashboard/card-message";
+import FailureAlert from "@/dashboard/failure-alert";
 import {
   levelEntriesOf,
   levelFieldName,
@@ -119,12 +114,12 @@ const levelOptions = Object.entries(levels).map(
 function MyLevelsForm({
   cells,
   saving,
-  failure,
+  error,
   onSave,
 }: {
   cells: readonly Cell[];
   saving: boolean;
-  failure: string | undefined;
+  error: Error | null;
   onSave: (entries: readonly MyLevelEntry[]) => void;
 }) {
   if (cells.length === 0) return null;
@@ -173,11 +168,7 @@ function MyLevelsForm({
           <Button type="submit" size="sm" disabled={saving}>
             保存
           </Button>
-          {failure ? (
-            <p role="alert" className="text-sm text-destructive">
-              {failure}
-            </p>
-          ) : null}
+          <FailureAlert error={error} fallbackMessage="保存できませんでした" />
         </div>
       </form>
     </Section>
@@ -201,7 +192,7 @@ function useSaveMyLevels(
       ? withMyLevels(savedTeam, myUserId, save.variables)
       : savedTeam,
     saving: save.isPending,
-    failure: save.isError ? failureMessageOf(save.error) : undefined,
+    error: save.error,
     onSave: save.mutate,
   };
 }
