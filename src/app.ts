@@ -3,7 +3,9 @@ import { Effect, Schema } from "effect";
 import { type Context, Hono } from "hono";
 import { csrf } from "hono/csrf";
 import { createMiddleware } from "hono/factory";
+import { HTTPException } from "hono/http-exception";
 import { validator } from "hono/validator";
+import { reportError } from "@/src/lib/report-error";
 import { reportUnexpectedFailure } from "@/src/lib/team-failure";
 import {
   runManagerScopedService,
@@ -12,7 +14,9 @@ import {
   runServiceWithoutDb,
 } from "@/src/services";
 import { isManager } from "@/src/services/authorization-context";
+import type { CompanyContext } from "@/src/services/company-context";
 import { CompanyMembers } from "@/src/services/company-members-service";
+import type { TeamFailure } from "@/src/services/team-errors";
 import { Team, TeamDetail, TeamReads } from "@/src/services/team-reads";
 import {
   LevelEntry,
@@ -40,6 +44,7 @@ import {
 
 export type Env = AuthEnv & {
   readonly HYPERDRIVE: { connectionString: string };
+  readonly SENTRY_DSN?: string;
 };
 type AppEnv = { Bindings: Env } & SessionVariables;
 
@@ -64,12 +69,15 @@ const MyLevelsRequest = Schema.Struct({
 });
 const EmptyResponse = Schema.Struct({});
 
-const TeamNameRequest = Schema.Struct({ name: Schema.String });
+const NameRequest = Schema.Struct({ name: Schema.String });
 const CreatedTeam = Schema.Struct({ id: Schema.String });
 
 const authGuardOfRequest = (c: Context<AppEnv>) =>
   // biome-ignore lint/plugin/no-raw-request-input: session の cookie は taimei-auth が確かめる
   authGuardOf(c.env, c.req.header("Cookie"));
+
+const SESSION_HEADER = "x-taimei-session";
+export type SessionHeader = typeof SESSION_HEADER;
 
 // 事業所の無い人も 401 にする。taimei-auth のログインの入口が事業所の登録へ送る
 const requireSession = createMiddleware<AppEnv>(async (c, next) => {
@@ -80,6 +88,13 @@ const requireSession = createMiddleware<AppEnv>(async (c, next) => {
     : undefined;
   // biome-ignore lint/plugin/no-direct-json: 401 の本文は定数で、hc の型に入らない
   if (!session) return c.json({ _tag: "Unauthenticated" as const }, 401);
+  const sessionMark = `${session.companyId} ${session.userId}`;
+  c.header(SESSION_HEADER, sessionMark);
+  // biome-ignore lint/plugin/no-raw-request-input: 印は比べるだけで、Service に渡さない
+  const markOfPage = c.req.header(SESSION_HEADER);
+  if (markOfPage !== undefined && markOfPage !== sessionMark)
+    // biome-ignore lint/plugin/no-direct-json: 409 の本文は定数で、SPA は印の違いを見て再読み込みする
+    return c.json({ _tag: "SessionChanged" as const }, 409);
   c.set("session", session);
   await next();
 });
@@ -116,10 +131,33 @@ const teamMembersOrNullWhenListFails = CompanyMembers.use(
   ),
 );
 
+const managementJson = async <E extends TeamFailure>(
+  c: Context<AppEnv>,
+  write: (
+    management: TeamManagement["Service"],
+  ) => Effect.Effect<void, E, CompanyContext>,
+) =>
+  resultJson(
+    c,
+    EmptyResponse,
+    await runManagerScopedService(c.var.session, () =>
+      TeamManagement.use(write).pipe(Effect.as({})),
+    ),
+  );
+
 const originOf = (url: string) => new URL(url).origin;
 
 const teamParamValidator = validator("param", ({ teamId }) => ({
   teamId,
+}));
+
+const skillParamValidator = validator("param", ({ skillId }) => ({
+  skillId,
+}));
+
+const assignmentParamValidator = validator("param", ({ teamId, userId }) => ({
+  teamId,
+  userId,
 }));
 
 const callbackPathValidator = validator("query", (query, c) => ({
@@ -130,6 +168,11 @@ const callbackPathValidator = validator("query", (query, c) => ({
 }));
 
 export const app = new Hono<AppEnv>()
+  .onError((error, c) => {
+    if (error instanceof HTTPException) return error.getResponse();
+    reportError(error);
+    return c.text("Internal Server Error", 500);
+  })
   .use(csrf())
   .get("/auth", callbackPathValidator, (c) =>
     c.redirect(
@@ -183,7 +226,7 @@ export const app = new Hono<AppEnv>()
       ),
     ),
   )
-  .post("/api/teams", jsonBody(TeamNameRequest), async (c) => {
+  .post("/api/teams", jsonBody(NameRequest), async (c) => {
     const { name } = c.req.valid("json");
     return resultJson(
       c,
@@ -212,33 +255,55 @@ export const app = new Hono<AppEnv>()
   .patch(
     "/api/teams/:teamId",
     teamParamValidator,
-    jsonBody(TeamNameRequest),
+    jsonBody(NameRequest),
     async (c) => {
       const { teamId } = c.req.valid("param");
       const { name } = c.req.valid("json");
-      return resultJson(
-        c,
-        EmptyResponse,
-        await runManagerScopedService(c.var.session, () =>
-          TeamManagement.use((management) =>
-            management.renameTeam(teamId, name),
-          ).pipe(Effect.as({})),
-        ),
+      return managementJson(c, (management) =>
+        management.renameTeam(teamId, name),
       );
     },
   )
   .delete("/api/teams/:teamId", teamParamValidator, async (c) => {
     const { teamId } = c.req.valid("param");
-    return resultJson(
-      c,
-      EmptyResponse,
-      await runManagerScopedService(c.var.session, () =>
-        TeamManagement.use((management) => management.deleteTeam(teamId)).pipe(
-          Effect.as({}),
-        ),
-      ),
-    );
+    return managementJson(c, (management) => management.deleteTeam(teamId));
   })
+  .post(
+    "/api/teams/:teamId/skills",
+    teamParamValidator,
+    jsonBody(NameRequest),
+    async (c) => {
+      const { teamId } = c.req.valid("param");
+      const { name } = c.req.valid("json");
+      return managementJson(c, (management) =>
+        management.addSkill(teamId, name),
+      );
+    },
+  )
+  .delete("/api/skills/:skillId", skillParamValidator, async (c) => {
+    const { skillId } = c.req.valid("param");
+    return managementJson(c, (management) => management.removeSkill(skillId));
+  })
+  .put(
+    "/api/teams/:teamId/assignments/:userId",
+    assignmentParamValidator,
+    async (c) => {
+      const { teamId, userId } = c.req.valid("param");
+      return managementJson(c, (management) =>
+        management.assign(teamId, userId),
+      );
+    },
+  )
+  .delete(
+    "/api/teams/:teamId/assignments/:userId",
+    assignmentParamValidator,
+    async (c) => {
+      const { teamId, userId } = c.req.valid("param");
+      return managementJson(c, (management) =>
+        management.unassign(teamId, userId),
+      );
+    },
+  )
   .put(
     "/api/teams/:teamId/my-levels",
     teamParamValidator,

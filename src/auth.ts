@@ -11,6 +11,8 @@ import {
   type VerifyResult,
 } from "@taimei-code/auth-client";
 import { CompanyId } from "@/db/ids";
+import type { CheckMemberships } from "@/src/lib/purge-departed";
+import { reportError } from "@/src/lib/report-error";
 import type { RequestSession } from "@/src/services";
 import { CompanyMembers } from "@/src/services/company-members-service";
 
@@ -43,6 +45,11 @@ const authClientOf = (env: AuthEnv) => {
   });
 };
 
+export const checkMembershipsOf = (env: AuthEnv): CheckMemberships => {
+  const { companyService } = authClientOf(env);
+  return (request) => companyService.checkMemberships(request);
+};
+
 // ponytail: 引数を見ずに最初の結果を返す。SDK が引数を取る関数を cache で包む版に上がったら引数で引く
 const once = <Args extends readonly unknown[], R>(fn: (...args: Args) => R) => {
   let called: { readonly value: R } | undefined;
@@ -64,7 +71,7 @@ export const authGuardOf = (env: AuthEnv, cookieHeader: string | undefined) => {
     verifySession: async (): Promise<VerifyResult> => {
       const result = await guard.getSession();
       if (!result.ok && result.reason === Result.UNSPECIFIED)
-        console.error("taimei-auth で session を確かめられなかった");
+        reportError(new Error("taimei-auth で session を確かめられなかった"));
       return result;
     },
     listMembers: guard.listMembers,

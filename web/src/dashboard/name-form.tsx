@@ -17,12 +17,15 @@ export default function NameForm({
   pending: boolean;
   error: Error | null;
   fallbackMessage: string;
-  onSubmit: (name: string) => void;
+  onSubmit: (name: string, options: { onSuccess: () => void }) => void;
 }) {
   const submit = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const name = new FormData(event.currentTarget).get("name");
-    onSubmit(typeof name === "string" ? name : "");
+    const form = event.currentTarget;
+    const name = new FormData(form).get("name");
+    onSubmit(typeof name === "string" ? name : "", {
+      onSuccess: () => form.reset(),
+    });
   };
 
   return (

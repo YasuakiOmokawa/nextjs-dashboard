@@ -6,7 +6,7 @@ import {
   type RouterHistory,
   redirect,
 } from "@tanstack/react-router";
-import { membersQuery, meQuery, teamQuery, teamsQuery } from "@/api";
+import { loadQuery, membersQuery, meQuery, teamQuery, teamsQuery } from "@/api";
 import DashboardLayout, { DashboardError } from "@/dashboard/dashboard-layout";
 import MembersPage, { MembersError } from "@/dashboard/members-page";
 import TeamPage, { TeamError } from "@/dashboard/team-page";
@@ -19,7 +19,7 @@ const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()();
 const dashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/dashboard",
-  loader: ({ context }) => context.queryClient.fetchQuery(meQuery),
+  loader: ({ context }) => loadQuery(context.queryClient, meQuery),
   component: DashboardLayout,
   errorComponent: DashboardError,
 });
@@ -46,7 +46,7 @@ const routeTree = rootRoute.addChildren([
     createRoute({
       getParentRoute: () => dashboardRoute,
       path: "/teams",
-      loader: ({ context }) => context.queryClient.fetchQuery(teamsQuery),
+      loader: ({ context }) => loadQuery(context.queryClient, teamsQuery),
       component: TeamsPage,
       errorComponent: TeamsError,
     }),
@@ -54,14 +54,14 @@ const routeTree = rootRoute.addChildren([
       getParentRoute: () => dashboardRoute,
       path: "/teams/$teamId",
       loader: ({ context, params }) =>
-        context.queryClient.fetchQuery(teamQuery(params.teamId)),
+        loadQuery(context.queryClient, teamQuery(params.teamId)),
       component: TeamPage,
       errorComponent: TeamError,
     }),
     createRoute({
       getParentRoute: () => dashboardRoute,
       path: "/members",
-      loader: ({ context }) => context.queryClient.fetchQuery(membersQuery),
+      loader: ({ context }) => loadQuery(context.queryClient, membersQuery),
       component: MembersPage,
       errorComponent: MembersError,
     }),
@@ -72,12 +72,15 @@ export const createAppRouter = (
   options: { history?: RouterHistory; origin?: string } = {},
 ) => {
   const queryClient = new QueryClient({
-    // 画面の移動ごとに loader が取り直す (事業所を切り替えた後に前の事業所の cache を出さない)。描いた component は同じ query を取り直さない
+    // 取り直すかは loader (loadQuery) が決め、描いた component は同じ query を取り直さない
     defaultOptions: { queries: { refetchOnMount: false } },
   });
   return createRouter({
     routeTree,
     context: { queryClient },
+    defaultPreload: "intent",
+    // 既定の background は前に描いた match を loader を待たずに出し、invalidate した一覧も出してしまう
+    defaultStaleReloadMode: "blocking",
     Wrap: ({ children }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     ),

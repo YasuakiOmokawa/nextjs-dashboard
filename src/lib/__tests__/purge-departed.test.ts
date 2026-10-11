@@ -1,5 +1,5 @@
 import { count, eq } from "drizzle-orm";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import {
   memberSkills,
   skills,
@@ -9,6 +9,7 @@ import {
 import { CompanyId } from "@/db/ids";
 import { type TestDb, withRollback } from "@/src/services/__tests__/db/test-db";
 import { type CheckMemberships, purgeDeparted } from "../purge-departed";
+import { sendErrorReportsTo } from "../report-error";
 
 const seedTeam = async (
   tx: TestDb,
@@ -169,11 +170,15 @@ describe("purgeDeparted", () => {
       expect((await rowsOf(tx, "cmp_gone")).teams).toBe(0);
     }));
 
-  it("照合の失敗は、事業所の id と原因を 1 回報告する", () =>
+  it("照合の失敗は、事業所の id を message に、原因を cause にした Error で 1 回報告する", () =>
     withRollback(async (tx) => {
-      const consoleError = vi
-        .spyOn(console, "error")
-        .mockImplementation(() => {});
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const send = vi.fn();
+      sendErrorReportsTo(send);
+      onTestFinished(() => {
+        sendErrorReportsTo(() => {});
+        vi.restoreAllMocks();
+      });
       const cause = new Error("taimei-auth unavailable");
       await seedTeam(tx, "cmp_unreachable", ["u_1"]);
 
@@ -183,12 +188,12 @@ describe("purgeDeparted", () => {
         startedAt,
       });
 
-      expect(consoleError).toHaveBeenCalledExactlyOnceWith(
-        "checkMemberships failed",
-        "cmp_unreachable",
-        cause,
+      expect(send).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          message: expect.stringContaining("cmp_unreachable"),
+          cause,
+        }),
       );
-      consoleError.mockRestore();
     }));
 
   it("ある事業所を消しても、ほかの事業所の行は変わらない", () =>

@@ -3,6 +3,7 @@ import { teamAssignments, teams } from "@/db/drizzle/schema";
 import { CompanyId } from "@/db/ids";
 import { companyFilter, withCompanyScope } from "@/db/scoped";
 import type { Db } from "@/src/services/db-service";
+import { reportError } from "./report-error";
 
 export type CheckMemberships = (request: {
   companyId: string;
@@ -43,7 +44,9 @@ export const purgeDeparted = async ({
     );
     const answer = await checkMemberships({ companyId, userIds }).catch(
       (cause: unknown) => {
-        console.error("checkMemberships failed", companyId, cause);
+        reportError(
+          new Error(`checkMemberships failed: ${companyId}`, { cause }),
+        );
         return undefined;
       },
     );

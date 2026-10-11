@@ -99,8 +99,7 @@ describe("runServiceWithoutDb", () => {
 
     expect(result).toEqual(Result.fail(failure));
     expect(consoleError).toHaveBeenCalledExactlyOnceWith(
-      "listMembers failed",
-      2,
+      expect.objectContaining({ message: "listMembers failed: 2", cause: 2 }),
     );
   });
 

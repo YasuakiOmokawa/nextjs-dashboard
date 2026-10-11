@@ -11,14 +11,18 @@ import {
 } from "@tanstack/react-router";
 import { DetailedError } from "hono/client";
 import { ChevronLeft } from "lucide-react";
-import type { FormEvent, ReactNode } from "react";
+import type { ComponentProps, FormEvent, ReactNode, SubmitEvent } from "react";
 import {
+  addSkill,
+  assignMember,
   deleteTeam,
   markTeamListStaleWithoutRefetch,
   meQuery,
+  removeSkill,
   renameTeam,
   saveMyLevels,
   teamQuery,
+  unassignMember,
   writeSavedMyLevels,
 } from "@/api";
 import { Button } from "@/components/ui/button";
@@ -35,6 +39,7 @@ import NameForm from "@/dashboard/name-form";
 import {
   BIAS_RULE,
   type Cell,
+  type Member,
   type MyLevelEntry,
   type Roster,
   type TeamDetail,
@@ -77,27 +82,16 @@ export default function TeamPage() {
       </Section>
       <MyLevelsForm cells={myCells} {...myLevelsForm} />
       <div className="grid items-start gap-6 lg:grid-cols-2">
-        <Section title="スキル" description="星取表の列になります">
-          <NameList
-            items={team.skills.map(({ id, name }) => ({ key: id, name }))}
-            empty="スキルがありません"
-          />
-        </Section>
-        <Section title="割り当てたメンバー" description="星取表の行になります">
-          {roster._tag === "MembersUnavailable" ? (
-            <CardMessage>
-              {messagesWithoutMatrix.MembersUnavailable}
-            </CardMessage>
-          ) : (
-            <NameList
-              items={roster.assigned.map(({ userId, name }) => ({
-                key: userId,
-                name,
-              }))}
-              empty="割り当てたメンバーがいません"
-            />
-          )}
-        </Section>
+        <SkillsSection
+          teamId={teamId}
+          skills={team.skills}
+          canManage={me.canManage}
+        />
+        <AssignmentsSection
+          teamId={teamId}
+          roster={roster}
+          canManage={me.canManage}
+        />
       </div>
       <TeamNameAndDeletion
         teamId={teamId}
@@ -105,6 +99,241 @@ export default function TeamPage() {
         canManage={me.canManage}
       />
     </TeamFrame>
+  );
+}
+
+function useTeamMutation<Variables>(
+  teamId: string,
+  mutationFn: (variables: Variables) => Promise<unknown>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: teamQuery(teamId).queryKey }),
+        markTeamListStaleWithoutRefetch(queryClient),
+      ]),
+  });
+}
+
+function SkillsSection({
+  teamId,
+  skills,
+  canManage,
+}: {
+  teamId: string;
+  skills: TeamDetail["skills"];
+  canManage: boolean;
+}) {
+  const add = useTeamMutation(teamId, (name: string) => addSkill(teamId, name));
+  const remove = useTeamMutation(teamId, removeSkill);
+
+  return (
+    <Section title="スキル" description="星取表の列になります">
+      <NameList
+        items={skills.map(({ id, name }) => ({
+          key: id,
+          name,
+          action: canManage ? (
+            <ConfirmedRemoveButton
+              label="削除"
+              itemName={name}
+              warning={`スキル「${name}」を削除します。このスキルに記入したレベルも消え、元に戻せません。`}
+              disabled={remove.isPending}
+              onConfirm={() => remove.mutate(id)}
+            />
+          ) : null,
+        }))}
+        empty="スキルがありません"
+      />
+      {canManage ? (
+        <div className="space-y-2 border-t px-6 py-4">
+          <FailureAlert
+            error={remove.error}
+            fallbackMessage="スキルを削除できませんでした"
+          />
+          <NameForm
+            label="スキル名"
+            submitLabel="スキルを足す"
+            pending={add.isPending}
+            error={add.error}
+            fallbackMessage="スキルを足せませんでした"
+            onSubmit={add.mutate}
+          />
+        </div>
+      ) : null}
+    </Section>
+  );
+}
+
+const unassignWarning = (who: string) =>
+  `${who} をこのチームから外します。このチームに記入したレベルも消え、元に戻せません。`;
+
+function AssignmentsSection({
+  teamId,
+  roster,
+  canManage,
+}: {
+  teamId: string;
+  roster: Roster;
+  canManage: boolean;
+}) {
+  const unassign = useTeamMutation(teamId, (userId: string) =>
+    unassignMember(teamId, userId),
+  );
+  const assignedItem = (userId: string, name: string) => ({
+    key: userId,
+    name,
+    action: canManage ? (
+      <ConfirmedRemoveButton
+        label="外す"
+        itemName={name}
+        warning={unassignWarning(name)}
+        disabled={unassign.isPending}
+        onConfirm={() => unassign.mutate(userId)}
+      />
+    ) : null,
+  });
+
+  return (
+    <Section title="割り当てたメンバー" description="星取表の行になります">
+      {roster._tag === "MembersUnavailable" ? (
+        <CardMessage>{messagesWithoutMatrix.MembersUnavailable}</CardMessage>
+      ) : (
+        <>
+          <NameList
+            items={roster.assigned.map(({ userId, name }) =>
+              assignedItem(userId, name),
+            )}
+            empty="割り当てたメンバーがいません"
+          />
+          {canManage ? (
+            <>
+              <DepartedAssignments
+                items={roster.departedUserIds.map((userId) =>
+                  assignedItem(userId, userId),
+                )}
+              />
+              <AssignmentFooter
+                teamId={teamId}
+                candidates={roster.candidates}
+                unassignError={unassign.error}
+              />
+            </>
+          ) : null}
+        </>
+      )}
+    </Section>
+  );
+}
+
+function AssignmentFooter({
+  teamId,
+  candidates,
+  unassignError,
+}: {
+  teamId: string;
+  candidates: readonly Member[];
+  unassignError: Error | null;
+}) {
+  if (candidates.length === 0 && !unassignError) return null;
+  return (
+    <div className="space-y-2 border-t px-6 py-4">
+      <FailureAlert error={unassignError} fallbackMessage="外せませんでした" />
+      <AssignForm teamId={teamId} candidates={candidates} />
+    </div>
+  );
+}
+
+function DepartedAssignments({
+  items,
+}: {
+  items: ComponentProps<typeof NameList>["items"];
+}) {
+  if (items.length === 0) return null;
+  return (
+    <>
+      <h3 className="border-t px-6 pt-4 pb-2 text-sm font-medium">
+        事業所にいない人の割り当て
+      </h3>
+      <NameList items={items} />
+    </>
+  );
+}
+
+function AssignForm({
+  teamId,
+  candidates,
+}: {
+  teamId: string;
+  candidates: readonly Member[];
+}) {
+  const assign = useTeamMutation(teamId, (userId: string) =>
+    assignMember(teamId, userId),
+  );
+  if (candidates.length === 0) return null;
+
+  const submit = (event: SubmitEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const userId = new FormData(event.currentTarget).get("userId");
+    if (typeof userId === "string") assign.mutate(userId);
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          name="userId"
+          aria-label="割り当てるメンバー"
+          required
+          className="w-full max-w-xs rounded-md border-input text-sm"
+        >
+          {candidates.map(({ userId, name }) => (
+            <option key={userId} value={userId}>
+              {name}
+            </option>
+          ))}
+        </select>
+        <Button type="submit" size="sm" disabled={assign.isPending}>
+          割り当てる
+        </Button>
+      </div>
+      <FailureAlert
+        error={assign.error}
+        fallbackMessage="割り当てられませんでした"
+      />
+    </form>
+  );
+}
+
+function ConfirmedRemoveButton({
+  label,
+  itemName,
+  warning,
+  disabled,
+  onConfirm,
+}: {
+  label: string;
+  itemName?: string;
+  warning: string;
+  disabled: boolean;
+  onConfirm: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      aria-label={itemName ? `${itemName} を${label}` : undefined}
+      disabled={disabled}
+      onClick={() => {
+        if (window.confirm(warning)) onConfirm();
+      }}
+      className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+    >
+      {label}
+    </Button>
   );
 }
 
@@ -119,11 +348,9 @@ function TeamNameAndDeletion({
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const rename = useMutation({
-    mutationFn: (name: string) => renameTeam(teamId, name),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: teamQuery(teamId).queryKey }),
-  });
+  const rename = useTeamMutation(teamId, (name: string) =>
+    renameTeam(teamId, name),
+  );
   const remove = useMutation({
     mutationFn: () => deleteTeam(teamId),
     onSuccess: async () => {
@@ -132,15 +359,6 @@ function TeamNameAndDeletion({
     },
   });
   if (!canManage) return null;
-
-  const confirmAndDelete = () => {
-    if (
-      window.confirm(
-        `「${team.name}」を削除します。スキル・割り当て・記入したレベルも消え、元に戻せません。`,
-      )
-    )
-      remove.mutate();
-  };
 
   return (
     <Section title="チーム名">
@@ -165,16 +383,12 @@ function TeamNameAndDeletion({
             error={remove.error}
             fallbackMessage="チームを削除できませんでした"
           />
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
+          <ConfirmedRemoveButton
+            label="チームを削除"
+            warning={`「${team.name}」を削除します。スキル・割り当て・記入したレベルも消え、元に戻せません。`}
             disabled={remove.isPending}
-            onClick={confirmAndDelete}
-            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-          >
-            チームを削除
-          </Button>
+            onConfirm={() => remove.mutate()}
+          />
         </div>
       </div>
     </Section>
@@ -348,15 +562,20 @@ function NameList({
   items,
   empty,
 }: {
-  items: readonly { key: string; name: string }[];
-  empty: string;
+  items: readonly { key: string; name: string; action?: ReactNode }[];
+  empty?: string;
 }) {
-  if (items.length === 0) return <CardMessage>{empty}</CardMessage>;
+  if (items.length === 0)
+    return empty ? <CardMessage>{empty}</CardMessage> : null;
   return (
     <ul className="divide-y border-t">
-      {items.map(({ key, name }) => (
-        <li key={key} className="px-6 py-3 text-sm">
-          {name}
+      {items.map(({ key, name, action }) => (
+        <li
+          key={key}
+          className="flex min-h-12 items-center justify-between gap-4 px-6 py-3 text-sm"
+        >
+          <span className="min-w-0 break-words">{name}</span>
+          {action}
         </li>
       ))}
     </ul>

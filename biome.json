@@ -77,6 +77,10 @@
               {
                 "group": ["**/drizzle/pool", "./pool"],
                 "message": "db/drizzle/pool は Worker の入口と db/drizzle/client.ts だけが使う (db/CLAUDE.md)"
+              },
+              {
+                "group": ["@sentry/*"],
+                "message": "Sentry の SDK は Worker の入口 (src/worker.ts) だけが使う。報告は src/lib/report-error.ts の reportError (src/lib/CLAUDE.md)"
               }
             ]
           }

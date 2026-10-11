@@ -1,6 +1,7 @@
 import { Match, Schema } from "effect";
 import { NAME_MAX_LENGTH } from "@/db/drizzle/schema";
 import type { TeamFailure } from "@/src/services/team-errors";
+import { reportError } from "./report-error";
 
 export class InvalidRequest extends Schema.TaggedError<InvalidRequest>()(
   "InvalidRequest",
@@ -40,7 +41,7 @@ const unexpectedFailure = (
 const unexpectedDbFailure =
   (status: FailureStatus) =>
   ({ cause }: { readonly cause: unknown }) =>
-    unexpectedFailure("保存に失敗しました", status, () => console.error(cause));
+    unexpectedFailure("保存に失敗しました", status, () => reportError(cause));
 
 const handlingOf = (failure: ApiFailure) =>
   Match.valueTags(failure, {
@@ -63,7 +64,9 @@ const handlingOf = (failure: ApiFailure) =>
     Unauthenticated: () => expectedFailure("ログインし直してください", 401),
     MemberListError: ({ cause }) =>
       unexpectedFailure("メンバー一覧を取得できませんでした", 502, () =>
-        console.error("listMembers failed", cause),
+        reportError(
+          new Error(`listMembers failed: ${String(cause)}`, { cause }),
+        ),
       ),
     TeamServiceError: unexpectedDbFailure(500),
     DbUnavailable: unexpectedDbFailure(503),
