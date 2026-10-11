@@ -11,7 +11,7 @@
     "run_worker_first": ["/api/*", "/auth", "/auth/*"]
   },
   "hyperdrive": [
-    { "binding": "HYPERDRIVE", "id": "00000000000000000000000000000000" }
+    { "binding": "HYPERDRIVE", "id": "f35ce63d756548c082f5f82f93d84647" }
   ],
   "services": [{ "binding": "AUTH", "service": "taimei-auth" }],
   "triggers": { "crons": ["17 * * * *"] },
