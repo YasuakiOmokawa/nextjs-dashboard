@@ -1,4 +1,3 @@
-import type { Role } from "@taimei-code/auth-client";
 import { count, eq, type SQL, sql } from "drizzle-orm";
 import { Effect, Layer, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
@@ -9,32 +8,31 @@ import {
   teamAssignments,
   teams,
 } from "@/db/drizzle/schema";
-import { CompanyId, type SkillId, TeamId } from "@/db/ids";
-import { AuthorizationContext } from "../authorization-context";
-import { CompanyContext } from "../company-context";
+import { CompanyId, TeamId } from "@/db/ids";
+import type { AuthorizationContext } from "../authorization-context";
+import type { CompanyContext } from "../company-context";
 import { CompanyMembers, MemberListError } from "../company-members-service";
 import { Db } from "../db-service";
 import type { Level } from "../level";
 import { TeamManagement, TeamService } from "../team-service";
+import { seedAssignment, seedLevel, seedSkill, seedTeam } from "./db/seed";
 import {
   switchToRoleWithoutRlsBypass,
   type TestDb,
   withRollback,
 } from "./db/test-db";
-
-type Actor = {
-  companyId: string;
-  userId: string;
-  role: Role | undefined;
-};
+import {
+  type Actor,
+  ADMIN,
+  failureTag,
+  MEMBER,
+  NO_ROLE,
+  runAsActor,
+} from "./request";
 
 type ManagerActor = Actor & {
   companyMemberIds?: readonly string[] | "listMembersFails";
 };
-
-const ADMIN: Actor = { companyId: "cmp_a", userId: "u_admin", role: "ADMIN" };
-const MEMBER: Actor = { companyId: "cmp_a", userId: "u_m", role: "MEMBER" };
-const NO_ROLE: Actor = { companyId: "cmp_a", userId: "u_m", role: undefined };
 
 const companyMembersLayer = (
   companyMemberIds: ManagerActor["companyMemberIds"] = [],
@@ -51,21 +49,7 @@ const runInRequest = <A, E>(
   tx: TestDb,
   actor: Actor,
   effect: Effect.Effect<A, E, Db | CompanyContext | AuthorizationContext>,
-) =>
-  Effect.runPromise(
-    Effect.result(
-      effect.pipe(
-        Effect.provideService(Db, tx),
-        Effect.provideService(CompanyContext, {
-          companyId: CompanyId.make(actor.companyId),
-        }),
-        Effect.provideService(AuthorizationContext, {
-          userId: actor.userId,
-          role: actor.role,
-        }),
-      ),
-    ),
-  );
+) => runAsActor(actor, effect.pipe(Effect.provideService(Db, tx)));
 
 const runAs =
   (tx: TestDb, actor: Actor) =>
@@ -99,47 +83,6 @@ const manageAs =
       ),
     );
 
-const failureTag = <A, E extends { _tag: string }>(
-  result: Result.Result<A, E>,
-) => (Result.isFailure(result) ? result.failure._tag : "success");
-
-const seedTeam = async (
-  tx: TestDb,
-  companyId: string,
-  name: string,
-  createdAt?: Date,
-) => {
-  const [row] = await tx
-    .insert(teams)
-    .values({ companyId: CompanyId.make(companyId), name, createdAt })
-    .returning({ id: teams.id });
-  return row.id;
-};
-
-const seedSkill = async (
-  tx: TestDb,
-  companyId: string,
-  teamId: TeamId,
-  name: string,
-  createdAt?: Date,
-) => {
-  const [row] = await tx
-    .insert(skills)
-    .values({ companyId: CompanyId.make(companyId), teamId, name, createdAt })
-    .returning({ id: skills.id });
-  return row.id;
-};
-
-const seedAssignment = (
-  tx: TestDb,
-  companyId: string,
-  teamId: TeamId,
-  userId: string,
-) =>
-  tx
-    .insert(teamAssignments)
-    .values({ companyId: CompanyId.make(companyId), teamId, userId });
-
 const countRows = async (
   tx: TestDb,
   table: typeof teams | typeof skills | typeof teamAssignments,
@@ -156,9 +99,6 @@ const teamName = async (tx: TestDb, id: TeamId) => {
     .where(eq(teams.id, id));
   return row?.name;
 };
-
-const createdAtMinute = (minute: number) =>
-  new Date(Date.UTC(2026, 0, 1, 0, minute));
 
 describe("TeamManagement", () => {
   it.each([
@@ -212,131 +152,6 @@ describe("createTeam", () => {
       expect(failureTag(duplicate)).toBe("DuplicateName");
       expect(failureTag(otherCompanyName)).toBe("success");
       expect(await countRows(tx, teams)).toBe(before + 1);
-    }));
-});
-
-describe("listTeams", () => {
-  it("管理者には自社の全チームを作成の古い順で返し、他社のチームを返さない", () =>
-    withRollback(async (tx) => {
-      const later = await seedTeam(tx, "cmp_a", "後", createdAtMinute(2));
-      const earlier = await seedTeam(tx, "cmp_a", "先", createdAtMinute(1));
-      await seedTeam(tx, "cmp_b", "他社", createdAtMinute(0));
-
-      const result = await runAs(tx, ADMIN)((s) => s.listTeams);
-
-      expect(Result.getOrThrow(result).map((t) => t.id)).toEqual([
-        earlier,
-        later,
-      ]);
-    }));
-
-  it.each([
-    ["MEMBER", MEMBER],
-    ["role の無い人", NO_ROLE],
-  ])("%s には割り当てられたチームだけを返す", (_, actor) =>
-    withRollback(async (tx) => {
-      const x = await seedTeam(tx, "cmp_a", "X");
-      await seedTeam(tx, "cmp_a", "Y");
-      await seedAssignment(tx, "cmp_a", x, "u_m");
-
-      const result = await runAs(tx, actor)((s) => s.listTeams);
-
-      expect(Result.getOrThrow(result).map((t) => t.id)).toEqual([x]);
-    }),
-  );
-
-  it("どのチームにも割り当てられていない MEMBER には何も返さない", () =>
-    withRollback(async (tx) => {
-      await seedTeam(tx, "cmp_a", "X");
-
-      const result = await runAs(tx, MEMBER)((s) => s.listTeams);
-
-      expect(Result.getOrThrow(result)).toEqual([]);
-    }));
-
-  it("1 人を 2 つのチームに割り当てられ、その人には両方を返す", () =>
-    withRollback(async (tx) => {
-      const x = await seedTeam(tx, "cmp_a", "X", createdAtMinute(1));
-      const y = await seedTeam(tx, "cmp_a", "Y", createdAtMinute(2));
-      const admin = manageAs(tx, { ...ADMIN, companyMemberIds: ["u_m"] });
-      await admin((s) => s.assign(x, "u_m"));
-      await admin((s) => s.assign(y, "u_m"));
-
-      const result = await runAs(tx, MEMBER)((s) => s.listTeams);
-
-      expect(await countRows(tx, teamAssignments)).toBe(2);
-      expect(Result.getOrThrow(result).map((t) => t.id)).toEqual([x, y]);
-    }));
-});
-
-describe("getTeam", () => {
-  it("管理者には名前・作成の古い順のスキル・割り当てた user id を返す", () =>
-    withRollback(async (tx) => {
-      const id = await seedTeam(tx, "cmp_a", "開発");
-      const second = await seedSkill(
-        tx,
-        "cmp_a",
-        id,
-        "テスト",
-        createdAtMinute(2),
-      );
-      const first = await seedSkill(
-        tx,
-        "cmp_a",
-        id,
-        "設計",
-        createdAtMinute(1),
-      );
-      await seedAssignment(tx, "cmp_a", id, "u_1");
-      await seedAssignment(tx, "cmp_a", id, "u_2");
-
-      const result = await runAs(tx, ADMIN)((s) => s.getTeam(id));
-
-      const team = Result.getOrThrow(result);
-      expect(team.name).toBe("開発");
-      expect(team.skills.map((skill) => skill.id)).toEqual([first, second]);
-      expect([...team.assignedUserIds].sort()).toEqual(["u_1", "u_2"]);
-    }));
-
-  it("他社のチームは見つからない", () =>
-    withRollback(async (tx) => {
-      const id = await seedTeam(tx, "cmp_b", "他社");
-
-      const result = await runAs(tx, ADMIN)((s) => s.getTeam(id));
-
-      expect(failureTag(result)).toBe("TeamNotFound");
-    }));
-
-  it("MEMBER には割り当てられたチームだけが見つかる", () =>
-    withRollback(async (tx) => {
-      const x = await seedTeam(tx, "cmp_a", "X");
-      const y = await seedTeam(tx, "cmp_a", "Y");
-      await seedAssignment(tx, "cmp_a", x, "u_m");
-      const member = runAs(tx, MEMBER);
-
-      expect(failureTag(await member((s) => s.getTeam(y)))).toBe(
-        "TeamNotFound",
-      );
-      expect(failureTag(await member((s) => s.getTeam(x)))).toBe("success");
-    }));
-
-  it("他社のチームへの割り当ては、自社の事業所で開いても見えない", () =>
-    withRollback(async (tx) => {
-      const other = await seedTeam(tx, "cmp_b", "他社");
-      await seedAssignment(tx, "cmp_b", other, "u_m");
-      const member = runAs(tx, MEMBER);
-
-      expect(Result.getOrThrow(await member((s) => s.listTeams))).toEqual([]);
-      expect(failureTag(await member((s) => s.getTeam(other)))).toBe(
-        "TeamNotFound",
-      );
-    }));
-
-  it("UUID でない id は DB の失敗ではなく見つからない", () =>
-    withRollback(async (tx) => {
-      const result = await runAs(tx, ADMIN)((s) => s.getTeam("not-a-uuid"));
-
-      expect(failureTag(result)).toBe("TeamNotFound");
     }));
 });
 
@@ -677,23 +492,6 @@ describe("事業所をまたぐ参照は DB が拒否する", () => {
 
 const memberSkillRows = async (tx: TestDb) =>
   (await tx.select().from(memberSkills)).map(({ updatedAt: _, ...row }) => row);
-
-const seedLevel = (
-  tx: TestDb,
-  row: {
-    companyId: string;
-    teamId: TeamId;
-    skillId: SkillId;
-    userId: string;
-    level?: Level;
-  },
-) =>
-  tx.insert(memberSkills).values({
-    level: 1,
-    wantsToLearn: false,
-    ...row,
-    companyId: CompanyId.make(row.companyId),
-  });
 
 describe("saveMyLevels", () => {
   it("割り当てられた人は自分の行にレベルと学びたいを保存できる", () =>
@@ -1111,46 +909,6 @@ describe("saveMyLevels", () => {
       );
 
       expect(failureTag(result)).toBe("InvalidLevel");
-    }));
-});
-
-describe("getTeam の levels", () => {
-  it("そのチームの行だけを返し、同じ事業所のほかのチームと他社の行を返さない", () =>
-    withRollback(async (tx) => {
-      const x = await seedTeam(tx, "cmp_a", "X");
-      const y = await seedTeam(tx, "cmp_a", "Y");
-      const other = await seedTeam(tx, "cmp_b", "X");
-      const xSkill = await seedSkill(tx, "cmp_a", x, "設計");
-      const ySkill = await seedSkill(tx, "cmp_a", y, "設計");
-      const otherSkill = await seedSkill(tx, "cmp_b", other, "設計");
-      await seedAssignment(tx, "cmp_a", x, "u_1");
-      await seedAssignment(tx, "cmp_a", y, "u_1");
-      await seedAssignment(tx, "cmp_b", other, "u_1");
-      await seedLevel(tx, {
-        companyId: "cmp_a",
-        teamId: x,
-        skillId: xSkill,
-        userId: "u_1",
-        level: 2,
-      });
-      await seedLevel(tx, {
-        companyId: "cmp_a",
-        teamId: y,
-        skillId: ySkill,
-        userId: "u_1",
-      });
-      await seedLevel(tx, {
-        companyId: "cmp_b",
-        teamId: other,
-        skillId: otherSkill,
-        userId: "u_1",
-      });
-
-      const result = await runAs(tx, ADMIN)((s) => s.getTeam(x));
-
-      expect(Result.getOrThrow(result).levels).toEqual([
-        { userId: "u_1", skillId: xSkill, level: 2, wantsToLearn: false },
-      ]);
     }));
 });
 
