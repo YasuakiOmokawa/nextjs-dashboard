@@ -1,4 +1,11 @@
-import { type BrowserContext, expect, type Page, test } from "@playwright/test";
+import {
+  type Browser,
+  type BrowserContext,
+  expect,
+  type Page,
+  type Route,
+  test,
+} from "@playwright/test";
 import { eq } from "drizzle-orm";
 import {
   assignMember,
@@ -25,6 +32,12 @@ const userIdOf = async (email: string) => {
     .where(eq(user.email, email));
   return row.id;
 };
+
+const setUserName = (userId: string, name: string) =>
+  authDb.update(user).set({ name }).where(eq(user.id, userId));
+
+const matrixRowOf = (page: Page, name: string) =>
+  page.getByRole("row").filter({ hasText: name });
 
 const teamItem = (page: Page, name: string) =>
   page.getByRole("link", { name, exact: true });
@@ -111,11 +124,8 @@ test("割り当てられたメンバーは一覧からチームを開き、自�
   const colleagueEmail = await createTestUser({ companyId, role: "ADMIN" });
   const myId = await userIdOf(myEmail);
   const colleagueId = await userIdOf(colleagueEmail);
-  await authDb.update(user).set({ name: myName }).where(eq(user.id, myId));
-  await authDb
-    .update(user)
-    .set({ name: colleagueName })
-    .where(eq(user.id, colleagueId));
+  await setUserName(myId, myName);
+  await setUserName(colleagueId, colleagueName);
   const teamId = await insertTeam(companyId, teamName);
   const skillId = await insertSkill(companyId, teamId, "設計");
   for (const [userId, level] of [
@@ -133,10 +143,123 @@ test("割り当てられたメンバーは一覧からチームを開き、自�
 
   await expect(page).toHaveURL(new RegExp(`/dashboard/teams/${teamId}$`));
   await expect(page.getByRole("heading", { name: teamName })).toBeVisible();
-  const rowOf = (name: string) =>
-    page.getByRole("row").filter({ hasText: name });
-  await expect(rowOf(myName)).toContainText("○");
-  await expect(rowOf(colleagueName)).toContainText("◎");
+  await expect(matrixRowOf(page, myName)).toContainText("○");
+  await expect(matrixRowOf(page, colleagueName)).toContainText("◎");
+
+  await context.close();
+});
+
+const openMyTeamWithLevel = async (browser: Browser, level: number) => {
+  const companyId = uniqueCompanyId("l");
+  const myName = `自分 ${crypto.randomUUID()}`;
+  const myEmail = await createTestUser({ companyId, role: "MEMBER" });
+  const myId = await userIdOf(myEmail);
+  await setUserName(myId, myName);
+  const teamId = await insertTeam(companyId, `開発 ${crypto.randomUUID()}`);
+  const skillId = await insertSkill(companyId, teamId, "設計");
+  await assignMember(companyId, teamId, myId);
+  await insertLevel(companyId, teamId, skillId, myId, level);
+  const context = await signInWithMagicLink(browser, myEmail);
+  const page = await context.newPage();
+  await page.goto(`/dashboard/teams/${teamId}`);
+  await expect(
+    page.getByRole("heading", { name: "自分のレベル" }),
+  ).toBeVisible();
+  return {
+    context,
+    page,
+    teamId,
+    myRow: matrixRowOf(page, myName),
+    levelSelect: page.getByLabel("設計 のレベル"),
+    wantsToLearn: page.getByLabel("設計 を学びたい"),
+    saveButton: page.getByRole("button", { name: "保存" }),
+  };
+};
+
+test("自分のレベルは保存を押した時点で星取表に出て、保存に失敗すると前の値に戻り、失敗の文言を出す", async ({
+  browser,
+}) => {
+  const { context, page, myRow, levelSelect, wantsToLearn, saveButton } =
+    await openMyTeamWithLevel(browser, 2);
+  const heldSave = Promise.withResolvers<Route>();
+  await page.route("**/api/teams/*/my-levels", heldSave.resolve);
+
+  await levelSelect.selectOption("3");
+  await wantsToLearn.check();
+  await saveButton.click();
+  const save = await heldSave.promise;
+
+  await expect(myRow).toContainText("◎");
+  await expect(myRow).toContainText("学");
+  await expect(saveButton).toBeDisabled();
+
+  await save.fulfill({
+    status: 403,
+    json: {
+      _tag: "NotAssigned",
+      message: "チームに割り当てられた人だけが記入できます",
+    },
+  });
+
+  await expect(myRow).toContainText("○");
+  await expect(myRow).not.toContainText("学");
+  await expect(page.getByRole("alert")).toHaveText(
+    "チームに割り当てられた人だけが記入できます",
+  );
+  await expect(levelSelect).toHaveValue("3");
+  await expect(wantsToLearn).toBeChecked();
+
+  await context.close();
+});
+
+test("保存した自分のレベルは、チームを取り直さずに星取表に残り、再読み込みしても残る", async ({
+  browser,
+}) => {
+  const {
+    context,
+    page,
+    teamId,
+    myRow,
+    levelSelect,
+    wantsToLearn,
+    saveButton,
+  } = await openMyTeamWithLevel(browser, 2);
+  await expect(levelSelect.locator("option")).toHaveText([
+    "空欄: 未経験",
+    "△: 支援があればできる",
+    "○: 一人でできる",
+    "◎: 教えられる",
+  ]);
+  await expect(levelSelect).toHaveValue("2");
+  await expect(wantsToLearn).not.toBeChecked();
+  const teamRefetches: string[] = [];
+  page.on("request", (request) => {
+    if (
+      request.method() === "GET" &&
+      new URL(request.url()).pathname === `/api/teams/${teamId}`
+    )
+      teamRefetches.push(request.url());
+  });
+
+  await levelSelect.selectOption("3");
+  await wantsToLearn.check();
+  const saved = page.waitForResponse(
+    (response) =>
+      response.request().method() === "PUT" &&
+      response.url().endsWith(`/api/teams/${teamId}/my-levels`),
+  );
+  await saveButton.click();
+
+  expect((await saved).status()).toBe(200);
+  await expect(saveButton).toBeEnabled();
+  await expect(myRow).toContainText("◎");
+  await expect(myRow).toContainText("学");
+  expect(teamRefetches).toEqual([]);
+
+  await page.reload();
+
+  await expect(myRow).toContainText("◎");
+  await expect(myRow).toContainText("学");
 
   await context.close();
 });

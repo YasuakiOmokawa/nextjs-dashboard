@@ -18,7 +18,7 @@ import {
   type Unauthenticated,
 } from "./company-members-service";
 import { Db } from "./db-service";
-import { LevelFromForm } from "./level";
+import { Level } from "./level";
 import {
   DuplicateName,
   decodeTeamId,
@@ -49,9 +49,9 @@ const decodeTeamOrSkillName = Schema.decodeUnknownEffect(TeamOrSkillName);
 const decodeName = (name: string) =>
   decodeTeamOrSkillName(name).pipe(Effect.mapError(() => new InvalidName()));
 
-const decodeLevelFromForm = Schema.decodeUnknownEffect(LevelFromForm);
-const decodeLevel = (level: string) =>
-  decodeLevelFromForm(level).pipe(Effect.mapError(() => new InvalidLevel()));
+const decodeUnknownLevel = Schema.decodeUnknownEffect(Level);
+const decodeLevel = (level: number) =>
+  decodeUnknownLevel(level).pipe(Effect.mapError(() => new InvalidLevel()));
 
 const UNIQUE_VIOLATION = "23505";
 const FOREIGN_KEY_VIOLATION = "23503";
@@ -74,11 +74,15 @@ const decodeErrorWithPgCause = Schema.decodeUnknownOption(ErrorWithPgCause);
 const violationOf = (error: unknown): Violation =>
   Option.getOrUndefined(decodeErrorWithPgCause(error))?.cause ?? {};
 
-type LevelEntry = {
-  readonly skillId: string;
-  readonly level: string;
-  readonly wantsToLearn: boolean;
-};
+// 1 文の INSERT の bind parameter は PostgreSQL の上限 65535 個 (1 entry に 6 個) を超えられない
+export const MAX_LEVEL_ENTRIES_PER_SAVE = 1000;
+
+export const LevelEntry = Schema.Struct({
+  skillId: Schema.String,
+  level: Schema.Number,
+  wantsToLearn: Schema.Boolean,
+});
+type LevelEntry = typeof LevelEntry.Type;
 
 // 違反で外側の transaction を中断しないよう、savepoint の中で書く
 const runWrite = <A, E>(

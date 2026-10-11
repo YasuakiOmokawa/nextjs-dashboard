@@ -1,9 +1,16 @@
-import { Match } from "effect";
+import { Match, Schema } from "effect";
 import { NAME_MAX_LENGTH } from "@/db/drizzle/schema";
 import type { TeamFailure } from "@/src/services/team-errors";
 
+export class InvalidRequest extends Schema.TaggedError<InvalidRequest>()(
+  "InvalidRequest",
+  {},
+) {}
+
+export type ApiFailure = TeamFailure | InvalidRequest;
+
 // hc は状態コードで応答の型を絞るので、成功の 2xx を混ぜない
-type FailureStatus = 401 | 403 | 404 | 409 | 422 | 500 | 502 | 503;
+type FailureStatus = 400 | 401 | 403 | 404 | 409 | 422 | 500 | 502 | 503;
 
 type FailureHandling = {
   readonly message: string;
@@ -35,7 +42,7 @@ const unexpectedDbFailure =
   ({ cause }: { readonly cause: unknown }) =>
     unexpectedFailure("保存に失敗しました", status, () => console.error(cause));
 
-const handlingOf = (failure: TeamFailure) =>
+const handlingOf = (failure: ApiFailure) =>
   Match.valueTags(failure, {
     NotManager: () => expectedFailure("管理者だけが操作できます", 403),
     TeamNotFound: () => expectedFailure("チームが見つかりません", 404),
@@ -51,6 +58,8 @@ const handlingOf = (failure: TeamFailure) =>
     NotAssigned: () =>
       expectedFailure("チームに割り当てられた人だけが記入できます", 403),
     InvalidLevel: () => expectedFailure("レベルの値が正しくありません", 422),
+    InvalidRequest: () =>
+      expectedFailure("送った内容の形が正しくありません", 400),
     Unauthenticated: () => expectedFailure("ログインし直してください", 401),
     MemberListError: ({ cause }) =>
       unexpectedFailure("メンバー一覧を取得できませんでした", 502, () =>
@@ -60,11 +69,11 @@ const handlingOf = (failure: TeamFailure) =>
     DbUnavailable: unexpectedDbFailure(503),
   });
 
-export const failureMessage = (failure: TeamFailure) =>
+export const failureMessage = (failure: ApiFailure) =>
   handlingOf(failure).message;
 
-export const failureStatus = (failure: TeamFailure) =>
+export const failureStatus = (failure: ApiFailure) =>
   handlingOf(failure).status;
 
-export const reportUnexpectedFailure = (failure: TeamFailure) =>
+export const reportUnexpectedFailure = (failure: ApiFailure) =>
   handlingOf(failure).report?.();

@@ -98,3 +98,23 @@ export const teamSkillMatrix = (
     },
   };
 };
+
+export type MyLevelEntry = Omit<TeamDetail["levels"][number], "userId">;
+
+export const withMyLevels = (
+  team: TeamDetail,
+  myUserId: string,
+  entries: readonly MyLevelEntry[],
+): TeamDetail => {
+  const savedSkillIds = new Set(entries.map((entry) => entry.skillId));
+  return {
+    ...team,
+    levels: [
+      ...team.levels.filter(
+        (record) =>
+          record.userId !== myUserId || !savedSkillIds.has(record.skillId),
+      ),
+      ...entries.map((entry) => ({ ...entry, userId: myUserId })),
+    ],
+  };
+};

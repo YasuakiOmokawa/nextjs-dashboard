@@ -5,10 +5,19 @@ import { csrf } from "hono/csrf";
 import { createMiddleware } from "hono/factory";
 import { validator } from "hono/validator";
 import { reportUnexpectedFailure } from "@/src/lib/team-failure";
-import { runReadService, runServiceWithoutDb } from "@/src/services";
+import {
+  runReadService,
+  runScopedService,
+  runServiceWithoutDb,
+} from "@/src/services";
 import { isManager } from "@/src/services/authorization-context";
 import { CompanyMembers } from "@/src/services/company-members-service";
 import { Team, TeamDetail, TeamReads } from "@/src/services/team-reads";
+import {
+  LevelEntry,
+  MAX_LEVEL_ENTRIES_PER_SAVE,
+  TeamService,
+} from "@/src/services/team-service";
 import {
   type AuthEnv,
   accountLocation,
@@ -20,7 +29,12 @@ import {
   requestSessionOf,
   sameOriginCallbackPath,
 } from "./auth";
-import { encodedJson, resultJson, type SessionVariables } from "./run-json";
+import {
+  encodedJson,
+  jsonBody,
+  resultJson,
+  type SessionVariables,
+} from "./run-json";
 
 export type Env = AuthEnv & {
   readonly HYPERDRIVE: { connectionString: string };
@@ -40,6 +54,13 @@ const TeamPageResponse = Schema.Struct({
     Schema.Array(Schema.Struct({ userId: Schema.String, name: Schema.String })),
   ),
 });
+
+const MyLevelsRequest = Schema.Struct({
+  levels: Schema.Array(LevelEntry).check(
+    Schema.isMaxLength(MAX_LEVEL_ENTRIES_PER_SAVE),
+  ),
+});
+const EmptyResponse = Schema.Struct({});
 
 const authGuardOfRequest = (c: Context<AppEnv>) =>
   // biome-ignore lint/plugin/no-raw-request-input: session の cookie は taimei-auth が確かめる
@@ -173,6 +194,24 @@ export const app = new Hono<AppEnv>()
       ),
     );
   })
+  .put(
+    "/api/teams/:teamId/my-levels",
+    teamParamValidator,
+    jsonBody(MyLevelsRequest),
+    async (c) => {
+      const { teamId } = c.req.valid("param");
+      const { levels } = c.req.valid("json");
+      return resultJson(
+        c,
+        EmptyResponse,
+        await runScopedService(c.var.session, () =>
+          TeamService.use((teams) => teams.saveMyLevels(teamId, levels)).pipe(
+            Effect.as({}),
+          ),
+        ),
+      );
+    },
+  )
   .get("/api/members", async (c) =>
     resultJson(
       c,
