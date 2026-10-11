@@ -1,6 +1,5 @@
 import { Pool } from "pg";
 
-// taimei の DB (e2e では superuser で接続し、RLS を通らない)。チーム・スキル・割り当て・記入の画面 (#583〜#585) の代わりに直に入れる
 const appDb = new Pool({ connectionString: process.env.APP_DATABASE_URL });
 
 export const insertTeam = async (companyId: string, name: string) => {
