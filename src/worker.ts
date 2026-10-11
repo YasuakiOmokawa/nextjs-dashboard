@@ -37,7 +37,24 @@ export const handler = {
   },
 };
 
-export default Sentry.withSentry(
-  (env: Env) => ({ dsn: env.SENTRY_DSN }),
-  handler,
-);
+const PARAMS_IN_DRIZZLE_ERROR_MESSAGE = /\nparams: [\s\S]*/;
+
+const withoutQueryParams = (event: Sentry.ErrorEvent) => {
+  for (const exception of event.exception?.values ?? [])
+    exception.value = exception.value?.replace(
+      PARAMS_IN_DRIZZLE_ERROR_MESSAGE,
+      "",
+    );
+  return event;
+};
+
+export const sentryOptions = (env: Env): Sentry.CloudflareOptions => ({
+  dsn: env.SENTRY_DSN,
+  integrations: [
+    Sentry.httpServerIntegration({ maxRequestBodySize: "none" }),
+    Sentry.consoleIntegration({ levels: [] }),
+  ],
+  beforeSend: withoutQueryParams,
+});
+
+export default Sentry.withSentry(sentryOptions, handler);

@@ -33,6 +33,7 @@ export const purgeDeparted = async ({
   const { rows } = await db.execute<{ company_id: string }>(
     sql`select company_id from company_ids_with_teams() as company_id`,
   );
+  // ponytail: Service Binding は 1 起動 32 回までで、チームを持つ事業所が約 31 を超えると後ろの事業所を毎回飛ばす。超えたら taimei-auth に複数の事業所を 1 回で照合する RPC を足す
   for (const companyId of rows.map((row) => CompanyId.make(row.company_id))) {
     const userIds = await withCompanyScope(db, companyId, async (tx) =>
       (
