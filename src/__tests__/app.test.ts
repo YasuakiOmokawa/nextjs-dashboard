@@ -3,7 +3,7 @@ import { buildAuthLoginUrl } from "@taimei-code/auth-client";
 import { Effect, Result, Schema } from "effect";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CompanyId } from "@/db/ids";
+import { CompanyId, SkillId } from "@/db/ids";
 import { type RequestSession, runServiceWithoutDb } from "@/src/services";
 import {
   seedAssignment,
@@ -19,7 +19,7 @@ import {
 import { CompanyMembers } from "@/src/services/company-members-service";
 import { TeamNotFound } from "@/src/services/team-errors";
 import { app, type Env } from "../app";
-import { resultJson } from "../run-json";
+import { jsonBody, resultJson } from "../run-json";
 
 vi.mock("@/db/drizzle/client", async () => ({
   db: (await import("@/src/services/__tests__/db/test-db")).dbInRollback,
@@ -891,5 +891,12 @@ describe("resultJson", () => {
       // @ts-expect-error 実行口 (runServiceWithoutDb・runScopedService) の結果だけを受ける
       resultJson(c, Schema.Struct({}), Result.succeed({})),
     );
+  });
+});
+
+describe("jsonBody", () => {
+  it("decode で型の変わる schema は型エラーになる (bun run typecheck で見る)", () => {
+    // @ts-expect-error SkillId は decode で brand が付く
+    jsonBody(Schema.Struct({ skillId: SkillId }));
   });
 });

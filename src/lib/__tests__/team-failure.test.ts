@@ -17,8 +17,10 @@ import {
   TeamServiceError,
 } from "@/src/services/team-errors";
 import {
+  type ApiFailure,
   failureMessage,
   failureStatus,
+  InvalidRequest,
   reportUnexpectedFailure,
 } from "../team-failure";
 
@@ -27,7 +29,7 @@ const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 beforeEach(() => vi.clearAllMocks());
 
 type Reporting = "reported" | "notReported";
-type Handling = readonly [TeamFailure, string, Reporting, number];
+type Handling = readonly [ApiFailure, string, Reporting, number];
 
 const handlingByTag = {
   NotManager: [
@@ -96,13 +98,19 @@ const handlingByTag = {
     "reported",
     500,
   ],
+  InvalidRequest: [
+    new InvalidRequest(),
+    "送った内容の形が正しくありません",
+    "notReported",
+    400,
+  ],
   DbUnavailable: [
     new DbUnavailable({ cause: "db" }),
     "保存に失敗しました",
     "reported",
     503,
   ],
-} satisfies Record<TeamFailure["_tag"], Handling>;
+} satisfies Record<ApiFailure["_tag"], Handling>;
 
 const handlings: readonly Handling[] = Object.values(handlingByTag);
 
@@ -150,4 +158,10 @@ it("メンバー一覧の取得の失敗は、listMembers failed と reason で�
   reportUnexpectedFailure(new MemberListError({ cause: 2 }));
 
   expect(consoleError).toHaveBeenCalledExactlyOnceWith("listMembers failed", 2);
+});
+
+it("要求の形の失敗は、Service の失敗の型に入らない (bun run typecheck で見る)", () => {
+  // @ts-expect-error InvalidRequest は Worker の validator だけが作る
+  const serviceFailure: TeamFailure = new InvalidRequest();
+  expect(serviceFailure._tag).toBe("InvalidRequest");
 });
