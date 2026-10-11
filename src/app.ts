@@ -6,6 +6,7 @@ import { createMiddleware } from "hono/factory";
 import { validator } from "hono/validator";
 import { reportUnexpectedFailure } from "@/src/lib/team-failure";
 import {
+  runManagerScopedService,
   runReadService,
   runScopedService,
   runServiceWithoutDb,
@@ -16,6 +17,7 @@ import { Team, TeamDetail, TeamReads } from "@/src/services/team-reads";
 import {
   LevelEntry,
   MAX_LEVEL_ENTRIES_PER_SAVE,
+  TeamManagement,
   TeamService,
 } from "@/src/services/team-service";
 import {
@@ -61,6 +63,9 @@ const MyLevelsRequest = Schema.Struct({
   ),
 });
 const EmptyResponse = Schema.Struct({});
+
+const TeamNameRequest = Schema.Struct({ name: Schema.String });
+const CreatedTeam = Schema.Struct({ id: Schema.String });
 
 const authGuardOfRequest = (c: Context<AppEnv>) =>
   // biome-ignore lint/plugin/no-raw-request-input: session の cookie は taimei-auth が確かめる
@@ -178,6 +183,16 @@ export const app = new Hono<AppEnv>()
       ),
     ),
   )
+  .post("/api/teams", jsonBody(TeamNameRequest), async (c) => {
+    const { name } = c.req.valid("json");
+    return resultJson(
+      c,
+      CreatedTeam,
+      await runManagerScopedService(c.var.session, () =>
+        TeamManagement.use((management) => management.createTeam(name)),
+      ),
+    );
+  })
   .get("/api/teams/:teamId", teamParamValidator, async (c) => {
     const { teamId } = c.req.valid("param");
     return resultJson(
@@ -190,6 +205,36 @@ export const app = new Hono<AppEnv>()
             members: teamMembersOrNullWhenListFails,
           },
           { concurrency: "unbounded" },
+        ),
+      ),
+    );
+  })
+  .patch(
+    "/api/teams/:teamId",
+    teamParamValidator,
+    jsonBody(TeamNameRequest),
+    async (c) => {
+      const { teamId } = c.req.valid("param");
+      const { name } = c.req.valid("json");
+      return resultJson(
+        c,
+        EmptyResponse,
+        await runManagerScopedService(c.var.session, () =>
+          TeamManagement.use((management) =>
+            management.renameTeam(teamId, name),
+          ).pipe(Effect.as({})),
+        ),
+      );
+    },
+  )
+  .delete("/api/teams/:teamId", teamParamValidator, async (c) => {
+    const { teamId } = c.req.valid("param");
+    return resultJson(
+      c,
+      EmptyResponse,
+      await runManagerScopedService(c.var.session, () =>
+        TeamManagement.use((management) => management.deleteTeam(teamId)).pipe(
+          Effect.as({}),
         ),
       ),
     );

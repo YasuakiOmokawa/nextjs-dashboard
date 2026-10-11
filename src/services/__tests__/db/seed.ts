@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import {
   memberSkills,
   skills,
@@ -69,3 +70,11 @@ export const seedLevel = (
     wantsToLearn,
     companyId: CompanyId.make(row.companyId),
   });
+
+export const teamName = async (tx: TestDb, id: TeamId) => {
+  const [row] = await tx
+    .select({ name: teams.name })
+    .from(teams)
+    .where(eq(teams.id, id));
+  return row?.name;
+};
