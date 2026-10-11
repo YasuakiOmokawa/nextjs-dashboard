@@ -1,4 +1,9 @@
-import { type QueryClient, queryOptions } from "@tanstack/react-query";
+import {
+  type FetchQueryOptions,
+  type QueryClient,
+  type QueryKey,
+  queryOptions,
+} from "@tanstack/react-query";
 import {
   DetailedError,
   hc,
@@ -6,19 +11,58 @@ import {
   type InferResponseType,
   parseResponse,
 } from "hono/client";
-import type { AppType } from "../../src/app";
+import type { AppType, SessionHeader } from "../../src/app";
 import { type MyLevelEntry, withMyLevels } from "./dashboard/skill-matrix";
 
-// session の middleware が返す 401 は hc の型に入らないので、全ての API の呼び出しをここで受けてログインへ移す
-const fetchRedirectingToLogin: typeof fetch = async (input, init) => {
-  const response = await fetch(input, init);
-  if (response.status !== 401) return response;
-  const callbackUrl = encodeURIComponent(location.pathname + location.search);
-  location.assign(`/auth?callbackUrl=${callbackUrl}`);
-  return new Promise<never>(() => {});
+declare global {
+  // web/index.html が JS の読み込みを待たずに始めた画面の API の fetch
+  var taimeiEarlyFetches: Map<string, Promise<Response>> | undefined;
+}
+
+const takeEarlyFetch = (input: RequestInfo | URL, init?: RequestInit) => {
+  if (typeof input !== "string" || (init?.method ?? "GET") !== "GET")
+    return undefined;
+  const early = globalThis.taimeiEarlyFetches?.get(input);
+  globalThis.taimeiEarlyFetches?.delete(input);
+  return early;
 };
 
-const { api } = hc<AppType>("/", { fetch: fetchRedirectingToLogin });
+const SESSION_HEADER: SessionHeader = "x-taimei-session";
+let sessionOfThisPage: string | undefined;
+
+const differsFromFirstSessionOfPage = (response: Response) => {
+  const session = response.headers.get(SESSION_HEADER);
+  if (session === null) return false;
+  sessionOfThisPage ??= session;
+  return session !== sessionOfThisPage;
+};
+
+const untilPageUnloads = () => new Promise<never>(() => {});
+
+const withSessionMark = (init: RequestInit | undefined) => {
+  if (sessionOfThisPage === undefined) return init;
+  const headers = new Headers(init?.headers);
+  headers.set(SESSION_HEADER, sessionOfThisPage);
+  return { ...init, headers };
+};
+
+// session の middleware が返す 401 は hc の型に入らないので、全ての API の呼び出しをここで受けてログインへ移す
+const fetchWithinSession: typeof fetch = async (input, init) => {
+  const response = await (takeEarlyFetch(input, init) ??
+    fetch(input, withSessionMark(init)));
+  if (response.status === 401) {
+    const callbackUrl = encodeURIComponent(location.pathname + location.search);
+    location.assign(`/auth?callbackUrl=${callbackUrl}`);
+    return untilPageUnloads();
+  }
+  if (differsFromFirstSessionOfPage(response)) {
+    location.reload();
+    return untilPageUnloads();
+  }
+  return response;
+};
+
+const { api } = hc<AppType>("/", { fetch: fetchWithinSession });
 
 export const meQuery = queryOptions({
   queryKey: ["me"],
@@ -34,6 +78,18 @@ export const membersQuery = queryOptions({
   queryKey: ["members"],
   queryFn: () => parseResponse(api.members.$get()),
 });
+
+export const loadQuery = <TData, TQueryKey extends QueryKey>(
+  queryClient: QueryClient,
+  options: FetchQueryOptions<TData, Error, TData, TQueryKey>,
+) => {
+  const state = queryClient.getQueryState<TData>(options.queryKey);
+  const cachedAndValid = state?.isInvalidated ? undefined : state?.data;
+  const fetched = queryClient.query(options);
+  if (cachedAndValid === undefined) return fetched;
+  fetched.catch(() => {});
+  return Promise.resolve(cachedAndValid);
+};
 
 // cache を先に出す読み取りに作成・削除の前の一覧を出させない。表示中の一覧は画面の移動で外れるので取り直さない
 export const markTeamListStaleWithoutRefetch = (queryClient: QueryClient) =>

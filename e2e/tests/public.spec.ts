@@ -33,3 +33,18 @@ test("/ からプライバシーポリシーを開ける", async ({ page }) => {
     "プライバシーポリシー",
   );
 });
+
+test("/ を開いても API を呼ばない", async ({ page }) => {
+  const apiRequests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/"))
+      apiRequests.push(request.url());
+  });
+
+  await page.goto("/", { waitUntil: "load" });
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(
+    "心安らかな",
+  );
+
+  expect(apiRequests).toEqual([]);
+});

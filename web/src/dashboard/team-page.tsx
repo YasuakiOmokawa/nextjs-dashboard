@@ -110,7 +110,10 @@ function useTeamMutation<Variables>(
   return useMutation({
     mutationFn,
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: teamQuery(teamId).queryKey }),
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: teamQuery(teamId).queryKey }),
+        markTeamListStaleWithoutRefetch(queryClient),
+      ]),
   });
 }
 

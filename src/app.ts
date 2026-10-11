@@ -76,6 +76,9 @@ const authGuardOfRequest = (c: Context<AppEnv>) =>
   // biome-ignore lint/plugin/no-raw-request-input: session の cookie は taimei-auth が確かめる
   authGuardOf(c.env, c.req.header("Cookie"));
 
+const SESSION_HEADER = "x-taimei-session";
+export type SessionHeader = typeof SESSION_HEADER;
+
 // 事業所の無い人も 401 にする。taimei-auth のログインの入口が事業所の登録へ送る
 const requireSession = createMiddleware<AppEnv>(async (c, next) => {
   const guard = authGuardOfRequest(c);
@@ -85,6 +88,13 @@ const requireSession = createMiddleware<AppEnv>(async (c, next) => {
     : undefined;
   // biome-ignore lint/plugin/no-direct-json: 401 の本文は定数で、hc の型に入らない
   if (!session) return c.json({ _tag: "Unauthenticated" as const }, 401);
+  const sessionMark = `${session.companyId} ${session.userId}`;
+  c.header(SESSION_HEADER, sessionMark);
+  // biome-ignore lint/plugin/no-raw-request-input: 印は比べるだけで、Service に渡さない
+  const markOfPage = c.req.header(SESSION_HEADER);
+  if (markOfPage !== undefined && markOfPage !== sessionMark)
+    // biome-ignore lint/plugin/no-direct-json: 409 の本文は定数で、SPA は印の違いを見て再読み込みする
+    return c.json({ _tag: "SessionChanged" as const }, 409);
   c.set("session", session);
   await next();
 });

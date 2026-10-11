@@ -3,6 +3,7 @@ import {
   type BrowserContext,
   expect,
   type Page,
+  type Request,
   type Route,
   test,
 } from "@playwright/test";
@@ -87,7 +88,7 @@ test("自社のチームが一覧に出て、他の事業所のチームは画�
   await context.close();
 });
 
-test("事業所を切り替えると、切り替えた先の事業所のチームだけが出る (ADR-0004 の場面 5)", async ({
+test("事業所を切り替えると、SPA の中の移動で受けた応答の session の変化で再読み込みし、切り替えた先の事業所のチームだけが出る (ADR-0004 の場面 5)", async ({
   browser,
 }) => {
   const companyA = uniqueCompanyId("a");
@@ -104,11 +105,41 @@ test("事業所を切り替えると、切り替えた先の事業所のチー�
   await expect(teamItem(page, teamA)).toHaveCount(1);
 
   await switchCompany(context, companyB);
-  // 再読み込みでなく SPA の中の移動で、前の事業所の cache を出さないことを見る
+  const reloadedBySessionChange = page.waitForEvent("load");
   await page.getByRole("link", { name: "チーム", exact: true }).click();
+  await reloadedBySessionChange;
 
   await expect(teamItem(page, teamB)).toHaveCount(1);
   await expect(teamItem(page, teamA)).toHaveCount(0);
+
+  await context.close();
+});
+
+test("別のタブで事業所を切り替えた後に古いタブでチームを作っても、切り替えた先の事業所に作らず再読み込みする", async ({
+  browser,
+}) => {
+  const companyA = uniqueCompanyId("a");
+  const companyB = uniqueCompanyId("b");
+  const teamB = `B のチーム ${crypto.randomUUID()}`;
+  await insertTeam(companyB, teamB);
+  const email = await createTestUser({ companyId: companyB });
+  await provisionCompanyForUser(await userIdOf(email), { companyId: companyA });
+  const context = await signInWithMagicLink(browser, email);
+  const page = await context.newPage();
+  await openTeams(page);
+  await expect(teamItem(page, teamB)).toHaveCount(0);
+  await switchCompany(context, companyB);
+  const notCreated = `作らないチーム ${crypto.randomUUID()}`;
+
+  const reloadedBySessionChange = page.waitForEvent("load");
+  await page.getByLabel("チーム名").fill(notCreated);
+  await page.getByRole("button", { name: "チームを作る" }).click();
+  await reloadedBySessionChange;
+
+  await expect(teamItem(page, teamB)).toBeVisible();
+  const teamsOfB = await (await context.request.get("/api/teams")).text();
+  expect(teamsOfB).toContain(teamB);
+  expect(teamsOfB).not.toContain(notCreated);
 
   await context.close();
 });
@@ -267,7 +298,9 @@ test("保存した自分のレベルは、チームを取り直さずに星取�
 const teamTitle = (page: Page, name: string) =>
   page.getByRole("heading", { name, exact: true, level: 1 });
 
-test("管理者は一覧でチームを作り、チームの画面で名前を変え、確認の後に消せる", async ({
+const STALE_LIST_WOULD_RENDER_WITHIN_MS = 500;
+
+test("管理者は一覧でチームを作り、チームの画面で名前を変え、確認の後に消せて、消した後は一覧の取り直しを待つ間も消す前の一覧を出さない", async ({
   browser,
 }) => {
   const companyId = uniqueCompanyId("g");
@@ -357,16 +390,62 @@ test("管理者は一覧でチームを作り、チームの画面で名前を�
   await expect(teamTitle(page, renamed)).toBeVisible();
 
   page.once("dialog", (dialog) => void dialog.accept());
+  const heldList = Promise.withResolvers<Route>();
+  await page.route("**/api/teams", (route) =>
+    route.request().method() === "GET"
+      ? heldList.resolve(route)
+      : route.continue(),
+  );
   const deleteResponse = page.waitForResponse(
     (response) => response.request().method() === "DELETE",
   );
   await deleteButton.click();
 
   expect((await deleteResponse).status()).toBe(200);
+  const heldListRefetch = await heldList.promise;
+  await page.waitForTimeout(STALE_LIST_WOULD_RENDER_WITHIN_MS);
+  await expect(teamItem(page, existingName)).toHaveCount(0);
+  await heldListRefetch.continue();
+  await page.unroute("**/api/teams");
   await expect(page).toHaveURL(/\/dashboard\/teams$/);
   await expect(teamItem(page, existingName)).toBeVisible();
   await expect(teamItem(page, renamed)).toHaveCount(0);
   expect(deleteRequests).toHaveLength(1);
+
+  await context.close();
+});
+
+test("チームの名前を変えた後の一覧は、取り直しを待つ間も変える前の名前を出さない", async ({
+  browser,
+}) => {
+  const companyId = uniqueCompanyId("r");
+  const before = `変える前 ${crypto.randomUUID()}`;
+  const after = `変えた後 ${crypto.randomUUID()}`;
+  const teamId = await insertTeam(companyId, before);
+  const context = await signInWithMagicLink(
+    browser,
+    await createTestUser({ companyId }),
+  );
+  const page = await context.newPage();
+  await openTeams(page);
+  await teamItem(page, before).click();
+  await expect(teamTitle(page, before)).toBeVisible();
+
+  await page.getByLabel("チーム名").fill(after);
+  await page.getByRole("button", { name: "名前を変える" }).click();
+  await expect(teamTitle(page, after)).toBeVisible();
+  const heldList = Promise.withResolvers<Route>();
+  await page.route("**/api/teams", heldList.resolve);
+  await page.getByRole("link", { name: "チーム", exact: true }).first().click();
+  const heldListRefetch = await heldList.promise;
+  await page.waitForTimeout(STALE_LIST_WOULD_RENDER_WITHIN_MS);
+
+  await expect(teamItem(page, before)).toHaveCount(0);
+  await heldListRefetch.continue();
+  await expect(teamItem(page, after)).toHaveAttribute(
+    "href",
+    `/dashboard/teams/${teamId}`,
+  );
 
   await context.close();
 });
@@ -582,6 +661,112 @@ test("メンバー一覧が取れないと、管理者にも割り当ての部�
   ).toHaveCount(2);
   await expect(page.getByLabel("割り当てるメンバー")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /を外す$/ })).toHaveCount(0);
+
+  await context.close();
+});
+
+const collectApiRequests = (page: Page) => {
+  const requests: Request[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/"))
+      requests.push(request);
+  });
+  return {
+    countOf: async (path: string) => {
+      await Promise.all(requests.map((request) => request.response()));
+      return requests.filter(
+        (request) =>
+          request.method() === "GET" &&
+          new URL(request.url()).pathname === path,
+      ).length;
+    },
+  };
+};
+
+test("最初の表示では、JS を待たずに始めた API の応答を SPA が使い、画面の API を 1 回ずつしか呼ばない", async ({
+  browser,
+}) => {
+  const companyId = uniqueCompanyId("e");
+  const teamName = `開発 ${crypto.randomUUID()}`;
+  const teamId = await insertTeam(companyId, teamName);
+  const context = await signInWithMagicLink(
+    browser,
+    await createTestUser({ companyId }),
+  );
+
+  const listPage = await context.newPage();
+  const list = collectApiRequests(listPage);
+  await openTeams(listPage);
+  await expect(teamItem(listPage, teamName)).toBeVisible();
+
+  expect(await list.countOf("/api/me")).toBe(1);
+  expect(await list.countOf("/api/teams")).toBe(1);
+
+  const teamPage = await context.newPage();
+  const team = collectApiRequests(teamPage);
+  await teamPage.goto(`/dashboard/teams/${teamId}`);
+  await expect(teamTitle(teamPage, teamName)).toBeVisible();
+
+  expect(await team.countOf("/api/me")).toBe(1);
+  expect(await team.countOf(`/api/teams/${teamId}`)).toBe(1);
+
+  await context.close();
+});
+
+test("チームの link にカーソルを乗せると先読みし、click で取り直さずにチームの画面を出す", async ({
+  browser,
+}) => {
+  const companyId = uniqueCompanyId("h");
+  const teamName = `開発 ${crypto.randomUUID()}`;
+  const teamId = await insertTeam(companyId, teamName);
+  const context = await signInWithMagicLink(
+    browser,
+    await createTestUser({ companyId }),
+  );
+  const page = await context.newPage();
+  await openTeams(page);
+  const { countOf } = collectApiRequests(page);
+
+  const preloaded = page.waitForRequest(
+    (request) => new URL(request.url()).pathname === `/api/teams/${teamId}`,
+  );
+  await teamItem(page, teamName).hover();
+  await preloaded;
+  await teamItem(page, teamName).click();
+
+  await expect(teamTitle(page, teamName)).toBeVisible();
+  expect(await countOf(`/api/teams/${teamId}`)).toBe(1);
+
+  await context.close();
+});
+
+// TanStack Router は loader を defaultPendingMs (1 秒) 待ってから描くので、それより早く出れば loader は取り直しを待っていない
+const FASTER_THAN_ROUTER_DEFAULT_PENDING_MS = 500;
+
+test("2 回目の一覧は、取り直しの応答を待たずに前に見た一覧を出す", async ({
+  browser,
+}) => {
+  const companyId = uniqueCompanyId("c");
+  const teamName = `開発 ${crypto.randomUUID()}`;
+  await insertTeam(companyId, teamName);
+  const context = await signInWithMagicLink(
+    browser,
+    await createTestUser({ companyId }),
+  );
+  const page = await context.newPage();
+  await openTeams(page);
+  await teamItem(page, teamName).click();
+  await expect(teamTitle(page, teamName)).toBeVisible();
+  const heldList = Promise.withResolvers<Route>();
+  await page.route("**/api/teams", heldList.resolve);
+
+  await page.getByRole("link", { name: "チーム", exact: true }).first().click();
+
+  await expect(teamItem(page, teamName)).toBeVisible({
+    timeout: FASTER_THAN_ROUTER_DEFAULT_PENDING_MS,
+  });
+  await expect(page).toHaveURL(/\/dashboard\/teams$/);
+  await (await heldList.promise).continue();
 
   await context.close();
 });

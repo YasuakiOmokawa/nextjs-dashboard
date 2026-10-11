@@ -182,6 +182,51 @@ describe("/api の session", () => {
   });
 });
 
+describe("session の印", () => {
+  it.each(["/api/me", "/api/teams"])(
+    "%s の応答に、事業所と user の id を x-taimei-session で付ける",
+    (path) =>
+      withRollbackDb(async () => {
+        const response = await get(path, envWithRole("ROLE_OWNER"));
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get("x-taimei-session")).toBe("cmp_app_a u_1");
+      }),
+  );
+
+  it("要求の印が今の session と違う (別のタブで事業所を切り替えた) と、書き込まずに 409 を返し、今の印を付ける", () =>
+    withRollbackDb(async (tx) => {
+      const response = await app.request(
+        `${ORIGIN}/api/teams`,
+        {
+          method: "POST",
+          headers: {
+            ...COOKIE,
+            Origin: ORIGIN,
+            "Content-Type": "application/json",
+            "x-taimei-session": "cmp_app_b u_1",
+          },
+          body: JSON.stringify({ name: "開発" }),
+        },
+        envWithRole("ROLE_OWNER"),
+      );
+
+      expect(response.status).toBe(409);
+      expect(response.headers.get("x-taimei-session")).toBe("cmp_app_a u_1");
+      expect(await teamRows(tx)).toEqual([]);
+    }));
+
+  it("要求の印が今の session と同じなら、そのまま処理する", () =>
+    withRollbackDb(async () => {
+      const response = await get("/api/me", envWithRole("ROLE_OWNER"), {
+        ...COOKIE,
+        "x-taimei-session": "cmp_app_a u_1",
+      });
+
+      expect(response.status).toBe(200);
+    }));
+});
+
 describe("全ての route の認証", () => {
   const PUBLIC_ENDPOINTS = [
     "GET /auth",
