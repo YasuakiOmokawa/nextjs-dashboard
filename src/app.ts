@@ -4,10 +4,11 @@ import { type Context, Hono } from "hono";
 import { csrf } from "hono/csrf";
 import { createMiddleware } from "hono/factory";
 import { validator } from "hono/validator";
-import { runScopedService, runServiceWithoutDb } from "@/src/services";
+import { reportUnexpectedFailure } from "@/src/lib/team-failure";
+import { runReadService, runServiceWithoutDb } from "@/src/services";
 import { isManager } from "@/src/services/authorization-context";
 import { CompanyMembers } from "@/src/services/company-members-service";
-import { TeamService } from "@/src/services/team-service";
+import { Team, TeamDetail, TeamReads } from "@/src/services/team-reads";
 import {
   type AuthEnv,
   accountLocation,
@@ -26,10 +27,17 @@ export type Env = AuthEnv & {
 };
 type AppEnv = { Bindings: Env } & SessionVariables;
 
-const Me = Schema.Struct({ name: Schema.String, canManage: Schema.Boolean });
-const Teams = Schema.Struct({
-  teams: Schema.Array(
-    Schema.Struct({ id: Schema.String, name: Schema.String }),
+const Me = Schema.Struct({
+  userId: Schema.String,
+  name: Schema.String,
+  canManage: Schema.Boolean,
+});
+const Teams = Schema.Struct({ teams: Schema.Array(Team) });
+
+const TeamPageResponse = Schema.Struct({
+  team: TeamDetail,
+  members: Schema.NullOr(
+    Schema.Array(Schema.Struct({ userId: Schema.String, name: Schema.String })),
   ),
 });
 
@@ -60,13 +68,33 @@ const Members = Schema.Struct({
   ),
 });
 
-const memberResponse = ({ name, email, role }: Member) => ({
-  name: name.trim() || email,
-  email,
-  role,
+const memberName = ({ name, email }: Member) => name.trim() || email;
+
+const memberResponse = (member: Member) => ({
+  name: memberName(member),
+  email: member.email,
+  role: member.role,
 });
 
+const teamMemberResponse = (member: Member) => ({
+  userId: member.userId,
+  name: memberName(member),
+});
+
+const teamMembersOrNullWhenListFails = CompanyMembers.use(
+  (members) => members.list,
+).pipe(
+  Effect.map((members) => members.map(teamMemberResponse)),
+  Effect.catchTag("MemberListError", (failure) =>
+    Effect.sync(() => reportUnexpectedFailure(failure)).pipe(Effect.as(null)),
+  ),
+);
+
 const originOf = (url: string) => new URL(url).origin;
+
+const teamParamValidator = validator("param", ({ teamId }) => ({
+  teamId,
+}));
 
 const callbackPathValidator = validator("query", (query, c) => ({
   callbackPath: sameOriginCallbackPath(
@@ -113,6 +141,7 @@ export const app = new Hono<AppEnv>()
   .use(requireSession)
   .get("/api/me", (c) =>
     encodedJson(c, Me, {
+      userId: c.var.session.userId,
       name: c.var.session.userName,
       canManage: isManager(c.var.session.role),
     }),
@@ -121,13 +150,29 @@ export const app = new Hono<AppEnv>()
     resultJson(
       c,
       Teams,
-      await runScopedService(c.var.session, () =>
-        TeamService.use((service) => service.listTeams).pipe(
+      await runReadService(c.var.session, () =>
+        TeamReads.use((reads) => reads.listTeams).pipe(
           Effect.map((teams) => ({ teams })),
         ),
       ),
     ),
   )
+  .get("/api/teams/:teamId", teamParamValidator, async (c) => {
+    const { teamId } = c.req.valid("param");
+    return resultJson(
+      c,
+      TeamPageResponse,
+      await runReadService(c.var.session, () =>
+        Effect.all(
+          {
+            team: TeamReads.use((reads) => reads.getTeam(teamId)),
+            members: teamMembersOrNullWhenListFails,
+          },
+          { concurrency: "unbounded" },
+        ),
+      ),
+    );
+  })
   .get("/api/members", async (c) =>
     resultJson(
       c,
