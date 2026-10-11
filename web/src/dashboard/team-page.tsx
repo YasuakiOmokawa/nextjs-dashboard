@@ -6,12 +6,21 @@ import {
 import {
   type ErrorComponentProps,
   Link,
+  useNavigate,
   useParams,
 } from "@tanstack/react-router";
 import { DetailedError } from "hono/client";
 import { ChevronLeft } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
-import { meQuery, saveMyLevels, teamQuery, writeSavedMyLevels } from "@/api";
+import {
+  deleteTeam,
+  markTeamListStaleWithoutRefetch,
+  meQuery,
+  renameTeam,
+  saveMyLevels,
+  teamQuery,
+  writeSavedMyLevels,
+} from "@/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import CardMessage from "@/dashboard/card-message";
@@ -22,6 +31,7 @@ import {
   levels,
   wantsToLearnFieldName,
 } from "@/dashboard/level";
+import NameForm from "@/dashboard/name-form";
 import {
   BIAS_RULE,
   type Cell,
@@ -89,7 +99,85 @@ export default function TeamPage() {
           )}
         </Section>
       </div>
+      <TeamNameAndDeletion
+        teamId={teamId}
+        team={team}
+        canManage={me.canManage}
+      />
     </TeamFrame>
+  );
+}
+
+function TeamNameAndDeletion({
+  teamId,
+  team,
+  canManage,
+}: {
+  teamId: string;
+  team: TeamDetail;
+  canManage: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const rename = useMutation({
+    mutationFn: (name: string) => renameTeam(teamId, name),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: teamQuery(teamId).queryKey }),
+  });
+  const remove = useMutation({
+    mutationFn: () => deleteTeam(teamId),
+    onSuccess: async () => {
+      await markTeamListStaleWithoutRefetch(queryClient);
+      await navigate({ to: "/dashboard/teams" });
+    },
+  });
+  if (!canManage) return null;
+
+  const confirmAndDelete = () => {
+    if (
+      window.confirm(
+        `「${team.name}」を削除します。スキル・割り当て・記入したレベルも消え、元に戻せません。`,
+      )
+    )
+      remove.mutate();
+  };
+
+  return (
+    <Section title="チーム名">
+      <div className="px-6 pb-6">
+        <NameForm
+          key={team.name}
+          label="チーム名"
+          defaultValue={team.name}
+          submitLabel="名前を変える"
+          pending={rename.isPending}
+          error={rename.error}
+          fallbackMessage="名前を変えられませんでした"
+          onSubmit={rename.mutate}
+        />
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-4 border-t px-6 py-4">
+        <p className="text-sm text-muted-foreground">
+          チームを削除すると、スキル・割り当て・記入したレベルも消えます
+        </p>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <FailureAlert
+            error={remove.error}
+            fallbackMessage="チームを削除できませんでした"
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={remove.isPending}
+            onClick={confirmAndDelete}
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+          >
+            チームを削除
+          </Button>
+        </div>
+      </div>
+    </Section>
   );
 }
 

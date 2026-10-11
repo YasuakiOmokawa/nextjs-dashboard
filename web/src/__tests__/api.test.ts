@@ -2,7 +2,9 @@ import { QueryClient } from "@tanstack/react-query";
 import { DetailedError } from "hono/client";
 import { afterEach, expect, it, vi } from "vitest";
 import {
+  deleteTeam,
   failureMessageOf,
+  renameTeam,
   saveMyLevels,
   type TeamPage,
   teamQuery,
@@ -19,15 +21,25 @@ it("保存の level に文字列を渡すと型エラーになる (bun run typec
     saveMyLevels("t", [{ skillId: "s", level: "2", wantsToLearn: false }]);
 });
 
-it("保存は teamId を escape して path に入れる", async () => {
+it.each([
+  [
+    "保存",
+    () => saveMyLevels("../members", []),
+    "/api/teams/..%2Fmembers/my-levels",
+  ],
+  [
+    "名前の変更",
+    () => renameTeam("../members", "x"),
+    "/api/teams/..%2Fmembers",
+  ],
+  ["削除", () => deleteTeam("../members"), "/api/teams/..%2Fmembers"],
+])("%s は teamId を escape して path に入れる", async (_, send, path) => {
   const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({}));
   vi.stubGlobal("fetch", fetch);
 
-  await saveMyLevels("../members", []);
+  await send();
 
-  expect(String(fetch.mock.calls[0]?.[0])).toBe(
-    "/api/teams/..%2Fmembers/my-levels",
-  );
+  expect(String(fetch.mock.calls[0]?.[0])).toBe(path);
 });
 
 const failedResponse = (data: unknown) =>

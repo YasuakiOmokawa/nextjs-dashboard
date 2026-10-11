@@ -35,6 +35,16 @@ export const membersQuery = queryOptions({
   queryFn: () => parseResponse(api.members.$get()),
 });
 
+// cache を先に出す読み取りに作成・削除の前の一覧を出させない。表示中の一覧は画面の移動で外れるので取り直さない
+export const markTeamListStaleWithoutRefetch = (queryClient: QueryClient) =>
+  queryClient.invalidateQueries({
+    queryKey: teamsQuery.queryKey,
+    refetchType: "none",
+  });
+
+export const createTeam = (name: string) =>
+  parseResponse(api.teams.$post({ json: { name } }));
+
 const teamApi = api.teams[":teamId"];
 
 // hc は path の param を escape しない
@@ -50,6 +60,17 @@ export const teamQuery = (teamId: string) =>
     queryFn: () =>
       parseResponse(teamApi.$get({ param: escapedTeamParam(teamId) })),
   });
+
+export const renameTeam = (teamId: string, name: string) =>
+  parseResponse(
+    teamApi.$patch({
+      param: escapedTeamParam(teamId),
+      json: { name },
+    }),
+  );
+
+export const deleteTeam = (teamId: string) =>
+  parseResponse(teamApi.$delete({ param: escapedTeamParam(teamId) }));
 
 const myLevelsApi = teamApi["my-levels"];
 
