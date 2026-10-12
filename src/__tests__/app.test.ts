@@ -203,15 +203,17 @@ describe("/api の session", () => {
   });
 });
 
-describe("session の印", () => {
+describe("session と Worker の version の印", () => {
   it.each(["/api/me", "/api/teams"])(
-    "%s の応答に、事業所と user の id を x-taimei-session で付ける",
+    "%s の応答に、事業所と user の id と Worker の version を x-taimei-session で付ける",
     (path) =>
       withRollbackDb(async () => {
         const response = await get(path, envWithRole("ROLE_OWNER"));
 
         expect(response.status).toBe(200);
-        expect(response.headers.get("x-taimei-session")).toBe("cmp_app_a u_1");
+        expect(response.headers.get("x-taimei-session")).toBe(
+          "cmp_app_a u_1 v1",
+        );
       }),
   );
 
@@ -225,7 +227,7 @@ describe("session の印", () => {
             ...COOKIE,
             Origin: ORIGIN,
             "Content-Type": "application/json",
-            "x-taimei-session": "cmp_app_b u_1",
+            "x-taimei-session": "cmp_app_b u_1 v1",
           },
           body: JSON.stringify({ name: "開発" }),
         },
@@ -233,7 +235,29 @@ describe("session の印", () => {
       );
 
       expect(response.status).toBe(409);
-      expect(response.headers.get("x-taimei-session")).toBe("cmp_app_a u_1");
+      expect(response.headers.get("x-taimei-session")).toBe("cmp_app_a u_1 v1");
+      expect(await teamRows(tx)).toEqual([]);
+    }));
+
+  it("要求の印が deploy の前の Worker の version なら (deploy の前に開いたタブ)、書き込まずに 409 を返し、今の印を付ける", () =>
+    withRollbackDb(async (tx) => {
+      const response = await app.request(
+        `${ORIGIN}/api/teams`,
+        {
+          method: "POST",
+          headers: {
+            ...COOKIE,
+            Origin: ORIGIN,
+            "Content-Type": "application/json",
+            "x-taimei-session": "cmp_app_a u_1 v0",
+          },
+          body: JSON.stringify({ name: "開発" }),
+        },
+        envWithRole("ROLE_OWNER"),
+      );
+
+      expect(response.status).toBe(409);
+      expect(response.headers.get("x-taimei-session")).toBe("cmp_app_a u_1 v1");
       expect(await teamRows(tx)).toEqual([]);
     }));
 
@@ -241,7 +265,7 @@ describe("session の印", () => {
     withRollbackDb(async () => {
       const response = await get("/api/me", envWithRole("ROLE_OWNER"), {
         ...COOKIE,
-        "x-taimei-session": "cmp_app_a u_1",
+        "x-taimei-session": "cmp_app_a u_1 v1",
       });
 
       expect(response.status).toBe(200);

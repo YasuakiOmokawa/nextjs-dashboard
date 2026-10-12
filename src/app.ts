@@ -105,11 +105,11 @@ const requireSession = createMiddleware<AppEnv>(async (c, next) => {
     : undefined;
   // biome-ignore lint/plugin/no-direct-json: 401 の本文は定数で、hc の型に入らない
   if (!session) return c.json({ _tag: "Unauthenticated" as const }, 401);
-  const sessionMark = `${session.companyId} ${session.userId}`;
-  c.header(SESSION_HEADER, sessionMark);
+  const currentMark = `${session.companyId} ${session.userId} ${c.env.CF_VERSION_METADATA.id}`;
+  c.header(SESSION_HEADER, currentMark);
   // biome-ignore lint/plugin/no-raw-request-input: 印は比べるだけで、Service に渡さない
   const markOfPage = c.req.header(SESSION_HEADER);
-  if (markOfPage !== undefined && markOfPage !== sessionMark)
+  if (markOfPage !== undefined && markOfPage !== currentMark)
     // biome-ignore lint/plugin/no-direct-json: 409 の本文は定数で、SPA は印の違いを見て再読み込みする
     return c.json({ _tag: "SessionChanged" as const }, 409);
   c.set("session", session);
