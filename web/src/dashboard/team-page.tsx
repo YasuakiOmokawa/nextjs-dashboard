@@ -9,7 +9,6 @@ import {
   useNavigate,
   useParams,
 } from "@tanstack/react-router";
-import { DetailedError } from "hono/client";
 import { ChevronLeft } from "lucide-react";
 import type { ComponentProps, FormEvent, ReactNode, SubmitEvent } from "react";
 import {
@@ -46,6 +45,7 @@ import {
   teamSkillMatrix,
   withMyLevels,
 } from "@/dashboard/skill-matrix";
+import { TeamNotFound } from "../../../src/spa-contract";
 
 type ReadyRoster = Extract<Roster, { _tag: "MatrixReady" }>;
 
@@ -500,7 +500,7 @@ function useSaveMyLevels(
 }
 
 export function TeamError({ error }: ErrorComponentProps) {
-  const notFound = error instanceof DetailedError && error.statusCode === 404;
+  const notFound = error instanceof TeamNotFound;
   return (
     <TeamFrame>
       <Card>

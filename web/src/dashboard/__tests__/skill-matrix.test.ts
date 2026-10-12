@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
-import type { Level } from "../level";
+import { SkillId, TeamId } from "../../../../db/ids";
+import type { Level } from "../../../../src/spa-contract";
 import {
   type Member,
   type TeamDetail,
@@ -10,19 +11,19 @@ import {
 const member = (userId: string): Member => ({ userId, name: userId });
 
 const skill = (n: number) => ({
-  id: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
+  id: SkillId.make(`00000000-0000-4000-8000-${String(n).padStart(12, "0")}`),
   name: `スキル${n}`,
 });
 
 const recorded = (
   userId: string,
-  { id }: { id: string },
+  { id }: { id: SkillId },
   level: Level,
   wantsToLearn = false,
 ) => ({ userId, skillId: id, level, wantsToLearn });
 
 const team = (detail: Partial<TeamDetail>): TeamDetail => ({
-  id: "00000000-0000-4000-8000-0000000000aa",
+  id: TeamId.make("00000000-0000-4000-8000-0000000000aa"),
   name: "開発",
   skills: [],
   assignedUserIds: [],

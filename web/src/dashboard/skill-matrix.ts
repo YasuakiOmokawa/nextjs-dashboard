@@ -1,5 +1,4 @@
-import type { TeamPage } from "../api";
-import type { Level } from "./level";
+import type { Level, TeamPage } from "../../../src/spa-contract";
 
 export type TeamDetail = TeamPage["team"];
 export type Member = NonNullable<TeamPage["members"]>[number];

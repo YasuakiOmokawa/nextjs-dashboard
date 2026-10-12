@@ -226,10 +226,7 @@ test("自分のレベルは保存を押した時点で星取表に出て、保�
 
   await save.fulfill({
     status: 403,
-    json: {
-      _tag: "NotAssigned",
-      message: "チームに割り当てられた人だけが記入できます",
-    },
+    json: { _tag: "NotAssigned" },
   });
 
   await expect(myRow).toContainText("○");
@@ -849,12 +846,7 @@ test("どのチームにも割り当てられていないメンバーには、�
 test("チームを取得できないときは、その旨を出す", async ({ browser }) => {
   const context = await signInWithMagicLink(browser, await createTestUser());
   const page = await context.newPage();
-  await page.route("**/api/teams", (route) =>
-    route.fulfill({
-      status: 503,
-      json: { _tag: "DbUnavailable", message: "保存に失敗しました" },
-    }),
-  );
+  await page.route("**/api/teams", (route) => route.fulfill({ status: 500 }));
 
   await page.goto("/dashboard/teams");
 

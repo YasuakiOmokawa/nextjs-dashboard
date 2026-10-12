@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import type { SkillId } from "../../../../db/ids";
 import {
   levelEntriesOf,
   levelFieldName,
@@ -29,7 +30,7 @@ it("select の値の 0〜3 だけをレベルにする", () => {
 });
 
 const cellOf = (n: number, recorded: boolean): Cell => ({
-  skill: { id: `s${n}`, name: `スキル${n}` },
+  skill: { id: `s${n}` as SkillId, name: `スキル${n}` },
   level: 0,
   wantsToLearn: false,
   recorded,

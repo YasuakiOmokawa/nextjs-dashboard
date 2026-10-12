@@ -4,14 +4,17 @@ import {
   type QueryKey,
   queryOptions,
 } from "@tanstack/react-query";
+import { Effect, Schema } from "effect";
+// biome-ignore lint/style/noRestrictedImports: SPA の契約の client を作る file (ADR-0007)
+import { FetchHttpClient } from "effect/http";
+import { HttpApiClient } from "effect/http-api";
+import { NAME_MAX_LENGTH } from "../../db/column-values";
 import {
-  DetailedError,
-  hc,
-  type InferRequestType,
-  type InferResponseType,
-  parseResponse,
-} from "hono/client";
-import type { AppType, SessionHeader } from "../../src/app";
+  type LevelEntry,
+  OperationFailure,
+  SESSION_HEADER,
+  SpaApi,
+} from "../../src/spa-contract";
 import { type MyLevelEntry, withMyLevels } from "./dashboard/skill-matrix";
 
 declare global {
@@ -19,15 +22,24 @@ declare global {
   var taimeiEarlyFetches: Map<string, Promise<Response>> | undefined;
 }
 
+const pathOf = (input: RequestInfo | URL) => {
+  const url = new URL(
+    input instanceof Request ? input.url : input,
+    location.origin,
+  );
+  return url.pathname + url.search;
+};
+
 const takeEarlyFetch = (input: RequestInfo | URL, init?: RequestInit) => {
-  if (typeof input !== "string" || (init?.method ?? "GET") !== "GET")
+  const earlyFetches = globalThis.taimeiEarlyFetches;
+  if (!earlyFetches?.size || (init?.method ?? "GET") !== "GET")
     return undefined;
-  const early = globalThis.taimeiEarlyFetches?.get(input);
-  globalThis.taimeiEarlyFetches?.delete(input);
+  const path = pathOf(input);
+  const early = earlyFetches.get(path);
+  earlyFetches.delete(path);
   return early;
 };
 
-const SESSION_HEADER: SessionHeader = "x-taimei-session";
 let markOfThisPage: string | undefined;
 
 const differsFromFirstMarkOfPage = (response: Response) => {
@@ -46,7 +58,6 @@ const withSessionMark = (init: RequestInit | undefined) => {
   return { ...init, headers };
 };
 
-// session の middleware が返す 401 は hc の型に入らないので、全ての API の呼び出しをここで受けてログインへ移す
 const fetchWithinSession: typeof fetch = async (input, init) => {
   const response = await (takeEarlyFetch(input, init) ??
     fetch(input, withSessionMark(init)));
@@ -62,21 +73,30 @@ const fetchWithinSession: typeof fetch = async (input, init) => {
   return response;
 };
 
-const { api } = hc<AppType>("/", { fetch: fetchWithinSession });
+const spaClient = HttpApiClient.make(SpaApi).pipe(
+  Effect.provide(FetchHttpClient.layer),
+  Effect.provideService(FetchHttpClient.Fetch, fetchWithinSession),
+);
+
+const cachedSpaClient = Effect.runSync(Effect.cached(spaClient));
+
+const callApi = <A, E>(
+  call: (client: Effect.Success<typeof spaClient>) => Effect.Effect<A, E>,
+) => Effect.runPromise(Effect.flatMap(cachedSpaClient, call));
 
 export const meQuery = queryOptions({
   queryKey: ["me"],
-  queryFn: () => parseResponse(api.me.$get()),
+  queryFn: () => callApi((client) => client.me.get()),
 });
 
 export const teamsQuery = queryOptions({
   queryKey: ["teams"],
-  queryFn: () => parseResponse(api.teams.$get()),
+  queryFn: () => callApi((client) => client.teams.list()),
 });
 
 export const membersQuery = queryOptions({
   queryKey: ["members"],
-  queryFn: () => parseResponse(api.members.$get()),
+  queryFn: () => callApi((client) => client.members.list()),
 });
 
 export const loadQuery = <TData, TQueryKey extends QueryKey>(
@@ -99,90 +119,57 @@ export const markTeamListStaleWithoutRefetch = (queryClient: QueryClient) =>
   });
 
 export const createTeam = (name: string) =>
-  parseResponse(api.teams.$post({ json: { name } }));
-
-// hc は path の param を escape しないので、param は全て encodeURIComponent して渡す
-const teamApi = api.teams[":teamId"];
-
-export type TeamPage = InferResponseType<typeof teamApi.$get, 200>;
+  callApi((client) => client.teams.create({ payload: { name } }));
 
 export const teamQuery = (teamId: string) =>
   queryOptions({
     queryKey: ["team", teamId],
     queryFn: () =>
-      parseResponse(
-        teamApi.$get({ param: { teamId: encodeURIComponent(teamId) } }),
-      ),
+      callApi((client) => client.teams.get({ params: { teamId } })),
   });
 
 export const renameTeam = (teamId: string, name: string) =>
-  parseResponse(
-    teamApi.$patch({
-      param: { teamId: encodeURIComponent(teamId) },
-      json: { name },
-    }),
+  callApi((client) =>
+    client.teams.rename({ params: { teamId }, payload: { name } }),
   );
 
 export const deleteTeam = (teamId: string) =>
-  parseResponse(
-    teamApi.$delete({ param: { teamId: encodeURIComponent(teamId) } }),
-  );
+  callApi((client) => client.teams.delete({ params: { teamId } }));
 
-const myLevelsApi = teamApi["my-levels"];
-
-export const saveMyLevels = (
-  teamId: string,
-  levels: InferRequestType<typeof myLevelsApi.$put>["json"]["levels"],
-) =>
-  parseResponse(
-    myLevelsApi.$put({
-      param: { teamId: encodeURIComponent(teamId) },
-      json: { levels },
-    }),
+export const saveMyLevels = (teamId: string, levels: readonly LevelEntry[]) =>
+  callApi((client) =>
+    client.teams.saveMyLevels({ params: { teamId }, payload: { levels } }),
   );
 
 export const addSkill = (teamId: string, name: string) =>
-  parseResponse(
-    teamApi.skills.$post({
-      param: { teamId: encodeURIComponent(teamId) },
-      json: { name },
-    }),
+  callApi((client) =>
+    client.teams.addSkill({ params: { teamId }, payload: { name } }),
   );
 
 export const removeSkill = (skillId: string) =>
-  parseResponse(
-    api.skills[":skillId"].$delete({
-      param: { skillId: encodeURIComponent(skillId) },
-    }),
-  );
-
-const assignmentApi = teamApi.assignments[":userId"];
+  callApi((client) => client.teams.removeSkill({ params: { skillId } }));
 
 export const assignMember = (teamId: string, userId: string) =>
-  parseResponse(
-    assignmentApi.$put({
-      param: {
-        teamId: encodeURIComponent(teamId),
-        userId: encodeURIComponent(userId),
-      },
-    }),
-  );
+  callApi((client) => client.teams.assign({ params: { teamId, userId } }));
 
 export const unassignMember = (teamId: string, userId: string) =>
-  parseResponse(
-    assignmentApi.$delete({
-      param: {
-        teamId: encodeURIComponent(teamId),
-        userId: encodeURIComponent(userId),
-      },
-    }),
-  );
+  callApi((client) => client.teams.unassign({ params: { teamId, userId } }));
 
-export const failureMessageOf = (error: unknown, fallbackMessage: string) => {
-  const message =
-    error instanceof DetailedError ? error.detail?.data?.message : undefined;
-  return typeof message === "string" ? message : fallbackMessage;
-};
+const failureMessages = {
+  NotManager: "管理者だけが操作できます",
+  TeamNotFound: "チームが見つかりません",
+  SkillNotFound: "スキルが見つかりません",
+  NotCompanyMember: "事業所のメンバーではありません",
+  InvalidName: `名前は 1〜${NAME_MAX_LENGTH} 文字で入力してください`,
+  DuplicateName: "同じ名前がすでにあります",
+  NotAssigned: "チームに割り当てられた人だけが記入できます",
+  InvalidLevel: "レベルの値が正しくありません",
+} satisfies { readonly [Tag in OperationFailure["_tag"]]: string };
+
+const isOperationFailure = Schema.is(OperationFailure);
+
+export const failureMessageOf = (error: unknown, fallbackMessage: string) =>
+  isOperationFailure(error) ? failureMessages[error._tag] : fallbackMessage;
 
 export const writeSavedMyLevels = async (
   queryClient: QueryClient,
