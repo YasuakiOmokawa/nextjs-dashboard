@@ -18,6 +18,7 @@ Neon の既定の role (project の作成時の owner と、console・CLI・API 
 - `Db` を要る Service は `app/services/index.ts` の `RequestScoped` (管理者だけの操作は `ManagerScoped`) に置き、request ごとにその transaction の `Db` で作る。`Live` には `Db` を置かない (型の番兵が止める)。実行口の本体が使える Service は、`Live` とその実行口が provide する Layer から導出する
 - FORCE ROW LEVEL SECURITY は付けない。table owner (migration の role) は policy を通らず、migration と、FK の CASCADE が今までどおり動く
 - アプリ (Vercel の `DATABASE_URL`) は、SQL で作った BYPASSRLS の無い role `taimei_app` で接続する。migration (GitHub の secret の `DATABASE_URL`) は owner のまま
+- 追記 (2026-10-12、#590): アプリは Worker から Hyperdrive 越しに `taimei_app` で接続する。migration は `deploy.yml` が deploy の前に、GitHub の Production の environment の `DATABASE_URL` (owner) で当てる
 - `companyFilter` は残す。RLS は付け忘れを DB で止める二重の守りで、アプリの絞り込みを置き換えない
 - policy の回帰は `db/__tests__/rls.test.ts` が、transaction の中で作った BYPASSRLS の無い role に切り替えて確かめる。test と e2e の DB は superuser で接続し、それだけでは policy を観測できない
 
