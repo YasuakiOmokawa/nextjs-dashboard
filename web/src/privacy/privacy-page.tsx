@@ -29,13 +29,10 @@ export default function PrivacyPage() {
         <ul className="list-disc space-y-1 pl-6">
           <li>データベース (taimei): Neon ({privacyFacts.databaseRegion})</li>
           <li>データベース (認証): Neon ({privacyFacts.authDatabaseRegion})</li>
-          <li>アプリ: Vercel</li>
+          <li>アプリ: Cloudflare</li>
           <li>認証: Cloudflare</li>
           <li>メールの送信: Resend</li>
-          <li>
-            エラーと性能の計測、画面の操作の記録: Sentry
-            (米国)。画面の記録は一部のセッションとエラーの時だけで、文字・入力・画像は伏せる
-          </li>
+          <li>エラーの記録: Sentry (米国)。入力した内容は送らない</li>
         </ul>
       </Section>
       <Section title="消す時期">

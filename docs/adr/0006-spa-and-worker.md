@@ -30,4 +30,5 @@ taimei は Next.js で Vercel に載り、DB は Neon の us-east-1 にある。
 - 画面はすべて SPA に作り直し、データは API の JSON で届く。応答に載せる項目はその人が見てよいものに絞る必要がある (Next の React Server Components では描画結果だけが届いた)
 - Static Assets は `/` の prerender (`index.html`) を SPA の fallback にも返す。prerender していない path は、JS が描くまでランディングページが見える
 - main は Next を持たなくなり、Vercel の build は落ちる。本番は Workers に切り替えるまで Vercel の直前の版のまま動き、その間 main は本番ではない
+- 追記 (2026-10-12、#590): 本番を Workers に切り替え、`app.taimei-code.com` を Worker の custom domain で配る。main への push で `deploy.yml` が build・migration・deploy を流すので、main が本番になる。Vercel の project と旧 DB (us-east-1) は消す
 - 手元と e2e は SPA を build して `wrangler dev` で配る。`wrangler dev` は `.env`・`.dev.vars` を読まない (`scripts/wrangler-dev.sh` が `--env-file` で渡す)

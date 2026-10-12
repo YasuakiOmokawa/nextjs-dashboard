@@ -71,6 +71,7 @@ services:
     environment:
       - DATABASE_URL=postgres://postgres:password@postgres:5432/postgres
       - PORT=3001
+      - LOCAL_UPSTREAM=app.taimei-code.local:3001
       - AUTH_URL=http://auth.taimei-code.local:3100
       - AUTH_SERVICE_URL=http://auth.taimei-code.local:3100
       # taimei-auth 側の AUTH_SERVICE_KEY と同じ値にする。違うと taimei-auth の RPC が 401 を返す
