@@ -16,10 +16,8 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import { LEVELS, NAME_MAX_LENGTH } from "../column-values";
 import type { CompanyId, SkillId, TeamId } from "../ids";
-
-export const NAME_MAX_LENGTH = 50;
-export const LEVELS = [0, 1, 2, 3] as const;
 
 // taimei-auth の company.id (cmp_<nanoid24>) への論理参照。cross-DB のため FK は張らない (docs/adr/0002-company-data-scoping.md)。
 const companyId = () =>
