@@ -16,12 +16,12 @@ taimei で今書ける間違いと、移した後に何が止めるか:
 | 間違い | 今 (Hono + `hc` + TanStack Query) | HttpApi の契約 + Atom | HttpApi の契約 + TanStack Query |
 | :-- | :-- | :-- | :-- |
 | その endpoint が出さない失敗を返す・SPA が起きない失敗を扱う | 止まらない (どの route も `TeamFailure` 全体を返せ、SPA は `failureMessageOf` が型なしで `message` を読む) | 型 | 型 |
-| 入力を validator を通さずに読む | lint (`biome-plugins/no-raw-request-input.grit`) | 構造 (handler が `HttpServerRequest` を直接読む抜け道は残る。止め方は #603) | 構造 (同左) |
-| 応答を schema を通さずに返す | lint (`biome-plugins/no-direct-json.grit`) | 構造 (handler が `HttpServerResponse` を返すと encode されない抜け道は残る。止め方は #603) | 構造 (同左) |
+| 入力を validator を通さずに読む | lint (`biome-plugins/no-raw-request-input.grit`) | 構造 (handler が `HttpServerRequest` を直接読む抜け道は、`effect/http` の import の禁止で止める。#612) | 構造 (同左) |
+| 応答を schema を通さずに返す | lint (`biome-plugins/no-direct-json.grit`) | 構造 (handler が `HttpServerResponse` を返すと encode されない抜け道は、`effect/http` の import の禁止で止める。#612) | 構造 (同左) |
 | 認証の 401 | `hc` の型の外 (`web/src/api.ts` の共通の fetch で受ける) | 型 | 型 |
 | query の key に入力を入れ忘れる | 慣習 | 構造 (key は引数そのもの) | 慣習 (`queryKey` と `queryFn` を別に書く) |
 
-順位: 1 位 HttpApi の契約 + Atom (5 つを型か構造で止める。2・3 行目は抜け道が残る)。2 位 HttpApi の契約 + TanStack Query (5 行目だけが慣習)。3 位 今の形。1 位と 2 位の差は 5 行目と、taimei-auth と書き方が揃うことだけである。2 位は #603 の形である。
+順位: 1 位 HttpApi の契約 + Atom (5 つを型か構造で止める。2・3 行目の抜け道は lint で止める)。2 位 HttpApi の契約 + TanStack Query (5 行目だけが慣習)。3 位 今の形。1 位と 2 位の差は 5 行目と、taimei-auth と書き方が揃うことだけである。2 位は #603 の形である。
 
 改訂前の節の「型のまま保てるもの」にある「宣言していない失敗を返さないこと」は、`TeamFailure` の外の失敗を返さないことを指す。endpoint ごとに出す失敗を絞ることは、上の表の 1 行目のとおり今は止まらない。
 
@@ -78,8 +78,8 @@ taimei-auth の数値は、`taimei-code/taimei-auth@d63097b` の ADR-0017 の「
 
 ## Consequences
 
-- 失敗の応答の本文は `{ _tag, message }` (401・409 は `{ _tag }`) から契約の失敗 (`{ _tag }`) に変わり、`message` が無くなる。文言は SPA が失敗の型から引く。deploy の瞬間に開いていたタブの古い SPA は `failureMessageOf` の既定の文言を出すはずで、#603 で確かめる
-- 型の外に残るもの: アプリの外の失敗 (Workers の CPU の上限での打ち切り、network、本体の予期しない失敗 (defect))、書き込みの後に取り直す key の付け忘れ (taimei-auth と同じく e2e で止める)、Context の表の 2・3 行目の抜け道 (止め方は #603)
+- 失敗の応答の本文は `{ _tag, message }` (401・409 は `{ _tag }`) から契約の失敗 (`{ _tag }`) に変わり、`message` が無くなる。文言は SPA が失敗の型から引く。deploy の前に開いたタブは、応答の `x-taimei-session` に入る Worker の version が変わるので、次の API の応答で再読み込みして新しい SPA を取り直す (#612)。書き込みの要求は 409 になり、書き込まない
+- 型の外に残るもの: アプリの外の失敗 (Workers の CPU の上限での打ち切り、network、本体の予期しない失敗 (defect))、書き込みの後に取り直す key の付け忘れ (taimei-auth と同じく e2e で止める)
 
 ## 改訂前の判断 (2026-10-10)
 
