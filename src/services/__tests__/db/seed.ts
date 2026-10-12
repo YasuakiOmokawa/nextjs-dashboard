@@ -6,7 +6,7 @@ import {
   teams,
 } from "@/db/drizzle/schema";
 import { CompanyId, type SkillId, type TeamId } from "@/db/ids";
-import type { Level } from "../../level";
+import type { Level } from "@/src/spa-contract";
 import type { TestDb } from "./test-db";
 
 export const createdAtMinute = (minute: number) =>

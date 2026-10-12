@@ -10,27 +10,27 @@ import {
 } from "@/db/drizzle/schema";
 import { SkillId } from "@/db/ids";
 import { companyFilter } from "@/db/scoped";
-import { AuthorizationContext, isManager } from "./authorization-context";
-import { CompanyContext } from "./company-context";
-import {
-  CompanyMembers,
-  type MemberListError,
-  type Unauthenticated,
-} from "./company-members-service";
-import { Db } from "./db-service";
-import { Level } from "./level";
 import {
   DuplicateName,
-  decodeTeamId,
   InvalidLevel,
   InvalidName,
+  Level,
+  type LevelEntry,
   NotAssigned,
   NotCompanyMember,
   NotManager,
   SkillNotFound,
   TeamNotFound,
-  TeamServiceError,
-} from "./team-errors";
+  type Unauthenticated,
+} from "@/src/spa-contract";
+import { AuthorizationContext, isManager } from "./authorization-context";
+import { CompanyContext } from "./company-context";
+import {
+  CompanyMembers,
+  type MemberListError,
+} from "./company-members-service";
+import { Db } from "./db-service";
+import { decodeTeamId, TeamServiceError } from "./team-errors";
 import { TeamOrSkillName } from "./team-or-skill-name";
 
 const runQuery = <A>(run: () => Promise<A>) =>
@@ -73,16 +73,6 @@ type Violation = (typeof ErrorWithPgCause.Type)["cause"];
 const decodeErrorWithPgCause = Schema.decodeUnknownOption(ErrorWithPgCause);
 const violationOf = (error: unknown): Violation =>
   Option.getOrUndefined(decodeErrorWithPgCause(error))?.cause ?? {};
-
-// 1 文の INSERT の bind parameter は PostgreSQL の上限 65535 個 (1 entry に 6 個) を超えられない
-export const MAX_LEVEL_ENTRIES_PER_SAVE = 1000;
-
-export const LevelEntry = Schema.Struct({
-  skillId: Schema.String,
-  level: Schema.Number,
-  wantsToLearn: Schema.Boolean,
-});
-type LevelEntry = typeof LevelEntry.Type;
 
 // 違反で外側の transaction を中断しないよう、savepoint の中で書く
 const runWrite = <A, E>(

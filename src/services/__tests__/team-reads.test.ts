@@ -223,7 +223,7 @@ describe("listTeams", () => {
 
       const result = await readAs(tx, ADMIN)((r) => r.listTeams);
 
-      expect(Result.getOrThrow(result)).toEqual([
+      expect(Result.getOrThrow(result)).toMatchObject([
         { id: earlier, name: "先" },
         { id: later, name: "後" },
       ]);
@@ -344,7 +344,11 @@ describe("DO の一覧を通した値と星取表は、見える範囲が関数�
       const manager = isManager(actor.role);
       const read = readAs(tx, actor, teamListStubOf());
 
-      expect(Result.getOrThrow(await read((r) => r.listTeams))).toEqual(
+      expect(
+        Result.getOrThrow(await read((r) => r.listTeams)).map(
+          ({ id, name }) => ({ id, name }),
+        ),
+      ).toEqual(
         await functionValue(
           tx,
           sql`team_list(${actor.companyId}, ${actor.userId}, ${manager})`,
@@ -400,7 +404,7 @@ describe("事業所の DO の一覧", () => {
 
       const teams = await read((r) => r.listTeams);
 
-      expect(Result.getOrThrow(teams)).toEqual([{ id, name: "開発" }]);
+      expect(Result.getOrThrow(teams)).toMatchObject([{ id, name: "開発" }]);
       expect(execute).not.toHaveBeenCalled();
     }));
 
@@ -432,7 +436,7 @@ describe("事業所の DO の一覧", () => {
 
       const result = await readAs(tx, ADMIN, teamList)((r) => r.listTeams);
 
-      expect(Result.getOrThrow(result)).toEqual([{ id, name: "開発" }]);
+      expect(Result.getOrThrow(result)).toMatchObject([{ id, name: "開発" }]);
       expect(reports).toHaveBeenCalledOnce();
       expect(teamList.replace).not.toHaveBeenCalled();
     }));
@@ -447,7 +451,7 @@ describe("事業所の DO の一覧", () => {
 
       const result = await readAs(tx, ADMIN, teamList)((r) => r.listTeams);
 
-      expect(Result.getOrThrow(result)).toEqual([{ id, name: "開発" }]);
+      expect(Result.getOrThrow(result)).toMatchObject([{ id, name: "開発" }]);
       expect(reports).toHaveBeenCalledOnce();
     }));
 });

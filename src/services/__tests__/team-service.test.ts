@@ -9,11 +9,11 @@ import {
   teams,
 } from "@/db/drizzle/schema";
 import { CompanyId, TeamId } from "@/db/ids";
+import type { Level } from "@/src/spa-contract";
 import type { AuthorizationContext } from "../authorization-context";
 import type { CompanyContext } from "../company-context";
 import { CompanyMembers, MemberListError } from "../company-members-service";
 import { Db } from "../db-service";
-import type { Level } from "../level";
 import { TeamManagement, TeamService } from "../team-service";
 import {
   seedAssignment,

@@ -4,18 +4,12 @@ import {
   Result,
 } from "@taimei-code/auth-client";
 import { Context, Effect, Layer, Schema } from "effect";
+import { Unauthenticated } from "@/src/spa-contract";
 
 export class MemberListError extends Schema.TaggedError<MemberListError>()(
   "MemberListError",
   {
     cause: Schema.Defect(),
-  },
-) {}
-
-export class Unauthenticated extends Schema.TaggedError<Unauthenticated>()(
-  "Unauthenticated",
-  {
-    reason: Schema.String,
   },
 ) {}
 
@@ -25,7 +19,7 @@ type ListFailure = MemberListError | Unauthenticated;
 const failureOf = (reason: Result): ListFailure =>
   reason === Result.UNSPECIFIED
     ? new MemberListError({ cause: Result[reason] })
-    : new Unauthenticated({ reason: Result[reason] ?? String(reason) });
+    : new Unauthenticated();
 
 export class CompanyMembers extends Context.Service<
   CompanyMembers,

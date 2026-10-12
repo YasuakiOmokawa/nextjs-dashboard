@@ -3,6 +3,7 @@ import { Effect, Result } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { teamAssignments, teams } from "@/db/drizzle/schema";
 import { CompanyId } from "@/db/ids";
+import { NotManager, TeamNotFound } from "@/src/spa-contract";
 import {
   type RequestSession,
   runManagerScopedService,
@@ -15,7 +16,7 @@ import { CompanyContext } from "../company-context";
 import { CompanyMembers, MemberListError } from "../company-members-service";
 import { CompanyTeamList } from "../company-team-list";
 import { Db, DbUnavailable } from "../db-service";
-import { NotManager, TeamNotFound, TeamServiceError } from "../team-errors";
+import { TeamServiceError } from "../team-errors";
 import { TeamReads } from "../team-reads";
 import { TeamManagement, TeamService } from "../team-service";
 import { seedAssignment, seedSkill, seedTeam } from "./db/seed";
@@ -101,7 +102,7 @@ describe("runServiceWithoutDb", () => {
     );
   });
 
-  it("本体の予期しない失敗は、その失敗を返し、原因を 1 回報告する", async () => {
+  it("本体の予期しない失敗は、その失敗を返し、報告は HTTP の境界に任せる", async () => {
     const failure = new MemberListError({ cause: 2 });
 
     const result = await runServiceWithoutDb(session, () =>
@@ -109,9 +110,7 @@ describe("runServiceWithoutDb", () => {
     );
 
     expect(result).toEqual(Result.fail(failure));
-    expect(consoleError).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ message: "listMembers failed: 2", cause: 2 }),
-    );
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
   it("本体の defect は reject し、失敗の報告をしない", async () => {
@@ -154,13 +153,13 @@ describe("runReadService", () => {
       expect(transaction).not.toHaveBeenCalled();
     }));
 
-  it("本体の予期しない失敗は、その失敗を返し、1 回報告する", async () => {
+  it("本体の予期しない失敗は、その失敗を返し、報告は HTTP の境界に任せる", async () => {
     const failure = new TeamServiceError({ cause: "connection lost" });
 
     const result = await runReadService(session, () => Effect.fail(failure));
 
     expect(result).toEqual(Result.fail(failure));
-    expect(consoleError).toHaveBeenCalledExactlyOnceWith("connection lost");
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
   it("本体は Db・TeamService・TeamManagement を要求できない (bun run typecheck で見る)", () => {
@@ -279,7 +278,7 @@ describe("runScopedService", () => {
       expect(await teamsNamed(tx, "成功で残るチーム")).toHaveLength(1);
     }));
 
-  it("transaction を開けない時は、reject せず DbUnavailable の失敗を返し、原因を 1 回報告する", () =>
+  it("transaction を開けない時は、reject せず DbUnavailable の失敗を返し、報告は HTTP の境界に任せる", () =>
     withRollbackDb(async (tx) => {
       const cause = new Error("connection refused");
       vi.spyOn(tx, "transaction").mockRejectedValue(cause);
@@ -289,7 +288,7 @@ describe("runScopedService", () => {
       );
 
       expect(result).toEqual(Result.fail(new DbUnavailable({ cause })));
-      expect(consoleError).toHaveBeenCalledExactlyOnceWith(cause);
+      expect(consoleError).not.toHaveBeenCalled();
     }));
 
   it("本体の defect は reject し、DbUnavailable にしない", () =>
@@ -322,7 +321,7 @@ describe("runScopedService", () => {
       expect(consoleError).not.toHaveBeenCalled();
     }));
 
-  it("本体の予期しない失敗は、その失敗を返し、原因を 1 回報告する", () =>
+  it("本体の予期しない失敗は、その失敗を返し、報告は HTTP の境界に任せる", () =>
     withRollbackDb(async () => {
       const cause = new Error("query failed");
 
@@ -331,7 +330,7 @@ describe("runScopedService", () => {
       );
 
       expect(result).toEqual(Result.fail(new TeamServiceError({ cause })));
-      expect(consoleError).toHaveBeenCalledExactlyOnceWith(cause);
+      expect(consoleError).not.toHaveBeenCalled();
     }));
 });
 
@@ -375,7 +374,7 @@ describe("runManagerScopedService", () => {
     expect(transaction).not.toHaveBeenCalled();
   });
 
-  it("管理の本体の予期しない失敗は、その失敗を返し、原因を 1 回報告する", () =>
+  it("管理の本体の予期しない失敗は、その失敗を返し、報告は HTTP の境界に任せる", () =>
     withRollbackDb(async () => {
       const cause = new Error("query failed");
 
@@ -384,7 +383,7 @@ describe("runManagerScopedService", () => {
       );
 
       expect(result).toEqual(Result.fail(new TeamServiceError({ cause })));
-      expect(consoleError).toHaveBeenCalledExactlyOnceWith(cause);
+      expect(consoleError).not.toHaveBeenCalled();
     }));
 
   it("本体は TeamService を要求できない (bun run typecheck で見る)", () => {

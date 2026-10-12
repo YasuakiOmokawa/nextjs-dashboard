@@ -1,8 +1,0 @@
-language js
-
-or {
-  `$c.json($body, $...)`,
-  `$c.json<$type>($body, $...)`
-} where {
-  register_diagnostic(span=$c, message="応答は src/run-json.ts の resultJson・encodedJson で返す (schema に書いた項目だけを送る)")
-}
