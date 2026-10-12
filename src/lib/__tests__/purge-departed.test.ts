@@ -1,5 +1,5 @@
-import { count, eq } from "drizzle-orm";
-import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { count, eq, sql } from "drizzle-orm";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
   memberSkills,
   skills,
@@ -7,7 +7,11 @@ import {
   teams,
 } from "@/db/drizzle/schema";
 import { CompanyId } from "@/db/ids";
-import { type TestDb, withRollback } from "@/src/services/__tests__/db/test-db";
+import {
+  functionValue,
+  type TestDb,
+  withRollback,
+} from "@/src/services/__tests__/db/test-db";
 import { type CheckMemberships, purgeDeparted } from "../purge-departed";
 import { sendErrorReportsTo } from "../report-error";
 
@@ -71,6 +75,18 @@ const assignedUserIds = async (tx: TestDb, companyId: string) =>
 
 const startedAt = new Date("2026-10-06T18:00:00Z");
 
+const replaceTeamList = vi.fn(
+  async (_companyId: string, _bumped: unknown) => {},
+);
+beforeEach(() => replaceTeamList.mockReset());
+
+const listVersion = async (tx: TestDb, companyId: string) =>
+  (
+    (await functionValue(tx, sql`company_team_list(${companyId})`)) as {
+      version: number;
+    }
+  ).version;
+
 const answering =
   (
     answers: Record<
@@ -97,6 +113,7 @@ describe("purgeDeparted", () => {
 
       await purgeDeparted({
         db: tx,
+        replaceTeamList,
         checkMemberships: answering({
           cmp_gone: { companyActive: false, memberUserIds: [] },
         }),
@@ -118,6 +135,7 @@ describe("purgeDeparted", () => {
 
       const report = await purgeDeparted({
         db: tx,
+        replaceTeamList,
         checkMemberships: answering({
           cmp_active: { companyActive: true, memberUserIds: ["u_stays"] },
         }),
@@ -138,6 +156,7 @@ describe("purgeDeparted", () => {
 
       await purgeDeparted({
         db: tx,
+        replaceTeamList,
         checkMemberships: answering({
           cmp_new: { companyActive: true, memberUserIds: [] },
         }),
@@ -154,6 +173,7 @@ describe("purgeDeparted", () => {
 
       const report = await purgeDeparted({
         db: tx,
+        replaceTeamList,
         checkMemberships: answering({
           cmp_unreachable: new Error("taimei-auth unavailable"),
           cmp_gone: { companyActive: false, memberUserIds: [] },
@@ -184,6 +204,7 @@ describe("purgeDeparted", () => {
 
       await purgeDeparted({
         db: tx,
+        replaceTeamList,
         checkMemberships: answering({ cmp_unreachable: cause }),
         startedAt,
       });
@@ -204,6 +225,7 @@ describe("purgeDeparted", () => {
 
       await purgeDeparted({
         db: tx,
+        replaceTeamList,
         checkMemberships: answering({
           cmp_gone: { companyActive: false, memberUserIds: [] },
           cmp_other: { companyActive: true, memberUserIds: ["u_2"] },
@@ -225,11 +247,13 @@ describe("purgeDeparted", () => {
 
       const first = await purgeDeparted({
         db: tx,
+        replaceTeamList,
         checkMemberships,
         startedAt,
       });
       const second = await purgeDeparted({
         db: tx,
+        replaceTeamList,
         checkMemberships,
         startedAt,
       });
@@ -244,5 +268,108 @@ describe("purgeDeparted", () => {
         removedAssignments: 0,
         skippedCompanyIds: [],
       });
+    }));
+});
+
+describe("purgeDeparted が一覧を変えた事業所の DO の一覧", () => {
+  it("ACTIVE でない事業所のチームを消した後に、増やした版の空の一覧で書き直す", () =>
+    withRollback(async (tx) => {
+      await seedTeam(tx, "cmp_gone", ["u_1"]);
+      const before = await listVersion(tx, "cmp_gone");
+
+      await purgeDeparted({
+        db: tx,
+        replaceTeamList,
+        checkMemberships: answering({
+          cmp_gone: { companyActive: false, memberUserIds: [] },
+        }),
+        startedAt,
+      });
+
+      expect(replaceTeamList).toHaveBeenCalledExactlyOnceWith("cmp_gone", {
+        version: before + 1,
+        teams: [],
+      });
+    }));
+
+  it("所属しない人の割り当てを外した事業所は、増やした版の外した後の一覧で書き直し、外す人のいない事業所は書き直さない", () =>
+    withRollback(async (tx) => {
+      await seedTeam(tx, "cmp_active", ["u_stays", "u_left"]);
+      await seedTeam(tx, "cmp_unchanged", ["u_stays"]);
+      const before = await listVersion(tx, "cmp_active");
+      const unchangedBefore = await listVersion(tx, "cmp_unchanged");
+
+      await purgeDeparted({
+        db: tx,
+        replaceTeamList,
+        checkMemberships: answering({
+          cmp_active: { companyActive: true, memberUserIds: ["u_stays"] },
+          cmp_unchanged: { companyActive: true, memberUserIds: ["u_stays"] },
+        }),
+        startedAt,
+      });
+
+      expect(replaceTeamList).toHaveBeenCalledOnce();
+      const [[companyId, bumped]] = replaceTeamList.mock.calls;
+      expect(companyId).toBe("cmp_active");
+      expect(bumped).toMatchObject({
+        version: before + 1,
+        teams: [{ assignedUserIds: ["u_stays"] }],
+      });
+      expect(await listVersion(tx, "cmp_unchanged")).toBe(unchangedBefore);
+    }));
+
+  it("照合に失敗して飛ばした事業所の一覧は書き直さない", () =>
+    withRollback(async (tx) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      onTestFinished(() => {
+        vi.restoreAllMocks();
+      });
+      await seedTeam(tx, "cmp_unreachable", ["u_1"]);
+      await seedTeam(tx, "cmp_gone", ["u_2"]);
+
+      const report = await purgeDeparted({
+        db: tx,
+        replaceTeamList,
+        checkMemberships: answering({
+          cmp_unreachable: new Error("taimei-auth unavailable"),
+          cmp_gone: { companyActive: false, memberUserIds: [] },
+        }),
+        startedAt,
+      });
+
+      expect(report.skippedCompanyIds).toEqual(["cmp_unreachable"]);
+      expect(replaceTeamList).toHaveBeenCalledOnce();
+      expect(replaceTeamList.mock.calls[0][0]).toBe("cmp_gone");
+    }));
+
+  it("一覧を書き直せなくても 1 回報告し、次の事業所を続ける", () =>
+    withRollback(async (tx) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const send = vi.fn();
+      sendErrorReportsTo(send);
+      onTestFinished(() => {
+        sendErrorReportsTo(() => {});
+        vi.restoreAllMocks();
+      });
+      await seedTeam(tx, "cmp_gone", ["u_1"]);
+      await seedTeam(tx, "cmp_also_gone", ["u_2"]);
+      replaceTeamList.mockRejectedValueOnce(new Error("DO に届かない"));
+
+      const report = await purgeDeparted({
+        db: tx,
+        replaceTeamList,
+        checkMemberships: answering({
+          cmp_gone: { companyActive: false, memberUserIds: [] },
+          cmp_also_gone: { companyActive: false, memberUserIds: [] },
+        }),
+        startedAt,
+      });
+
+      expect(send).toHaveBeenCalledOnce();
+      expect(report.deletedCompanyIds.sort()).toEqual([
+        "cmp_also_gone",
+        "cmp_gone",
+      ]);
     }));
 });

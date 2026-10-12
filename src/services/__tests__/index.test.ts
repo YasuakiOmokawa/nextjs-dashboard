@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { teamAssignments, teams } from "@/db/drizzle/schema";
@@ -13,16 +13,26 @@ import {
 import { AuthorizationContext } from "../authorization-context";
 import { CompanyContext } from "../company-context";
 import { CompanyMembers, MemberListError } from "../company-members-service";
+import { CompanyTeamList } from "../company-team-list";
 import { Db, DbUnavailable } from "../db-service";
 import { NotManager, TeamNotFound, TeamServiceError } from "../team-errors";
 import { TeamReads } from "../team-reads";
 import { TeamManagement, TeamService } from "../team-service";
+import { seedAssignment, seedSkill, seedTeam } from "./db/seed";
 import {
   currentCompanySetting,
   dbInRollback,
+  functionValue,
   type TestDb,
   withRollbackDb,
 } from "./db/test-db";
+import {
+  companyTeamListBackedBy,
+  emptyTeamListStore,
+  failureTag,
+  type TeamListStubSpy,
+  teamListStubOf,
+} from "./request";
 
 vi.mock("@/db/drizzle/client", async () => ({
   db: (await import("./db/test-db")).dbInRollback,
@@ -44,6 +54,7 @@ const session: RequestSession = {
   userName: "山田 花子",
   role: "ADMIN",
   companyMembers: CompanyMembers.of({ list: Effect.succeed(sessionMembers) }),
+  companyTeamListOf: () => companyTeamListBackedBy()(),
 };
 const listCompanyMembers = () => CompanyMembers.use((members) => members.list);
 
@@ -384,4 +395,217 @@ describe("runManagerScopedService", () => {
 
     expect(requiresTeamService).toBeTypeOf("function");
   });
+});
+
+describe("管理者の書き込みは、同じ transaction で版を増やし、応答の前に DO の一覧を書き直す", () => {
+  const sessionWithTeamList = (role: RequestSession["role"] = "ADMIN") => {
+    const teamList = teamListStubOf();
+    return {
+      teamList,
+      session: {
+        ...session,
+        role,
+        companyTeamListOf: companyTeamListBackedBy(teamList),
+      } satisfies RequestSession,
+    };
+  };
+  const listVersion = async (tx: TestDb) =>
+    (
+      (await functionValue(tx, sql`company_team_list(${companyId})`)) as {
+        version: number;
+      }
+    ).version;
+  const doCalls = (teamList: TeamListStubSpy) => [
+    teamList.read.mock.calls.length,
+    teamList.replace.mock.calls.length,
+    teamList.clear.mock.calls.length,
+  ];
+
+  it("一覧は session の事業所の id で作る", () =>
+    withRollbackDb(async () => {
+      const { teamList } = sessionWithTeamList();
+      const companyTeamListOf = vi.fn((_: CompanyId) =>
+        companyTeamListBackedBy(teamList)(),
+      );
+      const withTeamListOf = { ...session, companyTeamListOf };
+
+      await runReadService(withTeamListOf, () =>
+        TeamReads.use((reads) => reads.listTeams),
+      );
+      await runManagerScopedService(withTeamListOf, () =>
+        TeamManagement.use(() => Effect.void),
+      );
+
+      expect(new Set(companyTeamListOf.mock.calls.map(([id]) => id))).toEqual(
+        new Set([session.companyId]),
+      );
+    }));
+
+  it("本体が書いて成功すると、commit の後に、増やした版と書いたチームを含む一覧で 1 回書き直す", () =>
+    withRollbackDb(async (tx) => {
+      const { teamList, session } = sessionWithTeamList();
+      const before = await listVersion(tx);
+      const order: string[] = [];
+      const transaction = dbInRollback.transaction;
+      vi.spyOn(dbInRollback, "transaction").mockImplementation((fn) =>
+        transaction(fn).finally(() => order.push("transaction")),
+      );
+      teamList.replace.mockImplementation(() => {
+        order.push("replace");
+      });
+
+      const result = await runManagerScopedService(session, () =>
+        insertTeam("書いたチーム"),
+      );
+
+      expect(Result.isSuccess(result)).toBe(true);
+      expect(order).toEqual(["transaction", "replace"]);
+      const [[workerVersion, snapshot]] = teamList.replace.mock.calls;
+      expect(workerVersion).toBe("v1");
+      expect(snapshot.version).toBe(before + 1);
+      expect(snapshot.teams.map((team) => team.name)).toContain("書いたチーム");
+      expect(await listVersion(tx)).toBe(before + 1);
+    }));
+
+  it("書き直し終わるまで結果を返さない", () =>
+    withRollbackDb(async () => {
+      const { teamList, session } = sessionWithTeamList();
+      const replaceReached = Promise.withResolvers<void>();
+      const replaceFinished = Promise.withResolvers<void>();
+      teamList.replace.mockImplementation(() => {
+        replaceReached.resolve();
+        return replaceFinished.promise;
+      });
+
+      const running = runManagerScopedService(session, () =>
+        insertTeam("待つチーム"),
+      );
+      await replaceReached.promise;
+      const beforeFinish = await Promise.race([
+        running.then(() => "settled"),
+        new Promise((resolve) => setTimeout(() => resolve("pending"), 20)),
+      ]);
+      replaceFinished.resolve();
+
+      expect(beforeFinish).toBe("pending");
+      expect(Result.isSuccess(await running)).toBe(true);
+    }));
+
+  it("本体が書いた後に失敗して戻ると、DO を触らず、版も変わらない", () =>
+    withRollbackDb(async (tx) => {
+      const { teamList, session } = sessionWithTeamList();
+      const before = await listVersion(tx);
+
+      const result = await runManagerScopedService(session, () =>
+        insertTeam("戻るチーム").pipe(
+          Effect.andThen(Effect.fail(new TeamNotFound({ teamId: "t" }))),
+        ),
+      );
+
+      expect(failureTag(result)).toBe("TeamNotFound");
+      expect(doCalls(teamList)).toEqual([0, 0, 0]);
+      expect(await listVersion(tx)).toBe(before);
+    }));
+
+  it("本体の defect で reject すると、DO を触らない", () =>
+    withRollbackDb(async () => {
+      const { teamList, session } = sessionWithTeamList();
+
+      await expect(
+        runManagerScopedService(session, () => Effect.die(new Error("bug"))),
+      ).rejects.toThrow("bug");
+      expect(doCalls(teamList)).toEqual([0, 0, 0]);
+    }));
+
+  it("transaction を開けない (commit したか分からない) 時は、DO の一覧を消す", () =>
+    withRollbackDb(async (tx) => {
+      const { teamList, session } = sessionWithTeamList();
+      vi.spyOn(tx, "transaction").mockRejectedValue(new Error("refused"));
+
+      const result = await runManagerScopedService(session, () => Effect.void);
+
+      expect(failureTag(result)).toBe("DbUnavailable");
+      expect(doCalls(teamList)).toEqual([0, 0, 1]);
+    }));
+
+  it("管理者でない人の管理は NotManager で、DO を触らない", async () => {
+    const { teamList, session } = sessionWithTeamList("MEMBER");
+
+    const result = await runManagerScopedService(session, () => Effect.void);
+
+    expect(result).toEqual(Result.fail(new NotManager()));
+    expect(doCalls(teamList)).toEqual([0, 0, 0]);
+  });
+
+  it("メンバーのレベルの保存 (runScopedService) は、DO を触らず、版も変わらない", () =>
+    withRollbackDb(async (tx) => {
+      const { teamList, session } = sessionWithTeamList("MEMBER");
+      const teamId = await seedTeam(tx, companyId, "メンバーのチーム");
+      const skillId = await seedSkill(tx, companyId, teamId, "設計");
+      await seedAssignment(tx, companyId, teamId, session.userId);
+      const before = await listVersion(tx);
+
+      const result = await runScopedService(session, () =>
+        TeamService.use((service) =>
+          service.saveMyLevels(teamId, [
+            { skillId, level: 2, wantsToLearn: true },
+          ]),
+        ),
+      );
+
+      expect(Result.isSuccess(result)).toBe(true);
+      expect(doCalls(teamList)).toEqual([0, 0, 0]);
+      expect(await listVersion(tx)).toBe(before);
+    }));
+
+  it("DB を使わない実行口は DO を触らず、読み取りの実行口は一覧を消さない", () =>
+    withRollbackDb(async () => {
+      const { teamList, session } = sessionWithTeamList();
+
+      const withoutDb = await runServiceWithoutDb(session, () => Effect.void);
+      expect(doCalls(teamList)).toEqual([0, 0, 0]);
+      const read = await runReadService(session, () =>
+        TeamReads.use((reads) => reads.listTeams),
+      );
+
+      expect([Result.isSuccess(withoutDb), Result.isSuccess(read)]).toEqual([
+        true,
+        true,
+      ]);
+      expect(teamList.clear).not.toHaveBeenCalled();
+    }));
+
+  it("増やした版の一覧を読めないと、本体の成功を返し、一覧を消して 1 回報告する", () =>
+    withRollbackDb(async (tx) => {
+      const { teamList, session } = sessionWithTeamList();
+      await tx.execute(
+        sql.raw(
+          `CREATE OR REPLACE FUNCTION bump_company_team_list(p_company_id varchar) RETURNS json LANGUAGE sql AS $$ SELECT '{"version": "x"}'::json $$`,
+        ),
+      );
+
+      const result = await runManagerScopedService(session, () =>
+        insertTeam("書けたチーム"),
+      );
+
+      expect(Result.isSuccess(result)).toBe(true);
+      expect(doCalls(teamList)).toEqual([0, 0, 1]);
+      expect(consoleError).toHaveBeenCalledOnce();
+    }));
+
+  it("書き直しが 2 回とも失敗しても、本体の成功を返し、1 回報告する", () =>
+    withRollbackDb(async () => {
+      const { teamList, session } = sessionWithTeamList();
+      teamList.replace.mockImplementation(() => {
+        throw new Error("DO に届かない");
+      });
+
+      const result = await runManagerScopedService(session, () =>
+        insertTeam("書けたチーム"),
+      );
+
+      expect(Result.isSuccess(result)).toBe(true);
+      expect(teamList.replace).toHaveBeenCalledTimes(2);
+      expect(consoleError).toHaveBeenCalledOnce();
+    }));
 });

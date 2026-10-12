@@ -43,7 +43,7 @@ serve() {
   docker exec "$PG" psql -qU postgres -d taimei \
     -c "CREATE ROLE qa_app LOGIN PASSWORD 'qa'" \
     -c "GRANT USAGE ON SCHEMA public TO qa_app" \
-    -c "GRANT SELECT, INSERT, UPDATE, DELETE ON teams, skills, team_assignments, member_skills TO qa_app"
+    -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO qa_app"
 
   local id email company
   id=$(uuidgen | tr '[:upper:]' '[:lower:]')

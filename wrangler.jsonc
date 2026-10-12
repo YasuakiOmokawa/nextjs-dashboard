@@ -14,6 +14,19 @@
     { "binding": "HYPERDRIVE", "id": "f35ce63d756548c082f5f82f93d84647" }
   ],
   "services": [{ "binding": "AUTH", "service": "taimei-auth" }],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "COMPANY_TEAM_LIST",
+        "class_name": "CompanyTeamListDurableObject"
+      }
+    ]
+  },
+  // Free は SQLite の DO だけを作れる
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["CompanyTeamListDurableObject"] }
+  ],
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "routes": [{ "pattern": "app.taimei-code.com", "custom_domain": true }],
   "workers_dev": false,
   "preview_urls": false,

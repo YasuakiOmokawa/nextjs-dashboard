@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   check,
   foreignKey,
@@ -52,6 +53,15 @@ export const teams = pgTable(
     unique().on(table.companyId, table.name),
     companyIsolation(table),
   ],
+);
+
+export const companyTeamListVersions = pgTable(
+  "company_team_list_versions",
+  {
+    companyId: companyId().primaryKey(),
+    version: bigint({ mode: "number" }).notNull(),
+  },
+  (table) => [companyIsolation(table)],
 );
 
 export const skills = pgTable(

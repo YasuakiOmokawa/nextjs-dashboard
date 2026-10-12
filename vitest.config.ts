@@ -18,6 +18,15 @@ export default defineConfig({
     ],
   },
   resolve: {
-    alias: [{ find: "@", replacement: resolve(__dirname, "./") }],
+    alias: [
+      { find: "@", replacement: resolve(__dirname, "./") },
+      {
+        find: "cloudflare:workers",
+        replacement: resolve(
+          __dirname,
+          "./src/__tests__/cloudflare-workers.ts",
+        ),
+      },
+    ],
   },
 });

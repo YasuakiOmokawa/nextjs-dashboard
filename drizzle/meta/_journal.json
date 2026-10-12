@@ -92,6 +92,20 @@
       "when": 1791676833837,
       "tag": "0012_team_read_functions",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791789172450,
+      "tag": "0013_company_team_list_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791789172671,
+      "tag": "0014_company_team_list",
+      "breakpoints": true
     }
   ]
 }

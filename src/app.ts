@@ -5,6 +5,7 @@ import { csrf } from "hono/csrf";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { validator } from "hono/validator";
+import type { CompanyId } from "@/db/ids";
 import { reportError } from "@/src/lib/report-error";
 import { reportUnexpectedFailure } from "@/src/lib/team-failure";
 import {
@@ -16,6 +17,10 @@ import {
 import { isManager } from "@/src/services/authorization-context";
 import type { CompanyContext } from "@/src/services/company-context";
 import { CompanyMembers } from "@/src/services/company-members-service";
+import {
+  CompanyTeamList,
+  type TeamListStub,
+} from "@/src/services/company-team-list";
 import type { TeamFailure } from "@/src/services/team-errors";
 import { Team, TeamDetail, TeamReads } from "@/src/services/team-reads";
 import {
@@ -44,9 +49,19 @@ import {
 
 export type Env = AuthEnv & {
   readonly HYPERDRIVE: { connectionString: string };
+  readonly COMPANY_TEAM_LIST: {
+    getByName(name: string): TeamListStub;
+  };
+  readonly CF_VERSION_METADATA: { readonly id: string };
   readonly SENTRY_DSN?: string;
 };
 type AppEnv = { Bindings: Env } & SessionVariables;
+
+export const companyTeamListOf = (env: Env, companyId: CompanyId) =>
+  CompanyTeamList.fromStub(
+    () => env.COMPANY_TEAM_LIST.getByName(companyId),
+    env.CF_VERSION_METADATA.id,
+  );
 
 const Me = Schema.Struct({
   userId: Schema.String,
@@ -84,7 +99,9 @@ const requireSession = createMiddleware<AppEnv>(async (c, next) => {
   const guard = authGuardOfRequest(c);
   const verified = await guard.verifySession();
   const session = verified.ok
-    ? requestSessionOf(verified.data, guard.listMembers)
+    ? requestSessionOf(verified.data, guard.listMembers, (companyId) =>
+        companyTeamListOf(c.env, companyId),
+      )
     : undefined;
   // biome-ignore lint/plugin/no-direct-json: 401 の本文は定数で、hc の型に入らない
   if (!session) return c.json({ _tag: "Unauthenticated" as const }, 401);

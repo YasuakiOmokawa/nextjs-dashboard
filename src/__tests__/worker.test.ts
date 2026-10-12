@@ -5,10 +5,17 @@ import { afterEach, expect, it, vi } from "vitest";
 import { db } from "@/db/drizzle/client";
 // biome-ignore lint/style/noRestrictedImports: 定期処理が要求ごとの Pool の中で動くことを確かめる
 import { currentPool } from "@/db/drizzle/pool";
+import { CompanyId, TeamId } from "@/db/ids";
 import { purgeDeparted } from "@/src/lib/purge-departed";
 import { reportError } from "@/src/lib/report-error";
+import { emptyTeamListStore } from "@/src/services/__tests__/request";
+import { sqliteStorage } from "@/src/services/__tests__/sqlite-storage";
 import type { Env } from "../app";
-import worker, { handler, sentryOptions } from "../worker";
+import worker, {
+  CompanyTeamListDurableObject,
+  handler,
+  sentryOptions,
+} from "../worker";
 
 vi.mock("@/src/lib/purge-departed", () => ({ purgeDeparted: vi.fn() }));
 
@@ -40,6 +47,8 @@ const envWithBinding = (fetch: typeof globalThis.fetch = vi.fn()): Env => ({
   AUTH: { fetch },
   AUTH_URL: "https://auth.example",
   AUTH_SERVICE_KEY: "service-key",
+  CF_VERSION_METADATA: { id: "v1" },
+  COMPANY_TEAM_LIST: { getByName: () => emptyTeamListStore() },
 });
 
 const collectingContext = () => {
@@ -211,4 +220,48 @@ it("message の無い失敗の値は、そのまま送る", async () => {
   const sent = await sentEvent({ exception: { values: [{ type: "Error" }] } });
 
   expect(sent?.exception?.values).toEqual([{ type: "Error" }]);
+});
+
+it("Worker の module が export する DO は、事業所のチーム一覧を置き・読み・消す", () => {
+  const teamList = new CompanyTeamListDurableObject(
+    { storage: { sql: sqliteStorage() } },
+    {},
+  );
+  const snapshot = {
+    version: 1,
+    teams: [
+      {
+        id: TeamId.make(crypto.randomUUID()),
+        name: "開発",
+        assignedUserIds: [],
+      },
+    ],
+  };
+
+  expect(teamList.read("v1")).toBeUndefined();
+  teamList.replace("v1", snapshot);
+  expect(teamList.read("v1")).toEqual(snapshot);
+  teamList.clear();
+  expect(teamList.read("v1")).toBeUndefined();
+});
+
+it("定期処理が purgeDeparted に渡す replaceTeamList は、その事業所の名前の DO の一覧を書き直す", async () => {
+  vi.mocked(purgeDeparted).mockResolvedValue(PURGE_REPORT);
+  const store = emptyTeamListStore();
+  const replace = vi.spyOn(store, "replace");
+  const getByName = vi.fn(() => store);
+  await handler.scheduled(
+    {},
+    { ...envWithBinding(), COMPANY_TEAM_LIST: { getByName } },
+    collectingContext().ctx,
+  );
+  const [{ replaceTeamList }] = vi.mocked(purgeDeparted).mock.calls[0];
+
+  await replaceTeamList(CompanyId.make("cmp_x"), { version: 2, teams: [] });
+
+  expect(getByName).toHaveBeenCalledExactlyOnceWith("cmp_x");
+  expect(replace).toHaveBeenCalledExactlyOnceWith("v1", {
+    version: 2,
+    teams: [],
+  });
 });

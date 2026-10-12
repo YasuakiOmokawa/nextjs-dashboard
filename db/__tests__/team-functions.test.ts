@@ -1,16 +1,26 @@
-import { sql } from "drizzle-orm";
+import { type SQL, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Client } from "pg";
 import { describe, expect, it } from "vitest";
 import * as schema from "@/db/drizzle/schema";
 import { TEST_DATABASE_URL } from "@/src/services/__tests__/db/global-setup";
-import { seedTeam } from "@/src/services/__tests__/db/seed";
+import {
+  createdAtMinute,
+  seedAssignment,
+  seedLevel,
+  seedSkill,
+  seedTeam,
+} from "@/src/services/__tests__/db/seed";
 import {
   currentCompanySetting,
+  functionValue,
   switchToRoleWithoutRlsBypass,
   type TestDb,
   withRollback,
 } from "@/src/services/__tests__/db/test-db";
+
+const teamIdsOf = (value: unknown) =>
+  (value as { teams: { id: string }[] }).teams.map((team) => team.id);
 
 const EXPLICIT_COMPANY_FILTER = /\b\w+\.company_id = p_company_id\b/g;
 
@@ -50,6 +60,25 @@ describe("明示の絞り込みを外しても、RLS だけで他社が見えな
       expect(await matrixOf(own)).not.toBeNull();
     }));
 
+  it("company_team_list と bump_company_team_list は自社のチームだけを返す", () =>
+    withRollback(async (tx) => {
+      const own = await seedTeam(tx, "cmp_a", "A のチーム");
+      const other = await seedTeam(tx, "cmp_b", "B のチーム");
+      expect(
+        await replaceWithRlsOnlyVersion(tx, "company_team_list"),
+      ).toBeGreaterThan(0);
+      await switchToRoleWithoutRlsBypass(tx);
+
+      for (const call of [
+        sql`company_team_list('cmp_a')`,
+        sql`bump_company_team_list('cmp_a')`,
+      ]) {
+        const ids = teamIdsOf(await functionValue(tx, call));
+        expect(ids).toContain(own);
+        expect(ids).not.toContain(other);
+      }
+    }));
+
   it("team_list は自社のチームだけを返す", () =>
     withRollback(async (tx) => {
       const own = await seedTeam(tx, "cmp_a", "A のチーム");
@@ -72,6 +101,70 @@ describe("明示の絞り込みを外しても、RLS だけで他社が見えな
     }));
 });
 
+describe("company_team_list と bump_company_team_list", () => {
+  const listOf = (tx: TestDb, call: SQL) =>
+    functionValue(tx, call) as Promise<{
+      version: number;
+      teams: { id: string; name: string; assignedUserIds: string[] }[];
+    }>;
+
+  it("版の行が無い事業所は版 0 と、全チームを作成の古い順に id・名前・割り当てた人で返す", () =>
+    withRollback(async (tx) => {
+      const later = await seedTeam(tx, "cmp_a", "後", createdAtMinute(2));
+      const earlier = await seedTeam(tx, "cmp_a", "先", createdAtMinute(1));
+      await seedAssignment(tx, "cmp_a", earlier, "u_2");
+      await seedAssignment(tx, "cmp_a", earlier, "u_1");
+      await seedTeam(tx, "cmp_b", "他社");
+
+      expect(await listOf(tx, sql`company_team_list('cmp_a')`)).toEqual({
+        version: 0,
+        teams: [
+          { id: earlier, name: "先", assignedUserIds: ["u_1", "u_2"] },
+          { id: later, name: "後", assignedUserIds: [] },
+        ],
+      });
+    }));
+
+  it("チームの無い事業所は版 0 と空の一覧を返す", () =>
+    withRollback(async (tx) => {
+      expect(await listOf(tx, sql`company_team_list('cmp_empty')`)).toEqual({
+        version: 0,
+        teams: [],
+      });
+    }));
+
+  it("版の行が無い事業所の bump は版 1 を返し、版の行を作る", () =>
+    withRollback(async (tx) => {
+      expect(
+        (await listOf(tx, sql`bump_company_team_list('cmp_a')`)).version,
+      ).toBe(1);
+      expect((await listOf(tx, sql`company_team_list('cmp_a')`)).version).toBe(
+        1,
+      );
+    }));
+
+  it("bump を 2 回呼んだ後の版は 2", () =>
+    withRollback(async (tx) => {
+      await functionValue(tx, sql`bump_company_team_list('cmp_a')`);
+      await functionValue(tx, sql`bump_company_team_list('cmp_a')`);
+
+      expect((await listOf(tx, sql`company_team_list('cmp_a')`)).version).toBe(
+        2,
+      );
+    }));
+
+  it("同じ transaction でチームを書いた後の bump は、版を 1 増やし、書いたチームを含む一覧を返す", () =>
+    withRollback(async (tx) => {
+      await functionValue(tx, sql`bump_company_team_list('cmp_a')`);
+      const written = await seedTeam(tx, "cmp_a", "書いたチーム");
+
+      const bumped = await listOf(tx, sql`bump_company_team_list('cmp_a')`);
+
+      expect(bumped.version).toBe(2);
+      expect(bumped.teams.map((team) => team.id)).toContain(written);
+    }));
+});
+
 describe("関数の set_config は、同じ接続の次の文に漏れない", () => {
   // withRollback の中では外側の transaction の終わりまで設定が残るので、transaction の外の接続で見る
   const companySettingAfter = async (call: string) => {
@@ -91,6 +184,7 @@ describe("関数の set_config は、同じ接続の次の文に漏れない", (
       `select team_matrix('cmp_a', '${crypto.randomUUID()}', 'u_1', true)`,
     ],
     ["team_list", "select team_list('cmp_a', 'u_1', true)"],
+    ["company_team_list", "select company_team_list('cmp_a')"],
   ])("%s", async (_, call) => {
     expect(await companySettingAfter(call)).toBeFalsy();
   });
