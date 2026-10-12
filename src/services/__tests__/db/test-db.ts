@@ -1,4 +1,4 @@
-import { type ExtractTablesWithRelations, sql } from "drizzle-orm";
+import { type ExtractTablesWithRelations, type SQL, sql } from "drizzle-orm";
 import type { NodePgQueryResultHKT } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { PgTransaction } from "drizzle-orm/pg-core";
@@ -39,11 +39,21 @@ const currentRollbackTx = () => {
   return rollbackTx;
 };
 
+let lastQueued: Promise<unknown> = Promise.resolve();
+
+// pg は 1 本の接続に重ねた query を deprecated とし、pg@9 で失敗させる
+const oneAtATime = <T>(run: () => PromiseLike<T>): Promise<T> => {
+  const queued = lastQueued.then(run);
+  lastQueued = queued.catch(() => undefined);
+  return queued;
+};
+
 // db/drizzle/client の db を差し替えて使う。実行口の書き込みを test の終わりに戻し、並行の test に見せない
 export const dbInRollback: Pick<TestDb, "transaction" | "execute"> = {
   transaction: <T>(fn: (tx: TestDb) => Promise<T>) =>
-    currentRollbackTx().transaction(fn),
-  execute: ((query) => currentRollbackTx().execute(query)) as TestDb["execute"],
+    oneAtATime(() => currentRollbackTx().transaction(fn)),
+  execute: ((query) =>
+    oneAtATime(() => currentRollbackTx().execute(query))) as TestDb["execute"],
 };
 
 export const withRollbackDb = (fn: (tx: TestDb) => Promise<void>) =>
@@ -55,6 +65,13 @@ export const withRollbackDb = (fn: (tx: TestDb) => Promise<void>) =>
       rollbackTx = undefined;
     }
   });
+
+export const functionValue = async (db: Pick<TestDb, "execute">, call: SQL) => {
+  const { rows } = await db.execute<{ value: unknown }>(
+    sql`select ${call} as value`,
+  );
+  return rows[0]?.value;
+};
 
 export const currentCompanySetting = async (db: Pick<TestDb, "execute">) => {
   const { rows } = await db.execute<{ company_id: string | null }>(
