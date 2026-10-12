@@ -78,12 +78,16 @@ it("company_id を持つ表はすべて company_isolation の policy を持つ",
       order by c.table_name`);
 
     expect(rows).toEqual(
-      ["member_skills", "skills", "team_assignments", "teams"].map(
-        (table_name) => ({
-          table_name,
-          policy: "company_isolation",
-        }),
-      ),
+      [
+        "company_team_list_versions",
+        "member_skills",
+        "skills",
+        "team_assignments",
+        "teams",
+      ].map((table_name) => ({
+        table_name,
+        policy: "company_isolation",
+      })),
     );
   }));
 
