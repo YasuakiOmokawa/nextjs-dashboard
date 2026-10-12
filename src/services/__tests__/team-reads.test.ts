@@ -1,8 +1,11 @@
+import { sql } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { DatabaseError } from "pg";
-import { describe, expect, it, vi } from "vitest";
-import type { AuthorizationContext } from "../authorization-context";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { sendErrorReportsTo } from "@/src/lib/report-error";
+import { type AuthorizationContext, isManager } from "../authorization-context";
 import type { CompanyContext } from "../company-context";
+import { CompanyTeamList } from "../company-team-list";
 import { ReadDb } from "../db-service";
 import { TeamReads } from "../team-reads";
 import {
@@ -12,30 +15,56 @@ import {
   seedSkill,
   seedTeam,
 } from "./db/seed";
-import { withRollback } from "./db/test-db";
+import { functionValue, withRollback } from "./db/test-db";
 import {
   type Actor,
   ADMIN,
+  companyTeamListBackedBy,
   failureTag,
   MEMBER,
   NO_ROLE,
   runAsActor,
+  type TeamListStubSpy,
+  teamListStubOf,
 } from "./request";
 
 const readAs =
-  (db: ReadDb["Service"], actor: Actor) =>
+  (
+    db: ReadDb["Service"],
+    actor: Actor,
+    teamList: TeamListStubSpy = teamListStubOf(),
+  ) =>
   <A, E>(
     f: (
       reads: TeamReads["Service"],
-    ) => Effect.Effect<A, E, CompanyContext | AuthorizationContext>,
+    ) => Effect.Effect<
+      A,
+      E,
+      CompanyContext | AuthorizationContext | CompanyTeamList
+    >,
   ) =>
     runAsActor(
       actor,
       TeamReads.use(f).pipe(
         Effect.provide(TeamReads.layer),
         Effect.provideService(ReadDb, db),
+        Effect.provideService(
+          CompanyTeamList,
+          companyTeamListBackedBy(teamList)(),
+        ),
       ),
     );
+
+const reports = vi.fn();
+beforeEach(() => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  sendErrorReportsTo(reports);
+});
+afterEach(() => {
+  vi.restoreAllMocks();
+  reports.mockReset();
+  sendErrorReportsTo(() => {});
+});
 
 describe("getTeam", () => {
   it("管理者には名前・作成の古い順のスキル・割り当てた user id・そのチームの記録を返す", () =>
@@ -100,6 +129,18 @@ describe("getTeam", () => {
       );
     }),
   );
+
+  it("大文字で書いた UUID でも、DB の関数と同じくそのチームが見つかる", () =>
+    withRollback(async (tx) => {
+      const id = await seedTeam(tx, "cmp_a", "開発");
+
+      const result = await readAs(
+        tx,
+        ADMIN,
+      )((r) => r.getTeam(id.toUpperCase()));
+
+      expect(Result.getOrThrow(result).id).toBe(id);
+    }));
 
   it("他社のチームは見つからない", () =>
     withRollback(async (tx) => {
@@ -220,17 +261,23 @@ describe("listTeams", () => {
 });
 
 describe("関数の値を読めないとき", () => {
+  const teamList = teamListStubOf();
   const readWith = (execute: () => Promise<unknown>) =>
-    readAs({ execute } as unknown as ReadDb["Service"], ADMIN);
+    readAs({ execute } as unknown as ReadDb["Service"], ADMIN, teamList);
 
-  it("schema に合わない値は DB の失敗にする", async () => {
+  it("schema に合わない値は、どちらの読み取りも DB の失敗にし、一覧を DO に置かない", async () => {
     const read = readWith(async () => ({
       rows: [{ result: { id: "x", name: "開発" } }],
     }));
 
-    const result = await read((r) => r.getTeam(crypto.randomUUID()));
+    const team = await read((r) => r.getTeam(crypto.randomUUID()));
+    const teams = await read((r) => r.listTeams);
 
-    expect(failureTag(result)).toBe("TeamServiceError");
+    expect([failureTag(team), failureTag(teams)]).toEqual([
+      "TeamServiceError",
+      "TeamServiceError",
+    ]);
+    expect(teamList.replace).not.toHaveBeenCalled();
   });
 
   it("DB が返したエラーで execute が失敗すると、どちらの読み取りも DB の失敗にする", async () => {
@@ -267,5 +314,140 @@ describe("関数の値を読めないとき", () => {
       "DbUnavailable",
       "DbUnavailable",
     ]);
+    expect(teamList.replace).not.toHaveBeenCalled();
   });
+});
+
+describe("DO の一覧を通した値と星取表は、見える範囲が関数と同じ", () => {
+  const UNASSIGNED: Actor = { ...MEMBER, userId: "u_none" };
+
+  it.each([
+    ["管理者", ADMIN],
+    ["一部のチームに割り当てたメンバー", MEMBER],
+    ["role の無い人", NO_ROLE],
+    ["どのチームにも割り当てていないメンバー", UNASSIGNED],
+  ])("%s", (_, actor) =>
+    withRollback(async (tx) => {
+      const assigned = await seedTeam(tx, "cmp_a", "X", createdAtMinute(1));
+      const unassigned = await seedTeam(tx, "cmp_a", "Y", createdAtMinute(2));
+      const other = await seedTeam(tx, "cmp_b", "他社");
+      const skill = await seedSkill(tx, "cmp_a", assigned, "設計");
+      await seedAssignment(tx, "cmp_a", assigned, "u_m");
+      await seedAssignment(tx, "cmp_b", other, "u_m");
+      await seedLevel(tx, {
+        companyId: "cmp_a",
+        teamId: assigned,
+        skillId: skill,
+        userId: "u_m",
+        level: 2,
+      });
+      const manager = isManager(actor.role);
+      const read = readAs(tx, actor, teamListStubOf());
+
+      expect(Result.getOrThrow(await read((r) => r.listTeams))).toEqual(
+        await functionValue(
+          tx,
+          sql`team_list(${actor.companyId}, ${actor.userId}, ${manager})`,
+        ),
+      );
+      for (const teamId of [assigned, unassigned, other]) {
+        const expected = await functionValue(
+          tx,
+          sql`team_matrix(${actor.companyId}, ${teamId}, ${actor.userId}, ${manager})`,
+        );
+        const result = await read((r) => r.getTeam(teamId));
+        if (expected === null) expect(failureTag(result)).toBe("TeamNotFound");
+        else expect(Result.getOrThrow(result)).toEqual(expected);
+      }
+    }),
+  );
+});
+
+describe("事業所の DO の一覧", () => {
+  it("UUID でない id の getTeam は、DO も DB も読まない", () =>
+    withRollback(async (tx) => {
+      const teamList = teamListStubOf();
+      const execute = vi.spyOn(tx, "execute");
+
+      const result = await readAs(tx, ADMIN, teamList)((r) => r.getTeam("x"));
+
+      expect(failureTag(result)).toBe("TeamNotFound");
+      expect(execute).not.toHaveBeenCalled();
+      expect(teamList.read).not.toHaveBeenCalled();
+    }));
+
+  it("getTeam は DO を読み書きせず、team_matrix を読む", () =>
+    withRollback(async (tx) => {
+      const id = await seedTeam(tx, "cmp_a", "開発");
+      const teamList = teamListStubOf();
+
+      const result = await readAs(tx, ADMIN, teamList)((r) => r.getTeam(id));
+
+      expect(Result.getOrThrow(result).id).toBe(id);
+      expect([
+        teamList.read.mock.calls.length,
+        teamList.replace.mock.calls.length,
+        teamList.clear.mock.calls.length,
+      ]).toEqual([0, 0, 0]);
+    }));
+
+  it("DO に一覧がある時の listTeams は DB を読まない", () =>
+    withRollback(async (tx) => {
+      const id = await seedTeam(tx, "cmp_a", "開発");
+      const read = readAs(tx, ADMIN, teamListStubOf());
+      await read((r) => r.listTeams);
+      const execute = vi.spyOn(tx, "execute");
+
+      const teams = await read((r) => r.listTeams);
+
+      expect(Result.getOrThrow(teams)).toEqual([{ id, name: "開発" }]);
+      expect(execute).not.toHaveBeenCalled();
+    }));
+
+  it("DO が空の時の listTeams は company_team_list の 1 文で読み、その値で DO に置く", () =>
+    withRollback(async (tx) => {
+      await seedTeam(tx, "cmp_a", "開発");
+      const teamList = teamListStubOf();
+      const execute = vi.spyOn(tx, "execute");
+
+      await readAs(tx, ADMIN, teamList)((r) => r.listTeams);
+
+      expect(execute).toHaveBeenCalledOnce();
+      expect(JSON.stringify(execute.mock.calls[0][0])).toContain(
+        "company_team_list(",
+      );
+      expect(teamList.replace).toHaveBeenCalledExactlyOnceWith(
+        "v1",
+        await functionValue(tx, sql`company_team_list('cmp_a')`),
+      );
+    }));
+
+  it("DO を読めない時は DB の値で答え、1 回報告し、DO に置きに行かない", () =>
+    withRollback(async (tx) => {
+      const id = await seedTeam(tx, "cmp_a", "開発");
+      const teamList = teamListStubOf();
+      teamList.read.mockImplementation(() => {
+        throw new Error("DO に届かない");
+      });
+
+      const result = await readAs(tx, ADMIN, teamList)((r) => r.listTeams);
+
+      expect(Result.getOrThrow(result)).toEqual([{ id, name: "開発" }]);
+      expect(reports).toHaveBeenCalledOnce();
+      expect(teamList.replace).not.toHaveBeenCalled();
+    }));
+
+  it("DO に置けない時も DB の値で答え、1 回報告する", () =>
+    withRollback(async (tx) => {
+      const id = await seedTeam(tx, "cmp_a", "開発");
+      const teamList = teamListStubOf();
+      teamList.replace.mockImplementation(() => {
+        throw new Error("DO に届かない");
+      });
+
+      const result = await readAs(tx, ADMIN, teamList)((r) => r.listTeams);
+
+      expect(Result.getOrThrow(result)).toEqual([{ id, name: "開発" }]);
+      expect(reports).toHaveBeenCalledOnce();
+    }));
 });

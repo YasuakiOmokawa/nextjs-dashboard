@@ -4,6 +4,7 @@ import { DatabaseError } from "pg";
 import { SkillId, TeamId } from "@/db/ids";
 import { AuthorizationContext, isManager } from "./authorization-context";
 import { CompanyContext } from "./company-context";
+import { CompanyTeamList, decodeTeamListSnapshot } from "./company-team-list";
 import { DbUnavailable, ReadDb } from "./db-service";
 import { Level } from "./level";
 import { decodeTeamId, TeamNotFound, TeamServiceError } from "./team-errors";
@@ -26,7 +27,6 @@ export const TeamDetail = Schema.Struct({
 type TeamDetail = typeof TeamDetail.Type;
 
 const decodeTeamDetail = Schema.decodeUnknownEffect(Schema.NullOr(TeamDetail));
-const decodeTeams = Schema.decodeUnknownEffect(Schema.Array(Team));
 
 type RequestContext = CompanyContext | AuthorizationContext;
 
@@ -42,7 +42,7 @@ export class TeamReads extends Context.Service<
     readonly listTeams: Effect.Effect<
       readonly (typeof Team.Type)[],
       TeamServiceError | DbUnavailable,
-      RequestContext
+      RequestContext | CompanyTeamList
     >;
     getTeam(
       teamId: string,
@@ -82,15 +82,24 @@ export class TeamReads extends Context.Service<
       });
 
       return TeamReads.of({
-        listTeams: requester.pipe(
-          Effect.flatMap(({ companyId, userId, isManager }) =>
-            selectFunctionResult(
-              sql`team_list(${companyId}, ${userId}, ${isManager})`,
-              decodeTeams,
-            ),
-          ),
-          Effect.withSpan("TeamReads.listTeams"),
-        ),
+        listTeams: Effect.gen(function* () {
+          const { companyId, userId, isManager } = yield* requester;
+          const teamList = yield* CompanyTeamList;
+          const stored = yield* teamList.read;
+          const snapshot =
+            stored._tag === "Stored"
+              ? stored.snapshot
+              : yield* selectFunctionResult(
+                  sql`company_team_list(${companyId})`,
+                  decodeTeamListSnapshot,
+                );
+          if (stored._tag === "Missing") yield* teamList.replace(snapshot);
+          return snapshot.teams
+            .filter(
+              (team) => isManager || team.assignedUserIds.includes(userId),
+            )
+            .map(({ id, name }) => ({ id, name }));
+        }).pipe(Effect.withSpan("TeamReads.listTeams")),
 
         getTeam: Effect.fn("TeamReads.getTeam")(function* (teamId: string) {
           const id = yield* decodeTeamId(teamId);

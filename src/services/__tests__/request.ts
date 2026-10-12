@@ -1,8 +1,15 @@
 import type { Role } from "@taimei-code/auth-client";
 import { Effect, Result } from "effect";
+import { vi } from "vitest";
 import { CompanyId } from "@/db/ids";
 import { AuthorizationContext } from "../authorization-context";
 import { CompanyContext } from "../company-context";
+import {
+  CompanyTeamList,
+  TeamListStore,
+  type TeamListStub,
+} from "../company-team-list";
+import { sqliteStorage } from "./sqlite-storage";
 
 export type Actor = {
   companyId: string;
@@ -47,3 +54,25 @@ export const runAsActor = <A, E>(
       ),
     ),
   );
+
+export const emptyTeamListStore = () => new TeamListStore(sqliteStorage());
+
+export const teamListStubOf = (
+  store: TeamListStore = emptyTeamListStore(),
+) => ({
+  read: vi.fn<TeamListStub["read"]>((workerVersion) =>
+    store.read(workerVersion),
+  ),
+  replace: vi.fn<TeamListStub["replace"]>((workerVersion, snapshot) =>
+    store.replace(workerVersion, snapshot),
+  ),
+  clear: vi.fn(() => store.clear()),
+});
+export type TeamListStubSpy = ReturnType<typeof teamListStubOf>;
+
+export const WORKER_VERSION = "v1";
+
+export const companyTeamListBackedBy =
+  (stub: TeamListStub = emptyTeamListStore()) =>
+  () =>
+    CompanyTeamList.fromStub(() => stub, WORKER_VERSION);

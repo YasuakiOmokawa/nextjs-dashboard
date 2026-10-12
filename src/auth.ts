@@ -15,6 +15,7 @@ import type { CheckMemberships } from "@/src/lib/purge-departed";
 import { reportError } from "@/src/lib/report-error";
 import type { RequestSession } from "@/src/services";
 import { CompanyMembers } from "@/src/services/company-members-service";
+import type { CompanyTeamList } from "@/src/services/company-team-list";
 
 export type AuthEnv = {
   readonly AUTH: { fetch: typeof fetch };
@@ -81,16 +82,19 @@ export const authGuardOf = (env: AuthEnv, cookieHeader: string | undefined) => {
 export const requestSessionOf = (
   { companyId, user, role }: SessionData,
   listMembers: () => Promise<ListMembersResult>,
-): RequestSession | undefined =>
-  companyId
-    ? {
-        companyId: CompanyId.make(companyId),
-        userId: user.id,
-        userName: user.name,
-        role,
-        companyMembers: CompanyMembers.fromListMembers(listMembers),
-      }
-    : undefined;
+  companyTeamListOf: (companyId: CompanyId) => CompanyTeamList["Service"],
+): RequestSession | undefined => {
+  if (!companyId) return undefined;
+  const id = CompanyId.make(companyId);
+  return {
+    companyId: id,
+    userId: user.id,
+    userName: user.name,
+    role,
+    companyMembers: CompanyMembers.fromListMembers(listMembers),
+    companyTeamListOf,
+  };
+};
 
 const DEFAULT_LANDING_PATH = "/dashboard";
 

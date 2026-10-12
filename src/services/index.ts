@@ -1,12 +1,18 @@
 import { Effect, Layer, ManagedRuntime, Result } from "effect";
 import { db } from "@/db/drizzle/client";
+import type { CompanyId } from "@/db/ids";
 import { withCompanyScope } from "@/db/scoped";
 import { reportUnexpectedFailure } from "@/src/lib/team-failure";
 import { AuthorizationContext, isManager } from "./authorization-context";
 import { CompanyContext } from "./company-context";
 import { CompanyMembers } from "./company-members-service";
+import {
+  bumpTeamListInWriteTransaction,
+  CompanyTeamList,
+  rewriteTeamList,
+} from "./company-team-list";
 import { Db, DbUnavailable, ReadDb } from "./db-service";
-import { NotManager, type TeamFailure } from "./team-errors";
+import { NotManager, type TeamFailure, TeamServiceError } from "./team-errors";
 import { TeamReads } from "./team-reads";
 import { TeamManagement, TeamService } from "./team-service";
 
@@ -14,6 +20,9 @@ export type RequestSession = CompanyContext["Service"] &
   AuthorizationContext["Service"] & {
     readonly userName: string;
     readonly companyMembers: CompanyMembers["Service"];
+    readonly companyTeamListOf: (
+      companyId: CompanyId,
+    ) => CompanyTeamList["Service"];
   };
 
 const Live = Layer.empty;
@@ -29,7 +38,8 @@ const runtime = ManagedRuntime.make(Live);
 type ProvidedPerRequest =
   | CompanyContext
   | AuthorizationContext
-  | CompanyMembers;
+  | CompanyMembers
+  | CompanyTeamList;
 
 // 要求ごとの Service を Live に含めると session 無しで実行できてしまう (docs/adr/0002 D3)
 type _NoRequestContextInLive = [
@@ -60,6 +70,10 @@ const provideSession =
         role: session.role,
       }),
       Effect.provideService(CompanyMembers, session.companyMembers),
+      Effect.provideService(
+        CompanyTeamList,
+        session.companyTeamListOf(session.companyId),
+      ),
     );
 
 // SQL を流さない本体に、transaction の接続と BEGIN・set_config・COMMIT を払わせない
@@ -102,7 +116,7 @@ class BodyFailure<E> {
 const runInCompanyScope = async <A, E extends TeamFailure>(
   session: RequestSession,
   body: () => Effect.Effect<A, E, LiveServices | ProvidedPerRequest | Db>,
-): Promise<ServiceResult<A, E | DbUnavailable>> => {
+): Promise<Result.Result<A, E | DbUnavailable>> => {
   let result: Result.Result<A, E | DbUnavailable>;
   try {
     result = await withCompanyScope(db, session.companyId, async (tx) => {
@@ -129,19 +143,38 @@ const runInCompanyScope = async <A, E extends TeamFailure>(
         ? Result.fail(error.failure)
         : Result.fail(new DbUnavailable({ cause: error }));
   }
-  return reported(result);
+  return result;
 };
 
-export const runScopedService = <A, E extends TeamFailure>(
+export const runScopedService = async <A, E extends TeamFailure>(
   session: RequestSession,
   body: () => Effect.Effect<
     A,
     E,
     LiveServices | Layer.Success<typeof RequestScoped> | ProvidedPerRequest | Db
   >,
-) =>
-  runInCompanyScope(session, () => body().pipe(Effect.provide(RequestScoped)));
+): Promise<ServiceResult<A, E | DbUnavailable>> =>
+  reported(
+    await runInCompanyScope(session, () =>
+      body().pipe(Effect.provide(RequestScoped)),
+    ),
+  );
 
+export const rewriteTeamListAfterCommit = (
+  teamList: CompanyTeamList["Service"],
+  bumped: unknown,
+) => runtime.runPromise(rewriteTeamList(teamList, bumped));
+
+const bumpTeamListInScope = Effect.gen(function* () {
+  const { companyId } = yield* CompanyContext;
+  const scoped = yield* Db;
+  return yield* Effect.tryPromise({
+    try: () => bumpTeamListInWriteTransaction(scoped, companyId),
+    catch: (cause) => new TeamServiceError({ cause }),
+  });
+});
+
+// 一覧を変える書き込みは TeamManagement だけにある (docs/adr/0008)
 export const runManagerScopedService = async <A, E extends TeamFailure>(
   session: RequestSession,
   body: () => Effect.Effect<
@@ -149,9 +182,22 @@ export const runManagerScopedService = async <A, E extends TeamFailure>(
     E,
     LiveServices | Layer.Success<typeof ManagerScoped> | ProvidedPerRequest | Db
   >,
-): Promise<ServiceResult<A, E | NotManager | DbUnavailable>> =>
-  isManager(session.role)
-    ? runInCompanyScope(session, () =>
-        body().pipe(Effect.provide(ManagerScoped)),
-      )
-    : reported(Result.fail(new NotManager()));
+): Promise<
+  ServiceResult<A, E | NotManager | TeamServiceError | DbUnavailable>
+> => {
+  if (!isManager(session.role)) return reported(Result.fail(new NotManager()));
+  const result = await runInCompanyScope(session, () =>
+    body().pipe(
+      Effect.provide(ManagerScoped),
+      Effect.flatMap((value) =>
+        bumpTeamListInScope.pipe(Effect.map((bumped) => ({ value, bumped }))),
+      ),
+    ),
+  );
+  const teamList = session.companyTeamListOf(session.companyId);
+  if (Result.isSuccess(result))
+    await rewriteTeamListAfterCommit(teamList, result.success.bumped);
+  else if (result.failure._tag === "DbUnavailable")
+    await runtime.runPromise(teamList.clear);
+  return reported(Result.map(result, ({ value }) => value));
+};

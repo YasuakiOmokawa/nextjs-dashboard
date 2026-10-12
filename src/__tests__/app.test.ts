@@ -25,7 +25,15 @@ import {
   type TestDb,
   withRollbackDb,
 } from "@/src/services/__tests__/db/test-db";
+import {
+  companyTeamListBackedBy,
+  emptyTeamListStore,
+} from "@/src/services/__tests__/request";
 import { CompanyMembers } from "@/src/services/company-members-service";
+import {
+  CompanyTeamList,
+  type TeamListStore,
+} from "@/src/services/company-team-list";
 import { TeamNotFound } from "@/src/services/team-errors";
 import { MAX_LEVEL_ENTRIES_PER_SAVE } from "@/src/services/team-service";
 import { app, type Env } from "../app";
@@ -70,12 +78,23 @@ const sessionError = () =>
   Response.json({ error: { reason: "RESULT_SESSION_NOT_FOUND" } });
 
 let binding: ReturnType<typeof vi.fn<typeof fetch>>;
+let cacheNames: string[];
+let cacheStores: Map<string, TeamListStore>;
 const envWithBinding = (fetch: typeof binding): Env => {
   binding = fetch;
   return {
     AUTH: { fetch: binding },
     AUTH_URL,
     HYPERDRIVE: { connectionString: "unused" },
+    CF_VERSION_METADATA: { id: "v1" },
+    COMPANY_TEAM_LIST: {
+      getByName: (name) => {
+        cacheNames.push(name);
+        const store = cacheStores.get(name) ?? emptyTeamListStore();
+        cacheStores.set(name, store);
+        return store;
+      },
+    },
   };
 };
 
@@ -140,6 +159,8 @@ const locationOf = (response: Response) =>
 let consoleError: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  cacheNames = [];
+  cacheStores = new Map();
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -380,6 +401,99 @@ describe("GET /api/teams", () => {
   });
 });
 
+describe("チーム一覧の DO", () => {
+  const listedNames = async (response: Response) =>
+    ((await response.json()) as { teams: { name: string }[] }).teams.map(
+      (team) => team.name,
+    );
+
+  it("一覧は session の事業所の名前の DO だけを呼ぶ", () =>
+    withRollbackDb(async (tx) => {
+      await seedAssignedTeam(tx);
+
+      await get("/api/teams", envWithRole("ROLE_OWNER"));
+
+      expect(cacheNames.length).toBeGreaterThan(0);
+      expect(new Set(cacheNames)).toEqual(new Set(["cmp_app_a"]));
+    }));
+
+  it("星取表・自分の情報・メンバー一覧は DO を呼ばない", () =>
+    withRollbackDb(async (tx) => {
+      const { teamId } = await seedAssignedTeam(tx);
+      const env = envWithMembers(() => membersOk([]));
+
+      const statuses = [
+        (await get(`/api/teams/${teamId}`, env)).status,
+        (await get("/api/me", env)).status,
+        (await get("/api/members", env)).status,
+      ];
+
+      expect(statuses).toEqual([200, 200, 200]);
+      expect(cacheNames).toEqual([]);
+    }));
+
+  it("一覧を DO に置いた後にレベルを保存しても、次の一覧は DB を読まない", () =>
+    withRollbackDb(async (tx) => {
+      const { teamId, skillId } = await seedAssignedTeam(tx);
+      const env = envWithMembers(() => membersOk([]), { role: "ROLE_MEMBER" });
+      await get("/api/teams", env);
+      const saved = await sendSameOriginRequest(
+        "PUT",
+        `/api/teams/${teamId}/my-levels`,
+        env,
+        JSON.stringify({ levels: [{ skillId, level: 3, wantsToLearn: true }] }),
+      );
+      const db = spyOnDb();
+
+      const response = await get("/api/teams", env);
+
+      expect(saved.status).toBe(200);
+      expect(await listedNames(response)).toEqual(["開発"]);
+      expect(db.execute).not.toHaveBeenCalled();
+    }));
+
+  it("一覧を DO に置いた後に管理者がチームを作ると、次の一覧は DB を読まずに新しいチームを含む", () =>
+    withRollbackDb(async () => {
+      const env = envWithRole("ROLE_OWNER");
+      await get("/api/teams", env);
+      const created = await sendSameOriginRequest(
+        "POST",
+        "/api/teams",
+        env,
+        JSON.stringify({ name: "新しいチーム" }),
+      );
+      const db = spyOnDb();
+
+      const response = await get("/api/teams", env);
+
+      expect(created.status).toBe(200);
+      expect(await listedNames(response)).toContain("新しいチーム");
+      expect(db.execute).not.toHaveBeenCalled();
+    }));
+
+  it("一覧を DO に置いた後に割り当てを外すと、外されたメンバーの次の一覧にそのチームは無い", () =>
+    withRollbackDb(async (tx) => {
+      const { teamId } = await seedAssignedTeam(tx);
+      const memberEnv = envWithMembers(() => membersOk([]), {
+        role: "ROLE_MEMBER",
+      });
+      const managerEnv = envWithRole("ROLE_OWNER");
+      expect(await listedNames(await get("/api/teams", memberEnv))).toEqual([
+        "開発",
+      ]);
+
+      const unassigned = await sendSameOriginRequest(
+        "DELETE",
+        `/api/teams/${teamId}/assignments/u_1`,
+        managerEnv,
+      );
+      const response = await get("/api/teams", memberEnv);
+
+      expect(unassigned.status).toBe(200);
+      expect(await listedNames(response)).toEqual([]);
+    }));
+});
+
 describe("route の defect", () => {
   afterEach(() => sendErrorReportsTo(() => {}));
 
@@ -461,6 +575,26 @@ describe("GET /api/teams/:teamId", () => {
       });
       expect(db.execute).toHaveBeenCalledOnce();
       expect(db.transaction).not.toHaveBeenCalled();
+    }));
+
+  it("deploy で Worker の version が変わると、前の version が置いた値を使わず DB から読む", () =>
+    withRollbackDb(async (tx) => {
+      const id = await seedTeam(tx, "cmp_app_a", "前の名前");
+      const before = envWithRole("ROLE_OWNER");
+      const after: Env = {
+        ...envWithRole("ROLE_OWNER"),
+        CF_VERSION_METADATA: { id: "v2" },
+      };
+      await get("/api/teams", before);
+      await tx.update(teams).set({ name: "後の名前" }).where(eq(teams.id, id));
+      const db = spyOnDb();
+
+      const response = await get("/api/teams", after);
+
+      expect(db.execute).toHaveBeenCalled();
+      expect(await response.json()).toEqual({
+        teams: [{ id, name: "後の名前" }],
+      });
     }));
 
   it("他社のチームは 404", () =>
@@ -1884,6 +2018,7 @@ describe("resultJson", () => {
     role: undefined,
     userName: "山田 花子",
     companyMembers: CompanyMembers.of({ list: Effect.succeed([]) }),
+    companyTeamListOf: companyTeamListBackedBy(),
   };
 
   it("失敗は表の状態コードと文言で返す", async () => {

@@ -2,6 +2,7 @@ import { and, inArray, lte, sql } from "drizzle-orm";
 import { teamAssignments, teams } from "@/db/drizzle/schema";
 import { CompanyId } from "@/db/ids";
 import { companyFilter, withCompanyScope } from "@/db/scoped";
+import { bumpTeamListInWriteTransaction } from "@/src/services/company-team-list";
 import type { Db } from "@/src/services/db-service";
 import { reportError } from "./report-error";
 
@@ -19,12 +20,18 @@ export type PurgeReport = {
 export const purgeDeparted = async ({
   db,
   checkMemberships,
+  replaceTeamList,
   startedAt,
 }: {
   db: Db["Service"];
   checkMemberships: CheckMemberships;
+  replaceTeamList: (companyId: CompanyId, bumped: unknown) => Promise<void>;
   startedAt: Date;
 }): Promise<PurgeReport> => {
+  const replaceReportingFailure = (companyId: CompanyId, bumped: unknown) =>
+    replaceTeamList(companyId, bumped).catch((cause: unknown) =>
+      reportError(new Error(`replaceTeamList failed: ${companyId}`, { cause })),
+    );
   const report: PurgeReport = {
     deletedCompanyIds: [],
     removedAssignments: 0,
@@ -56,27 +63,41 @@ export const purgeDeparted = async ({
       continue;
     }
     if (!answer.companyActive) {
-      await withCompanyScope(db, companyId, (tx) =>
-        tx.delete(teams).where(companyFilter(teams, companyId)),
-      );
+      const list = await withCompanyScope(db, companyId, async (tx) => {
+        await tx.delete(teams).where(companyFilter(teams, companyId));
+        return bumpTeamListInWriteTransaction(tx, companyId);
+      });
+      await replaceReportingFailure(companyId, list);
       report.deletedCompanyIds.push(companyId);
       continue;
     }
     const members = new Set(answer.memberUserIds);
     const departed = userIds.filter((userId) => !members.has(userId));
     if (departed.length === 0) continue;
-    const removed = await withCompanyScope(db, companyId, (tx) =>
-      tx
-        .delete(teamAssignments)
-        .where(
-          and(
-            companyFilter(teamAssignments, companyId),
-            inArray(teamAssignments.userId, departed),
-            lte(teamAssignments.createdAt, startedAt),
-          ),
-        )
-        .returning({ userId: teamAssignments.userId }),
+    const { removed, list } = await withCompanyScope(
+      db,
+      companyId,
+      async (tx) => {
+        const removed = await tx
+          .delete(teamAssignments)
+          .where(
+            and(
+              companyFilter(teamAssignments, companyId),
+              inArray(teamAssignments.userId, departed),
+              lte(teamAssignments.createdAt, startedAt),
+            ),
+          )
+          .returning({ userId: teamAssignments.userId });
+        return {
+          removed,
+          list:
+            removed.length > 0
+              ? await bumpTeamListInWriteTransaction(tx, companyId)
+              : undefined,
+        };
+      },
     );
+    if (removed.length > 0) await replaceReportingFailure(companyId, list);
     report.removedAssignments += removed.length;
   }
   return report;
