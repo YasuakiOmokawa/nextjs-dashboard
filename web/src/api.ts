@@ -28,21 +28,21 @@ const takeEarlyFetch = (input: RequestInfo | URL, init?: RequestInit) => {
 };
 
 const SESSION_HEADER: SessionHeader = "x-taimei-session";
-let sessionOfThisPage: string | undefined;
+let markOfThisPage: string | undefined;
 
-const differsFromFirstSessionOfPage = (response: Response) => {
-  const session = response.headers.get(SESSION_HEADER);
-  if (session === null) return false;
-  sessionOfThisPage ??= session;
-  return session !== sessionOfThisPage;
+const differsFromFirstMarkOfPage = (response: Response) => {
+  const mark = response.headers.get(SESSION_HEADER);
+  if (mark === null) return false;
+  markOfThisPage ??= mark;
+  return mark !== markOfThisPage;
 };
 
 const untilPageUnloads = () => new Promise<never>(() => {});
 
 const withSessionMark = (init: RequestInit | undefined) => {
-  if (sessionOfThisPage === undefined) return init;
+  if (markOfThisPage === undefined) return init;
   const headers = new Headers(init?.headers);
-  headers.set(SESSION_HEADER, sessionOfThisPage);
+  headers.set(SESSION_HEADER, markOfThisPage);
   return { ...init, headers };
 };
 
@@ -55,7 +55,7 @@ const fetchWithinSession: typeof fetch = async (input, init) => {
     location.assign(`/auth?callbackUrl=${callbackUrl}`);
     return untilPageUnloads();
   }
-  if (differsFromFirstSessionOfPage(response)) {
+  if (differsFromFirstMarkOfPage(response)) {
     location.reload();
     return untilPageUnloads();
   }
