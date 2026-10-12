@@ -316,6 +316,20 @@ describe("Worker に届く path", () => {
     expect(wranglerConfig.triggers?.crons).toEqual(["17 * * * *"]);
   });
 
+  it("本番は app.taimei-code.com の custom domain だけで受ける", () => {
+    expect(wranglerConfig.routes).toEqual([
+      { pattern: "app.taimei-code.com", custom_domain: true },
+    ]);
+  });
+
+  it("session の cookie が届かない workers.dev では受けない", () => {
+    expect(wranglerConfig.workers_dev).toBe(false);
+  });
+
+  it("session の cookie が届かない版ごとの preview の URL では受けない", () => {
+    expect(wranglerConfig.preview_urls).toBe(false);
+  });
+
   it("全ての route の path は run_worker_first に当たる", () => {
     expect(
       routes
