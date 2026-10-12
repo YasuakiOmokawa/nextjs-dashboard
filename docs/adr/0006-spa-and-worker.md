@@ -22,6 +22,7 @@ taimei は Next.js で Vercel に載り、DB は Neon の us-east-1 にある。
 - 追記 (2026-10-10、#579): ログインの入口とログイン後の戻り先 (`/auth`・`/auth/*`) は session を見て行き先を決める redirect なので Worker で返す。SPA で返すと JS が動くまで index.html (`/` の prerender) が見え、SPA が taimei-auth の URL を持つことになる。そのため `run_worker_first` を `["/api/*", "/auth", "/auth/*"]` にした。配列にすると `Sec-Fetch-Mode` での振り分けが止まり、ここに無い path は fetch でも Static Assets が返すので、`/api/*` も並べる
 - 公開ページ (`/`・`/privacy`) は build 時に prerender する (`web/prerender.tsx`)。`/privacy` は `privacy.html` に書く (`privacy/index.html` だと `/privacy/` へ redirect する)
 - API は Hono + Effect の Worker (`src/worker.ts`) にし、SPA は Hono の `hc` で呼ぶ (理由と見直す条件は ADR-0007)。DB は Hyperdrive 越しの Neon ap-southeast-1
+- 追記 (2026-10-12、#602): 上の `hc` の行と Context の `HttpApi` の行は ADR-0007 で改めた。移し終えるまで (#603〜#605) のコードはその形のまま
 - Next.js・`@sentry/nextjs`・Next の設定と画面は残さない。Next と Worker を並べて動かす期間も作らない
 - 配置は taimei-auth に揃える (`src/` は Worker、`web/` は SPA、`db/` はそのまま)
 
