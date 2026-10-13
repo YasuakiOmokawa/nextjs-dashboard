@@ -2,7 +2,7 @@
 
 - **Status**: Accepted (2026-10-10)。2026-10-12 に改訂した (#602)。移すのは #603〜#605 で、移し終えるまでのコードは「改訂前の判断」の形のまま。データ取得を Atom にする部分は #604 の結果で確定する
 - **Date**: 2026-10-10 (改訂 2026-10-12)
-- **References**: ADR-0002 (事業所のデータに session 無しで触れない)、ADR-0006 (Static Assets の SPA と Worker)、taimei-auth の ADR-0017 (`taimei-code/taimei-auth@d63097b` の「web への拡大」「SPA の API 契約」。`vendor/taimei-auth` の pin にはまだ無い)
+- **References**: ADR-0002 (事業所のデータに session 無しで触れない)、ADR-0006 (Static Assets の SPA と Worker)、taimei-auth の ADR-0017 (`vendor/taimei-auth/docs/adr/0017-effect-v4-full-adoption.md` の「web への拡大」「SPA の API 契約」)
 
 ## Context
 
