@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { buildAuthLoginUrl } from "@taimei-code/auth-client";
 import { asc, eq } from "drizzle-orm";
-import { Effect, Result, Schema } from "effect";
-import { Hono } from "hono";
+import { type Schema, SchemaAST } from "effect";
+import { HttpApi } from "effect/http-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   memberSkills,
@@ -10,9 +10,8 @@ import {
   teamAssignments,
   teams,
 } from "@/db/drizzle/schema";
-import { CompanyId, SkillId, type TeamId } from "@/db/ids";
+import type { TeamId } from "@/db/ids";
 import { sendErrorReportsTo } from "@/src/lib/report-error";
-import { type RequestSession, runServiceWithoutDb } from "@/src/services";
 import {
   seedAssignment,
   seedLevel,
@@ -25,19 +24,15 @@ import {
   type TestDb,
   withRollbackDb,
 } from "@/src/services/__tests__/db/test-db";
+import { emptyTeamListStore } from "@/src/services/__tests__/request";
+import type { TeamListStore } from "@/src/services/company-team-list";
 import {
-  companyTeamListBackedBy,
-  emptyTeamListStore,
-} from "@/src/services/__tests__/request";
-import { CompanyMembers } from "@/src/services/company-members-service";
-import {
-  CompanyTeamList,
-  type TeamListStore,
-} from "@/src/services/company-team-list";
-import { TeamNotFound } from "@/src/services/team-errors";
-import { MAX_LEVEL_ENTRIES_PER_SAVE } from "@/src/services/team-service";
+  Authenticated,
+  MAX_LEVEL_ENTRIES_PER_SAVE,
+  OperationFailure,
+  SpaApi,
+} from "@/src/spa-contract";
 import { app, type Env } from "../app";
-import { jsonBody, resultJson } from "../run-json";
 
 vi.mock("@/db/drizzle/client", async () => ({
   db: (await import("@/src/services/__tests__/db/test-db")).dbInRollback,
@@ -152,6 +147,16 @@ const routes = [
 const routeKey = (r: (typeof routes)[number]) => `${r.method} ${r.path}`;
 const requestMethod = (method: string) => (method === "ALL" ? "GET" : method);
 const pathWithParamsFilled = (path: string) => path.replace(/:[^/]+|\*/g, "x");
+
+const DECODE_FAILURE = "本文の無い decode の失敗";
+
+const failureBodyOf = async (response: Response) => {
+  const text = await response.text();
+  return text === "" ? undefined : JSON.parse(text);
+};
+
+const expectedFailureBody = (tag: string) =>
+  tag === DECODE_FAILURE ? undefined : expect.objectContaining({ _tag: tag });
 
 const locationOf = (response: Response) =>
   new URL(response.headers.get("Location") ?? "");
@@ -280,8 +285,9 @@ describe("全ての route の認証", () => {
     "GET /auth/account",
     "GET /auth/account/members",
   ];
+  const CSRF_MIDDLEWARE = `ALL ${EVERY_PATH}`;
   const nonPublicRoutes = routes.filter(
-    (r) => !PUBLIC_ENDPOINTS.includes(routeKey(r)),
+    (r) => ![...PUBLIC_ENDPOINTS, CSRF_MIDDLEWARE].includes(routeKey(r)),
   );
 
   it("公開の口は全て route にある", () => {
@@ -337,9 +343,111 @@ describe("全ての route の認証", () => {
 
       expect(response.status).toBe(401);
       expect(await response.json()).toEqual({ _tag: "Unauthenticated" });
+      expect(response.headers.get("x-taimei-session")).toBeNull();
       expect(binding).not.toHaveBeenCalled();
     },
   );
+});
+
+// reflect は失敗の schema を状態コードの注釈を付けて包むので、class の値ではなく identifier で比べる
+const identifierOf = (schema: Schema.Top) =>
+  SchemaAST.resolveIdentifier(schema.ast);
+
+describe("契約の endpoint", () => {
+  const endpoints: {
+    key: string;
+    middleware: ReadonlySet<unknown>;
+    errorIdentifiers: (string | undefined)[];
+  }[] = [];
+  HttpApi.reflect(SpaApi, {
+    onGroup: () => {},
+    onEndpoint: ({ endpoint, middleware, errors }) => {
+      endpoints.push({
+        key: `${endpoint.method} ${endpoint.path}`,
+        middleware,
+        errorIdentifiers: [...errors.values()].flat().map(identifierOf),
+      });
+    },
+  });
+
+  it("path と method は今の SPA の API の 12 本", () => {
+    expect(endpoints.map(({ key }) => key).sort()).toEqual(
+      [
+        "GET /api/me",
+        "GET /api/teams",
+        "POST /api/teams",
+        "GET /api/teams/:teamId",
+        "PATCH /api/teams/:teamId",
+        "DELETE /api/teams/:teamId",
+        "POST /api/teams/:teamId/skills",
+        "DELETE /api/skills/:skillId",
+        "PUT /api/teams/:teamId/assignments/:userId",
+        "DELETE /api/teams/:teamId/assignments/:userId",
+        "PUT /api/teams/:teamId/my-levels",
+        "GET /api/members",
+      ].sort(),
+    );
+  });
+
+  it("全ての endpoint に認証の middleware が掛かる", () => {
+    expect(
+      endpoints
+        .filter(({ middleware }) => !middleware.has(Authenticated))
+        .map(({ key }) => key),
+    ).toEqual([]);
+  });
+
+  const declaredFailures = [
+    ...OperationFailure.members,
+    ...Authenticated.error,
+  ];
+
+  it("全ての endpoint の失敗は、SPA が文言を持つ OperationFailure か認証の middleware の失敗", () => {
+    const declared = declaredFailures.map(identifierOf);
+
+    expect(
+      endpoints.flatMap(({ key, errorIdentifiers }) =>
+        errorIdentifiers
+          .filter((identifier) => !declared.includes(identifier))
+          .map((identifier) => `${key} ${identifier}`),
+      ),
+    ).toEqual([]);
+  });
+
+  it("契約の失敗は全て 500 でない状態コードを持つ (本文の無い 500 は予期しない失敗だけ)", () => {
+    expect(
+      declaredFailures
+        .filter(({ ast }) => {
+          const status = ast.annotations?.httpApiStatus;
+          return typeof status !== "number" || status === 500;
+        })
+        .map(identifierOf),
+    ).toEqual([]);
+  });
+
+  it("cookie 付きでも契約に無い /api の path は 404", async () => {
+    const response = await get("/api/unknown", envWith(sessionOk));
+
+    expect(response.status).toBe(404);
+  });
+
+  it("処理の途中で client が切った要求は報告しない", async () => {
+    const abort = new AbortController();
+    vi.spyOn(dbInRollback, "execute").mockImplementation(() => {
+      abort.abort();
+      return new Promise(() => {}) as never;
+    });
+
+    const pending = app.request(
+      `${ORIGIN}/api/teams`,
+      { headers: COOKIE, signal: abort.signal },
+      envWithRole("ROLE_OWNER"),
+    );
+    await Promise.resolve(pending).catch(() => undefined);
+
+    expect(dbInRollback.execute).toHaveBeenCalledOnce();
+    expect(consoleError).not.toHaveBeenCalled();
+  });
 });
 
 describe("Worker に届く path", () => {
@@ -391,10 +499,11 @@ const spyOnDb = () => ({
 });
 
 describe("GET /api/teams", () => {
-  it("session の事業所のチームだけを id と name で、transaction を開かず 1 文で返す", () =>
+  it("session の事業所のチームだけを、契約の schema に無い割り当ての user id を落として id と name で、transaction を開かず 1 文で返す", () =>
     withRollbackDb(async (tx) => {
       const db = spyOnDb();
       const a = await seedTeam(tx, "cmp_app_a", "A のチーム");
+      await seedAssignment(tx, "cmp_app_a", a, "u_other");
       await seedTeam(tx, "cmp_app_b", "B のチーム");
 
       const response = await get("/api/teams", envWithRole("ROLE_OWNER"));
@@ -407,7 +516,7 @@ describe("GET /api/teams", () => {
       expect(db.transaction).not.toHaveBeenCalled();
     }));
 
-  it("DB に接続できないと 503 を返し、1 回報告する", async () => {
+  it("DB に接続できないと 500 で本文を返さず、原因を 1 回報告する", async () => {
     vi.spyOn(dbInRollback, "execute").mockRejectedValue(
       new Error("Failed query", {
         cause: new Error("connect ECONNREFUSED 127.0.0.1:5432"),
@@ -416,12 +525,11 @@ describe("GET /api/teams", () => {
 
     const response = await get("/api/teams", envWithRole("ROLE_OWNER"));
 
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({
-      _tag: "DbUnavailable",
-      message: "保存に失敗しました",
-    });
-    expect(consoleError).toHaveBeenCalledOnce();
+    expect(response.status).toBe(500);
+    expect(await response.text()).toBe("");
+    expect(consoleError).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ message: "Failed query" }),
+    );
   });
 });
 
@@ -521,7 +629,7 @@ describe("チーム一覧の DO", () => {
 describe("route の defect", () => {
   afterEach(() => sendErrorReportsTo(() => {}));
 
-  it("本体の defect は 500 の Internal Server Error で、defect を 1 回報告する", async () => {
+  it("本体の defect は 500 で本文を返さず、defect を 1 回報告する", async () => {
     const send = vi.fn();
     sendErrorReportsTo(send);
     // 戻り値の rows を読む所で TypeError になり、Effect の失敗ではなく defect になる
@@ -530,7 +638,7 @@ describe("route の defect", () => {
     const response = await get("/api/teams", envWithRole("ROLE_OWNER"));
 
     expect(response.status).toBe(500);
-    expect(await response.text()).toBe("Internal Server Error");
+    expect(await response.text()).toBe("");
     expect(send).toHaveBeenCalledOnce();
     expect(send.mock.calls[0][0]).toBeInstanceOf(TypeError);
   });
@@ -633,8 +741,9 @@ describe("GET /api/teams/:teamId", () => {
       expect(response.status).toBe(404);
       expect(await response.json()).toEqual({
         _tag: "TeamNotFound",
-        message: "チームが見つかりません",
+        teamId: other,
       });
+      expect(consoleError).not.toHaveBeenCalled();
     }));
 
   it("メンバー一覧が取れなくてもチームを返し、一覧は null にして 1 回報告する", () =>
@@ -815,7 +924,6 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
       expect(response.status).toBe(403);
       expect(await response.json()).toEqual({
         _tag: "NotAssigned",
-        message: "チームに割り当てられた人だけが記入できます",
       });
       expect(await levelRows(tx)).toEqual([]);
       expect(consoleError).not.toHaveBeenCalled();
@@ -844,7 +952,6 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
       expect(response.status).toBe(404);
       expect(await response.json()).toEqual({
         _tag: "SkillNotFound",
-        message: "スキルが見つかりません",
       });
       expect(await levelRows(tx)).toEqual([]);
       expect(consoleError).not.toHaveBeenCalled();
@@ -867,7 +974,6 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
       expect(response.status).toBe(422);
       expect(await response.json()).toEqual({
         _tag: "InvalidLevel",
-        message: "レベルの値が正しくありません",
       });
       expect(await levelRows(tx)).toEqual([]);
       expect(consoleError).not.toHaveBeenCalled();
@@ -906,9 +1012,15 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
     }));
 
   it.each([
-    ["レベルを文字列にした body", "2", "application/json"],
-    ["Content-Type が JSON でない要求", 2, "text/plain"],
-  ])("%s は 400 で、行を書かない", (_, level, contentType) =>
+    ["レベルを文字列にした body", "2", "application/json", 400, ""],
+    [
+      "Content-Type が JSON でない要求",
+      2,
+      "text/plain",
+      415,
+      "Unsupported content-type: text/plain",
+    ],
+  ])("%s は %i で、行を書かない", (_, level, contentType, status, body) =>
     withRollbackDb(async (tx) => {
       const { teamId, skillId } = await seedAssignedTeam(tx);
 
@@ -919,11 +1031,8 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
         contentType,
       );
 
-      expect(response.status).toBe(400);
-      expect(await response.json()).toEqual({
-        _tag: "InvalidRequest",
-        message: "送った内容の形が正しくありません",
-      });
+      expect(response.status).toBe(status);
+      expect(await response.text()).toBe(body);
       expect(await levelRows(tx)).toEqual([]);
       expect(consoleError).not.toHaveBeenCalled();
     }),
@@ -950,6 +1059,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
 
       expect(response.status).toBe(status);
       expect(await levelRows(tx)).toEqual([]);
+      expect(consoleError).not.toHaveBeenCalled();
     }),
   );
 
@@ -1001,27 +1111,12 @@ describe("POST /api/teams", () => {
   );
 
   it.each([
-    [
-      "メンバー",
-      403,
-      "NotManager",
-      "管理者だけが操作できます",
-      "ROLE_MEMBER",
-      { name: "営業" },
-    ],
-    [
-      "空白だけの名前",
-      422,
-      "InvalidName",
-      "名前は 1〜50 文字で入力してください",
-      "ROLE_ADMIN",
-      { name: "   " },
-    ],
+    ["メンバー", 403, "NotManager", "ROLE_MEMBER", { name: "営業" }],
+    ["空白だけの名前", 422, "InvalidName", "ROLE_ADMIN", { name: "   " }],
     [
       "51 文字の名前",
       422,
       "InvalidName",
-      "名前は 1〜50 文字で入力してください",
       "ROLE_ADMIN",
       { name: "あ".repeat(51) },
     ],
@@ -1029,29 +1124,14 @@ describe("POST /api/teams", () => {
       "同じ事業所にある名前",
       409,
       "DuplicateName",
-      "同じ名前がすでにあります",
       "ROLE_ADMIN",
       { name: " 開発 " },
     ],
-    [
-      "name が数の body",
-      400,
-      "InvalidRequest",
-      "送った内容の形が正しくありません",
-      "ROLE_ADMIN",
-      { name: 1 },
-    ],
-    [
-      "name の無い body",
-      400,
-      "InvalidRequest",
-      "送った内容の形が正しくありません",
-      "ROLE_ADMIN",
-      {},
-    ],
+    ["name が数の body", 400, DECODE_FAILURE, "ROLE_ADMIN", { name: 1 }],
+    ["name の無い body", 400, DECODE_FAILURE, "ROLE_ADMIN", {}],
   ] as const)(
     "%s は %i の %s で、チームを作らない",
-    (_, status, tag, message, role, body) =>
+    (_, status, tag, role, body) =>
       withRollbackDb(async (tx) => {
         await seedTeam(tx, "cmp_app_a", "開発");
 
@@ -1063,7 +1143,7 @@ describe("POST /api/teams", () => {
         );
 
         expect(response.status).toBe(status);
-        expect(await response.json()).toEqual({ _tag: tag, message });
+        expect(await failureBodyOf(response)).toEqual(expectedFailureBody(tag));
         expect(await teamRows(tx)).toMatchObject([{ name: "開発" }]);
         expect(consoleError).not.toHaveBeenCalled();
       }),
@@ -1126,7 +1206,7 @@ describe("PATCH /api/teams/:teamId", () => {
     [
       "name が数の body",
       400,
-      "InvalidRequest",
+      DECODE_FAILURE,
       "ROLE_ADMIN",
       "cmp_app_a",
       { name: 1 },
@@ -1154,7 +1234,7 @@ describe("PATCH /api/teams/:teamId", () => {
         );
 
         expect(response.status).toBe(status);
-        expect(await response.json()).toMatchObject({ _tag: tag });
+        expect(await failureBodyOf(response)).toEqual(expectedFailureBody(tag));
         expect(await teamName(tx, teamId)).toBe("旧");
         expect(consoleError).not.toHaveBeenCalled();
       }),
@@ -1267,7 +1347,6 @@ describe("POST /api/teams/:teamId/skills", () => {
       "メンバー",
       403,
       "NotManager",
-      "管理者だけが操作できます",
       "ROLE_MEMBER",
       "cmp_app_a",
       { name: "テスト" },
@@ -1276,7 +1355,6 @@ describe("POST /api/teams/:teamId/skills", () => {
       "チームにある名前",
       409,
       "DuplicateName",
-      "同じ名前がすでにあります",
       "ROLE_ADMIN",
       "cmp_app_a",
       { name: " 設計 " },
@@ -1285,7 +1363,6 @@ describe("POST /api/teams/:teamId/skills", () => {
       "51 文字の名前",
       422,
       "InvalidName",
-      "名前は 1〜50 文字で入力してください",
       "ROLE_ADMIN",
       "cmp_app_a",
       { name: "あ".repeat(51) },
@@ -1294,23 +1371,14 @@ describe("POST /api/teams/:teamId/skills", () => {
       "他社のチーム",
       404,
       "TeamNotFound",
-      "チームが見つかりません",
       "ROLE_ADMIN",
       "cmp_app_b",
       { name: "テスト" },
     ],
-    [
-      "name の無い body",
-      400,
-      "InvalidRequest",
-      "送った内容の形が正しくありません",
-      "ROLE_ADMIN",
-      "cmp_app_a",
-      {},
-    ],
+    ["name の無い body", 400, DECODE_FAILURE, "ROLE_ADMIN", "cmp_app_a", {}],
   ] as const)(
     "%s は %i の %s で、スキルを足さない",
-    (_, status, tag, message, role, companyId, body) =>
+    (_, status, tag, role, companyId, body) =>
       withRollbackDb(async (tx) => {
         const teamId = await seedTeam(tx, companyId, "開発");
         await seedSkill(tx, companyId, teamId, "設計");
@@ -1318,7 +1386,7 @@ describe("POST /api/teams/:teamId/skills", () => {
         const response = await addSkill(teamId, envWithRole(role), body);
 
         expect(response.status).toBe(status);
-        expect(await response.json()).toEqual({ _tag: tag, message });
+        expect(await failureBodyOf(response)).toEqual(expectedFailureBody(tag));
         expect(await skillNamesOf(tx, teamId)).toEqual(["設計"]);
         expect(consoleError).not.toHaveBeenCalled();
       }),
@@ -1363,25 +1431,11 @@ describe("DELETE /api/skills/:skillId", () => {
     }));
 
   it.each([
-    [
-      "メンバー",
-      403,
-      "NotManager",
-      "管理者だけが操作できます",
-      "ROLE_MEMBER",
-      "cmp_app_a",
-    ],
-    [
-      "他社のスキル",
-      404,
-      "SkillNotFound",
-      "スキルが見つかりません",
-      "ROLE_ADMIN",
-      "cmp_app_b",
-    ],
+    ["メンバー", 403, "NotManager", "ROLE_MEMBER", "cmp_app_a"],
+    ["他社のスキル", 404, "SkillNotFound", "ROLE_ADMIN", "cmp_app_b"],
   ] as const)(
     "%s は %i の %s で、スキルを消さない",
-    (_, status, tag, message, role, companyId) =>
+    (_, status, tag, role, companyId) =>
       withRollbackDb(async (tx) => {
         const teamId = await seedTeam(tx, companyId, "開発");
         const skillId = await seedSkill(tx, companyId, teamId, "設計");
@@ -1389,7 +1443,7 @@ describe("DELETE /api/skills/:skillId", () => {
         const response = await removeSkill(skillId, envWithRole(role));
 
         expect(response.status).toBe(status);
-        expect(await response.json()).toEqual({ _tag: tag, message });
+        expect(await failureBodyOf(response)).toEqual(expectedFailureBody(tag));
         expect(await skillNamesOf(tx, teamId)).toEqual(["設計"]);
         expect(consoleError).not.toHaveBeenCalled();
       }),
@@ -1471,7 +1525,6 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       "メンバー一覧に居ない人",
       422,
       "NotCompanyMember",
-      "事業所のメンバーではありません",
       "ROLE_ADMIN",
       "cmp_app_a",
       () => membersOk([companyMember("u_3")]),
@@ -1480,7 +1533,6 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       "メンバー",
       403,
       "NotManager",
-      "管理者だけが操作できます",
       "ROLE_MEMBER",
       "cmp_app_a",
       () => membersOk([companyMember("u_2")]),
@@ -1489,7 +1541,6 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       "他社のチーム",
       404,
       "TeamNotFound",
-      "チームが見つかりません",
       "ROLE_ADMIN",
       "cmp_app_b",
       () => membersOk([companyMember("u_2")]),
@@ -1498,14 +1549,13 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       "メンバー一覧の RPC が session の失敗を返す時",
       401,
       "Unauthenticated",
-      "ログインし直してください",
       "ROLE_ADMIN",
       "cmp_app_a",
       sessionError,
     ],
   ] as const)(
     "%s は %i の %s で、割り当てず報告しない",
-    (_, status, tag, message, role, companyId, list) =>
+    (_, status, tag, role, companyId, list) =>
       withRollbackDb(async (tx) => {
         const teamId = await seedTeam(tx, companyId, "開発");
 
@@ -1516,13 +1566,13 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
         );
 
         expect(response.status).toBe(status);
-        expect(await response.json()).toEqual({ _tag: tag, message });
+        expect(await failureBodyOf(response)).toEqual(expectedFailureBody(tag));
         expect(await assignedUserIdsOf(tx, teamId)).toEqual([]);
         expect(consoleError).not.toHaveBeenCalled();
       }),
   );
 
-  it("メンバー一覧が取れないと 502 の MemberListError で、割り当てず 1 回報告する", () =>
+  it("メンバー一覧が取れないと 500 で本文を返さず、割り当てず listMembers failed を 1 回報告する", () =>
     withRollbackDb(async (tx) => {
       const teamId = await seedTeam(tx, "cmp_app_a", "開発");
 
@@ -1535,10 +1585,14 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
         ),
       );
 
-      expect(response.status).toBe(502);
-      expect(await response.json()).toMatchObject({ _tag: "MemberListError" });
+      expect(response.status).toBe(500);
+      expect(await response.text()).toBe("");
       expect(await assignedUserIdsOf(tx, teamId)).toEqual([]);
-      expect(consoleError).toHaveBeenCalledOnce();
+      expect(consoleError).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          message: "listMembers failed: UNSPECIFIED",
+        }),
+      );
     }));
 });
 
@@ -1702,14 +1756,11 @@ describe("GET /api/members", () => {
       () => Response.json({ error: { reason: "RESULT_UNSPECIFIED" } }),
     ],
     ["一覧の事業所が session の事業所と違う", () => membersOk([], "cmp_app_b")],
-  ])("%s と 502 で、1 回報告する", async (_, list) => {
+  ])("%s と 500 で本文を返さず、1 回報告する", async (_, list) => {
     const response = await get("/api/members", envWithMembers(list));
 
-    expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({
-      _tag: "MemberListError",
-      message: "メンバー一覧を取得できませんでした",
-    });
+    expect(response.status).toBe(500);
+    expect(await response.text()).toBe("");
     expect(consoleError).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         message: "listMembers failed: UNSPECIFIED",
@@ -1721,10 +1772,7 @@ describe("GET /api/members", () => {
     const response = await get("/api/members", envWithMembers(sessionError));
 
     expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({
-      _tag: "Unauthenticated",
-      message: "ログインし直してください",
-    });
+    expect(await response.json()).toEqual({ _tag: "Unauthenticated" });
     expect(consoleError).not.toHaveBeenCalled();
   });
 });
@@ -1845,6 +1893,17 @@ describe("CSRF と CORS", () => {
 });
 
 describe("/auth の着地", () => {
+  it("/auth の route の defect は 500 の Internal Server Error で、1 回報告する", async () => {
+    const response = await get("/auth/account", {
+      ...envWith(sessionOk),
+      AUTH_URL: "not a url",
+    });
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).toBe("Internal Server Error");
+    expect(consoleError).toHaveBeenCalledOnce();
+  });
+
   const login = (callbackUrl?: string) => {
     const afterSignIn = new URL("/auth/after-signin", ORIGIN);
     if (callbackUrl) afterSignIn.searchParams.set("callbackUrl", callbackUrl);
@@ -2032,67 +2091,5 @@ describe("GET /auth/account/members", () => {
     expect(location.searchParams.get("redirect_url")).toBe(
       `${ORIGIN}/dashboard`,
     );
-  });
-});
-
-describe("resultJson", () => {
-  const session: RequestSession = {
-    companyId: CompanyId.make("cmp_app_a"),
-    userId: "u_1",
-    role: undefined,
-    userName: "山田 花子",
-    companyMembers: CompanyMembers.of({ list: Effect.succeed([]) }),
-    companyTeamListOf: companyTeamListBackedBy(),
-  };
-
-  it("失敗は表の状態コードと文言で返す", async () => {
-    const response = await new Hono()
-      .get("/x", async (c) =>
-        resultJson(
-          c,
-          Schema.Struct({}),
-          await runServiceWithoutDb(session, () =>
-            Effect.fail(new TeamNotFound({ teamId: "t" })),
-          ),
-        ),
-      )
-      .request("/x");
-
-    expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({
-      _tag: "TeamNotFound",
-      message: "チームが見つかりません",
-    });
-  });
-
-  it("成功は schema に無い key を落として返す", async () => {
-    const response = await new Hono()
-      .get("/x", async (c) =>
-        resultJson(
-          c,
-          Schema.Struct({ id: Schema.String }),
-          await runServiceWithoutDb(session, () =>
-            Effect.succeed({ id: "t", email: "leak@example.com" }),
-          ),
-        ),
-      )
-      .request("/x");
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ id: "t" });
-  });
-
-  it("実行口を通さない Result は型エラーになる (bun run typecheck で見る)", () => {
-    new Hono().get("/x", (c) =>
-      // @ts-expect-error 実行口 (runServiceWithoutDb・runScopedService) の結果だけを受ける
-      resultJson(c, Schema.Struct({}), Result.succeed({})),
-    );
-  });
-});
-
-describe("jsonBody", () => {
-  it("decode で型の変わる schema は型エラーになる (bun run typecheck で見る)", () => {
-    // @ts-expect-error SkillId は decode で brand が付く
-    jsonBody(Schema.Struct({ skillId: SkillId }));
   });
 });

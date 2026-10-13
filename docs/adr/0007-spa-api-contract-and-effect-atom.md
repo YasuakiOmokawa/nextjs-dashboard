@@ -28,11 +28,11 @@ taimei で今書ける間違いと、移した後に何が止めるか:
 ## Decision
 
 - SPA が呼ぶ `/api/*` の全 endpoint は Effect HttpApi の契約で宣言し、Hono の中に載せる。契約は endpoint ごとに path・params・payload・成功・失敗を宣言し、server の handler の型と SPA の client の型を同じ契約から作る
-- SPA は契約と失敗の schema を値として import する。契約と失敗の schema は server の module (`db/`・`report-error` など) を import しない module に置き、`.fallowrc.json` の `boundaries` をその module に開く。server のコードと秘密が SPA に入らないこと (`web/src/__tests__/spa-bundle.test.ts`) は保つ (#603)
+- SPA は契約と失敗の schema を値として import する。契約と失敗の schema は server の module (`db/`・`report-error` など) を import しない module に置き (#603 の決定: `src/spa-contract.ts`。Service が失敗の class と、要求と応答の本文の schema を契約から import する)、`.fallowrc.json` の `boundaries` をその module に開く。server のコードと秘密が SPA に入らないこと (`web/src/__tests__/spa-bundle.test.ts`) は保つ (#603)
 - path と method は今のままにする。`web/index.html` が JS を待たずに始める fetch は `/api/<page>` の対応に頼る
-- Hono は残し、契約の外側で CSRF、`/auth` の route、`app.onError` の報告、`run_worker_first` で Worker に来た要求の振り分けを受け持つ。契約の handler の予期しない失敗 (defect) は HttpApi が応答にして `app.onError` に届かないので、HttpApi の側からも同じ `reportError` に送る (taimei-auth の `ErrorReporter` と同じ形、#603)
-- 今の `requireSession` の役目 (session の検証、`x-taimei-session` の付与、要求の `x-taimei-session` が今の session と違う時の 409 `SessionChanged`、session を handler に渡すこと) を契約の middleware と Hono にどう分けるかは #603 で決める。session の検証は 1 要求に 1 回にし、409 は契約の失敗として宣言する
-- 認証は契約の middleware で行い、401 を client の型に入れる
+- Hono は残し、契約の外側で CSRF、`/auth` の route、`app.onError` の報告、`run_worker_first` で Worker に来た要求の振り分けを受け持つ。契約の handler の予期しない失敗 (defect) は HttpApi が応答にして `app.onError` に届かないので、HttpApi の側からも同じ `reportError` に送る (taimei-auth の `ErrorReporter` と同じ形、#603)。#603 の決定: 予期しない失敗 (DB・taimei-auth の一覧の失敗) も handler で defect にして本文の無い 500 にし、報告は `ErrorReporter` の 1 か所にする。`src/services/index.ts` の実行口は報告しない。予期しない失敗の class は `cause` を schema の項目に持つので、契約の失敗として宣言すると原因を応答に載せてしまう
+- 今の `requireSession` の役目 (session の検証、`x-taimei-session` の付与、要求の `x-taimei-session` が今の session と違う時の 409 `SessionChanged`、session を handler に渡すこと) を契約の middleware と Hono にどう分けるかは #603 で決める。session の検証は 1 要求に 1 回にし、409 は契約の失敗として宣言する。#603 の決定: Hono の route が session を確かめて `x-taimei-session` を応答に付け、結果 (session か `Unauthenticated`・`SessionChanged`) を要求ごとの `Context.Reference` で web handler に渡し、契約の middleware がそれを失敗か `CurrentSession` にする。`Context.Reference` で渡すのは、middleware が要求できる service を layer を組む時にしか満たせないからである
+- 認証は契約の middleware で行い、401 を client の型に入れる。#603 の決定: `SpaApi` の全 group を `.add` した後に API 全体へ 1 回掛ける
 - 画面のデータ取得は Effect Atom (契約の client の query と mutation) にする。router は TanStack Router のまま
 - 移す順序:
   1. #603: API を契約に移し、SPA は契約の client で呼ぶ。データ取得は TanStack Query のまま、`queryFn` の中で契約の client を呼ぶ
@@ -56,7 +56,7 @@ taimei で今書ける間違いと、移した後に何が止めるか:
 | :-- | :-- | :-- |
 | SPA の bundle が大きくなる | taimei-auth では、Atom と契約の client で web の JS の gzip が main 比 +64.6 kB。改訂前の判断の検証の Worker では `HttpApiClient` が effect ごと 116,874 B | #603・#605 で変更の前後の SPA の JS (gzip) を記録する。#605 で `@tanstack/react-query` を外す。画面の最初の API は `web/index.html` が JS を待たずに呼ぶので、JS が大きくなっても API の応答を待ち始める時刻は遅れない |
 | `HttpApi`・`AtomHttpApi`・`effect/reactivity` が `@stability unstable` | effect の minor の更新で API が変わりうる | `effect` を `package.json` の exact pin のまま、Dependabot の更新の PR で上げる。壊れた箇所は typecheck とテストで一覧になる。taimei-auth と同じ扱い |
-| `HttpApi.middleware()` は呼んだ時点で追加済みの group にしか掛からず、後から足した group は認証なしになる | 認証の掛け忘れ | `HttpApi.reflect` で契約の全 endpoint を数え上げ、cookie 無しの要求が 401 になるテストで止める。掛け方 (API 全体に 1 回か、group ごとか) は #603 で決める |
+| `HttpApi.middleware()` は呼んだ時点で追加済みの group にしか掛からず、後から足した group は認証なしになる | 認証の掛け忘れ | `HttpApi.reflect` で契約の全 endpoint を数え上げ、cookie 無しの要求が 401 になるテストで止める。掛け方 (API 全体に 1 回か、group ごとか) は #603 で決め、Decision の認証の項に書いた |
 | Workers Free の CPU が増える | taimei-auth では起動時の JS が 32.7 → 40.7 ms、worker の gzip が +16% | #603 で変更の前後の Worker の bundle と起動時の CPU を記録し、本番に出す前に staging で CPU (p50・p95)・`exceededResources`・cold の TTFB を確かめる。CPU の上限での打ち切りが出たら本番に出さず、Paid にするか、この ADR を改めるかを決める |
 
 taimei-auth の数値は、`taimei-code/taimei-auth@d63097b` の ADR-0017 の「SPA の API 契約」節の費用 (2026-10-11 の計測) である。

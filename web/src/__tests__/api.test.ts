@@ -1,6 +1,7 @@
 import { QueryClient, queryOptions } from "@tanstack/react-query";
-import { DetailedError } from "hono/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SkillId, TeamId } from "../../../db/ids";
+import { NotAssigned, type TeamPage } from "../../../src/spa-contract";
 import {
   addSkill,
   assignMember,
@@ -10,11 +11,27 @@ import {
   removeSkill,
   renameTeam,
   saveMyLevels,
-  type TeamPage,
   teamQuery,
   unassignMember,
   writeSavedMyLevels,
 } from "../api";
+
+const stubLocation = () => {
+  const location = {
+    origin: "http://app.example",
+    pathname: "/dashboard/teams",
+    search: "?tab=1",
+    assign: vi.fn(),
+    reload: vi.fn(),
+  };
+  vi.stubGlobal("location", location);
+  return location;
+};
+
+let location: ReturnType<typeof stubLocation>;
+beforeEach(() => {
+  location = stubLocation();
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -22,7 +39,7 @@ afterEach(() => {
 
 it("保存の level に文字列を渡すと型エラーになる (bun run typecheck で見る)", () => {
   () =>
-    // @ts-expect-error hc の入力の型は API の schema の JSON の形 (level は数)
+    // @ts-expect-error 契約の payload の型は JSON の形 (level は数)
     saveMyLevels("t", [{ skillId: "s", level: "2", wantsToLearn: false }]);
 });
 
@@ -62,43 +79,28 @@ it.each([
 
     await send();
 
-    expect(String(fetch.mock.calls[0]?.[0])).toBe(path);
+    expect(new URL(String(fetch.mock.calls[0]?.[0])).pathname).toBe(path);
   },
 );
 
-const failedResponse = (data: unknown) =>
-  new DetailedError("403 Forbidden", {
-    statusCode: 403,
-    detail: { data, statusText: "Forbidden" },
-  });
-
-it("失敗の文言は、API の本文の message", () => {
-  expect(
-    failureMessageOf(
-      failedResponse({
-        _tag: "NotAssigned",
-        message: "チームに割り当てられた人だけが記入できます",
-      }),
-      "保存できませんでした",
-    ),
-  ).toBe("チームに割り当てられた人だけが記入できます");
+it("契約の失敗の文言は、SPA の表の文言", () => {
+  expect(failureMessageOf(new NotAssigned(), "保存できませんでした")).toBe(
+    "チームに割り当てられた人だけが記入できます",
+  );
 });
 
 it.each([
-  [
-    "Worker の外で起きた、本文が JSON でない 5xx",
-    failedResponse("Internal Server Error"),
-  ],
-  ["本文に message の無い応答", failedResponse({ _tag: "NotAssigned" })],
+  ["契約に無い失敗 (本文の無い 500 など)", new Error("500")],
   ["応答の無い網の失敗", new TypeError("Failed to fetch")],
+  ["_tag だけ似せた値", { _tag: "NotAssigned" }],
 ])("%s の文言は、呼び手が渡した操作ごとの文言", (_, error) => {
   expect(failureMessageOf(error, "チームを削除できませんでした")).toBe(
     "チームを削除できませんでした",
   );
 });
 
-const TEAM_ID = "00000000-0000-4000-8000-0000000000aa";
-const SKILL_ID = "00000000-0000-4000-8000-000000000001";
+const TEAM_ID = TeamId.make("00000000-0000-4000-8000-0000000000aa");
+const SKILL_ID = SkillId.make("00000000-0000-4000-8000-000000000001");
 
 const pageWithMyLevel = (level: 0 | 1 | 2 | 3): TeamPage => ({
   team: {
@@ -208,17 +210,6 @@ describe("API の共通の fetch", () => {
       { headers: session ? { "x-taimei-session": session } : {} },
     );
 
-  const stubLocation = () => {
-    const location = {
-      pathname: "/dashboard/teams",
-      search: "?tab=1",
-      assign: vi.fn(),
-      reload: vi.fn(),
-    };
-    vi.stubGlobal("location", location);
-    return location;
-  };
-
   it("先行の fetch があれば、GET の同じ URL の 1 回目にその応答を使い、2 回目は fetch する", async () => {
     const { meQuery } = await importApiWithNewModuleState();
     const fetch = vi.fn(async () => meResponse("u_fetched"));
@@ -256,7 +247,6 @@ describe("API の共通の fetch", () => {
 
   it("別のタブで事業所や user を切り替えた後に session の値が最初に受けた値と変わると、前の session の cache を捨てるため再読み込みする", async () => {
     const { meQuery } = await importApiWithNewModuleState();
-    const location = stubLocation();
     vi.stubGlobal(
       "fetch",
       vi
@@ -273,7 +263,6 @@ describe("API の共通の fetch", () => {
 
   it("最初に受けた session の印を、その後の要求に付けて送る", async () => {
     const { meQuery } = await importApiWithNewModuleState();
-    stubLocation();
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       meResponse("u_1", "cmp_a u_1"),
     );
@@ -290,7 +279,6 @@ describe("API の共通の fetch", () => {
 
   it("session の値が同じなら、再読み込みしない", async () => {
     const { meQuery } = await importApiWithNewModuleState();
-    const location = stubLocation();
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => meResponse("u_1", "cmp_a u_1")),
@@ -304,7 +292,6 @@ describe("API の共通の fetch", () => {
 
   it("401 は、今の path と query を callbackUrl にしてログインへ移す", async () => {
     const { meQuery } = await importApiWithNewModuleState();
-    const location = stubLocation();
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response(null, { status: 401 })),

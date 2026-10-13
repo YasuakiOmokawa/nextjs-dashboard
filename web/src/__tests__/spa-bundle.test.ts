@@ -3,6 +3,12 @@ import { build, type Rollup } from "vite";
 import { afterEach, expect, it, vi } from "vitest";
 
 const webRoot = path.resolve(import.meta.dirname, "../..");
+const repoRoot = path.resolve(webRoot, "..");
+const CONTRACT_MODULES = [
+  "src/spa-contract.ts",
+  "db/ids.ts",
+  "db/column-values.ts",
+].map((file) => path.join(repoRoot, file));
 const SERVER_ONLY_PACKAGE_PATH =
   /\/node_modules\/(pg|pg-[^/]+|drizzle-orm|@sentry\/[^/]+)\//;
 const SECRET_NAMES = [
@@ -29,7 +35,7 @@ const buildSpa = async () => {
   return [result].flat().flatMap((o) => o.output);
 };
 
-it("SPA の成果物にサーバーの module と秘密の名前が無い", async () => {
+it("SPA の成果物に web の外の module は契約だけで、サーバーの module と秘密の名前が無い", async () => {
   const output = await buildSpa();
   const moduleIds = output.flatMap((o) =>
     o.type === "chunk" ? Object.keys(o.modules) : [],
@@ -40,13 +46,15 @@ it("SPA の成果物にサーバーの module と秘密の名前が無い", asyn
 
   expect(moduleIds.length).toBeGreaterThan(0);
   expect(
-    moduleIds.filter(
-      (id) =>
-        !id.startsWith("\0") &&
-        !id.includes("/node_modules/") &&
-        !id.startsWith(`${webRoot}/`),
-    ),
-  ).toEqual([]);
+    moduleIds
+      .filter(
+        (id) =>
+          !id.startsWith("\0") &&
+          !id.includes("/node_modules/") &&
+          !id.startsWith(`${webRoot}/`),
+      )
+      .sort(),
+  ).toEqual([...CONTRACT_MODULES].sort());
   expect(moduleIds.filter((id) => SERVER_ONLY_PACKAGE_PATH.test(id))).toEqual(
     [],
   );

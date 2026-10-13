@@ -1,7 +1,5 @@
-import type { TeamPage } from "../api";
+import type { Level } from "../../../src/spa-contract";
 import type { Cell, MyLevelEntry } from "./skill-matrix";
-
-export type Level = TeamPage["team"]["levels"][number]["level"];
 
 export const levels: Record<Level, { symbol: string; label: string }> = {
   0: { symbol: "", label: "未経験" },

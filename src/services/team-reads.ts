@@ -1,29 +1,13 @@
 import { type SQL, sql } from "drizzle-orm";
 import { Context, Effect, Layer, Schema } from "effect";
 import { DatabaseError } from "pg";
-import { SkillId, TeamId } from "@/db/ids";
+import { Team, TeamDetail, TeamNotFound } from "@/src/spa-contract";
 import { AuthorizationContext, isManager } from "./authorization-context";
 import { CompanyContext } from "./company-context";
 import { CompanyTeamList, decodeTeamListSnapshot } from "./company-team-list";
 import { DbUnavailable, ReadDb } from "./db-service";
-import { Level } from "./level";
-import { decodeTeamId, TeamNotFound, TeamServiceError } from "./team-errors";
+import { decodeTeamId, TeamServiceError } from "./team-errors";
 
-export const Team = Schema.Struct({ id: TeamId, name: Schema.String });
-
-export const TeamDetail = Schema.Struct({
-  ...Team.fields,
-  skills: Schema.Array(Schema.Struct({ id: SkillId, name: Schema.String })),
-  assignedUserIds: Schema.Array(Schema.String),
-  levels: Schema.Array(
-    Schema.Struct({
-      userId: Schema.String,
-      skillId: SkillId,
-      level: Level,
-      wantsToLearn: Schema.Boolean,
-    }),
-  ),
-});
 type TeamDetail = typeof TeamDetail.Type;
 
 const decodeTeamDetail = Schema.decodeUnknownEffect(Schema.NullOr(TeamDetail));
@@ -94,11 +78,9 @@ export class TeamReads extends Context.Service<
                   decodeTeamListSnapshot,
                 );
           if (stored._tag === "Missing") yield* teamList.replace(snapshot);
-          return snapshot.teams
-            .filter(
-              (team) => isManager || team.assignedUserIds.includes(userId),
-            )
-            .map(({ id, name }) => ({ id, name }));
+          return snapshot.teams.filter(
+            (team) => isManager || team.assignedUserIds.includes(userId),
+          );
         }).pipe(Effect.withSpan("TeamReads.listTeams")),
 
         getTeam: Effect.fn("TeamReads.getTeam")(function* (teamId: string) {

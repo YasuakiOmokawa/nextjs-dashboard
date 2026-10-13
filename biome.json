@@ -16,21 +16,6 @@
       "!vendor/**"
     ]
   },
-  "plugins": [
-    {
-      "path": "./biome-plugins/no-raw-request-input.grit",
-      "includes": ["**/src/**/*.ts", "!**/web/**", "!**/__tests__/**"]
-    },
-    {
-      "path": "./biome-plugins/no-direct-json.grit",
-      "includes": [
-        "**/src/**/*.ts",
-        "!**/web/**",
-        "!**/src/run-json.ts",
-        "!**/__tests__/**"
-      ]
-    }
-  ],
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
@@ -80,7 +65,7 @@
               },
               {
                 "group": ["effect/http"],
-                "message": "handler は契約が decode した値を受け、成功の値を返す。HttpServerRequest・HttpServerResponse (effect/http) を使えるのは、契約を Hono に載せる file だけ (ADR-0007)"
+                "message": "handler は契約が decode した値を受け、成功の値を返す。effect/http を使えるのは、契約の web handler を組む src/spa-http-api.ts と、SPA の契約の client を作る web/src/api.ts だけ (ADR-0007)"
               },
               {
                 "group": ["@sentry/*"],

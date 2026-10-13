@@ -2,7 +2,7 @@ import { Effect, Layer, ManagedRuntime, Result } from "effect";
 import { db } from "@/db/drizzle/client";
 import type { CompanyId } from "@/db/ids";
 import { withCompanyScope } from "@/db/scoped";
-import { reportUnexpectedFailure } from "@/src/lib/team-failure";
+import { NotManager } from "@/src/spa-contract";
 import { AuthorizationContext, isManager } from "./authorization-context";
 import { CompanyContext } from "./company-context";
 import { CompanyMembers } from "./company-members-service";
@@ -12,7 +12,7 @@ import {
   rewriteTeamList,
 } from "./company-team-list";
 import { Db, DbUnavailable, ReadDb } from "./db-service";
-import { NotManager, type TeamFailure, TeamServiceError } from "./team-errors";
+import { type TeamFailure, TeamServiceError } from "./team-errors";
 import { TeamReads } from "./team-reads";
 import { TeamManagement, TeamService } from "./team-service";
 
@@ -49,17 +49,6 @@ type _NoRequestContextInLive = [
   : "ERROR: per-request services must NOT be in Live";
 const _assertNoRequestContextInLive: _NoRequestContextInLive = true;
 
-declare const fromExecutor: unique symbol;
-// resultJson が実行口を通さずに作った Result を受けないための印
-export type ServiceResult<A, E> = Result.Result<A, E> & {
-  readonly [fromExecutor]: true;
-};
-
-const reported = <A, E extends TeamFailure>(result: Result.Result<A, E>) => {
-  if (Result.isFailure(result)) reportUnexpectedFailure(result.failure);
-  return result as ServiceResult<A, E>;
-};
-
 const provideSession =
   (session: RequestSession) =>
   <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -80,11 +69,9 @@ const provideSession =
 export const runServiceWithoutDb = async <A, E extends TeamFailure>(
   session: RequestSession,
   body: () => Effect.Effect<A, E, LiveServices | ProvidedPerRequest>,
-): Promise<ServiceResult<A, E>> =>
-  reported(
-    await runtime.runPromise(
-      Effect.result(Effect.suspend(body).pipe(provideSession(session))),
-    ),
+): Promise<Result.Result<A, E>> =>
+  runtime.runPromise(
+    Effect.result(Effect.suspend(body).pipe(provideSession(session))),
   );
 
 const ReadScoped = TeamReads.layer.pipe(
@@ -153,12 +140,8 @@ export const runScopedService = async <A, E extends TeamFailure>(
     E,
     LiveServices | Layer.Success<typeof RequestScoped> | ProvidedPerRequest | Db
   >,
-): Promise<ServiceResult<A, E | DbUnavailable>> =>
-  reported(
-    await runInCompanyScope(session, () =>
-      body().pipe(Effect.provide(RequestScoped)),
-    ),
-  );
+): Promise<Result.Result<A, E | DbUnavailable>> =>
+  runInCompanyScope(session, () => body().pipe(Effect.provide(RequestScoped)));
 
 export const rewriteTeamListAfterCommit = (
   teamList: CompanyTeamList["Service"],
@@ -183,9 +166,9 @@ export const runManagerScopedService = async <A, E extends TeamFailure>(
     LiveServices | Layer.Success<typeof ManagerScoped> | ProvidedPerRequest | Db
   >,
 ): Promise<
-  ServiceResult<A, E | NotManager | TeamServiceError | DbUnavailable>
+  Result.Result<A, E | NotManager | TeamServiceError | DbUnavailable>
 > => {
-  if (!isManager(session.role)) return reported(Result.fail(new NotManager()));
+  if (!isManager(session.role)) return Result.fail(new NotManager());
   const result = await runInCompanyScope(session, () =>
     body().pipe(
       Effect.provide(ManagerScoped),
@@ -199,5 +182,5 @@ export const runManagerScopedService = async <A, E extends TeamFailure>(
     await rewriteTeamListAfterCommit(teamList, result.success.bumped);
   else if (result.failure._tag === "DbUnavailable")
     await runtime.runPromise(teamList.clear);
-  return reported(Result.map(result, ({ value }) => value));
+  return Result.map(result, ({ value }) => value);
 };

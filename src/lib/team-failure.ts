@@ -1,82 +1,21 @@
 import { Match, Schema } from "effect";
-import { NAME_MAX_LENGTH } from "@/db/drizzle/schema";
-import type { TeamFailure } from "@/src/services/team-errors";
-import { reportError } from "./report-error";
+import { MemberListError } from "@/src/services/company-members-service";
+import { DbUnavailable } from "@/src/services/db-service";
+import { TeamServiceError } from "@/src/services/team-errors";
 
-export class InvalidRequest extends Schema.TaggedError<InvalidRequest>()(
-  "InvalidRequest",
-  {},
-) {}
+const UnexpectedFailure = Schema.Union([
+  MemberListError,
+  TeamServiceError,
+  DbUnavailable,
+]);
+export type UnexpectedFailure = typeof UnexpectedFailure.Type;
 
-export type ApiFailure = TeamFailure | InvalidRequest;
+export const isUnexpectedFailure = Schema.is(UnexpectedFailure);
 
-// hc は状態コードで応答の型を絞るので、成功の 2xx を混ぜない
-type FailureStatus = 400 | 401 | 403 | 404 | 409 | 422 | 500 | 502 | 503;
-
-type FailureHandling = {
-  readonly message: string;
-  readonly status: FailureStatus;
-  readonly report: (() => void) | undefined;
-};
-
-const expectedFailure = (
-  message: string,
-  status: FailureStatus,
-): FailureHandling => ({
-  message,
-  status,
-  report: undefined,
-});
-
-const unexpectedFailure = (
-  message: string,
-  status: FailureStatus,
-  report: () => void,
-): FailureHandling => ({
-  message,
-  status,
-  report,
-});
-
-const unexpectedDbFailure =
-  (status: FailureStatus) =>
-  ({ cause }: { readonly cause: unknown }) =>
-    unexpectedFailure("保存に失敗しました", status, () => reportError(cause));
-
-const handlingOf = (failure: ApiFailure) =>
+export const defectOf = (failure: UnexpectedFailure): unknown =>
   Match.valueTags(failure, {
-    NotManager: () => expectedFailure("管理者だけが操作できます", 403),
-    TeamNotFound: () => expectedFailure("チームが見つかりません", 404),
-    SkillNotFound: () => expectedFailure("スキルが見つかりません", 404),
-    NotCompanyMember: () =>
-      expectedFailure("事業所のメンバーではありません", 422),
-    InvalidName: () =>
-      expectedFailure(
-        `名前は 1〜${NAME_MAX_LENGTH} 文字で入力してください`,
-        422,
-      ),
-    DuplicateName: () => expectedFailure("同じ名前がすでにあります", 409),
-    NotAssigned: () =>
-      expectedFailure("チームに割り当てられた人だけが記入できます", 403),
-    InvalidLevel: () => expectedFailure("レベルの値が正しくありません", 422),
-    InvalidRequest: () =>
-      expectedFailure("送った内容の形が正しくありません", 400),
-    Unauthenticated: () => expectedFailure("ログインし直してください", 401),
     MemberListError: ({ cause }) =>
-      unexpectedFailure("メンバー一覧を取得できませんでした", 502, () =>
-        reportError(
-          new Error(`listMembers failed: ${String(cause)}`, { cause }),
-        ),
-      ),
-    TeamServiceError: unexpectedDbFailure(500),
-    DbUnavailable: unexpectedDbFailure(503),
+      new Error(`listMembers failed: ${String(cause)}`, { cause }),
+    TeamServiceError: ({ cause }) => cause,
+    DbUnavailable: ({ cause }) => cause,
   });
-
-export const failureMessage = (failure: ApiFailure) =>
-  handlingOf(failure).message;
-
-export const failureStatus = (failure: ApiFailure) =>
-  handlingOf(failure).status;
-
-export const reportUnexpectedFailure = (failure: ApiFailure) =>
-  handlingOf(failure).report?.();

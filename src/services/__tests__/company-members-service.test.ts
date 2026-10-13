@@ -1,6 +1,7 @@
 import { Result } from "@taimei-code/auth-client";
 import { Effect } from "effect";
 import { expect, it } from "vitest";
+import { Unauthenticated } from "@/src/spa-contract";
 import { CompanyMembers } from "../company-members-service";
 
 const members = [
@@ -47,10 +48,7 @@ it.each([
 
     const error = await Effect.runPromise(Effect.flip(list));
 
-    expect(error).toMatchObject({
-      _tag: "Unauthenticated",
-      reason: Result[reason],
-    });
+    expect(error).toEqual(new Unauthenticated());
   },
 );
 
