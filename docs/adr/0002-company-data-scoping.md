@@ -36,7 +36,7 @@ ADR-009 §2.1 D5 / Q12 結論で、taimei-auth 側は「session に `current_com
 
 `revenue` は `fetchRevenue` が dashboard overview で読まれるため、scope しないと **overview の売上チャートが全社横断で漏れる**。`tags` / `tags2` は社ごとのラベル辞書とする。
 
-`customers` は **company-private** とする: `company_id` 列を足すだけ (中間テーブルなし)、同名取引先でも company ごとに別行を持ち社間で共有・名寄せしない。`customer` (= ある company の請求先) と `company` (= テナント) は別概念 (CONTEXT.md 参照)。これは freee が取引先/顧客マスタを **事業所スコープ**で持ち社横断共有しない構造と一致する (Sources「freee 参考調査」)。社横断の顧客共有は freee でも顧問 (advisor) 関係限定で、taimei MVP は顧問概念を持たない (ADR-009 D3) ため company-private で確定。
+`customers` は **company-private** とする: `company_id` 列を足すだけ (中間テーブルなし)、同名取引先でも company ごとに別行を持ち社間で共有・名寄せしない。`customer` (= ある company の請求先) と `company` (= テナント) は別概念 (GLOSSARY.md 参照)。これは freee が取引先/顧客マスタを **事業所スコープ**で持ち社横断共有しない構造と一致する (Sources「freee 参考調査」)。社横断の顧客共有は freee でも顧問 (advisor) 関係限定で、taimei MVP は顧問概念を持たない (ADR-009 D3) ため company-private で確定。
 
 **list / aggregate メソッドも明示 scope (MECE CR2/IM1)**: 行を返す全経路を漏れなく scope する。特に `CustomerService.findAll` は invoice 作成 dropdown のソースで現状 全件返すため `companyFilter` を通す。`fetchFiltered` の `customers × invoices` leftJoin 集計 (`totalPaid`/`totalPending`) は join 先 invoices にも `companyFilter` を AND しないと他社金額が混入する (customers 側を絞っても join で漏れる)。
 
