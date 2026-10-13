@@ -44,7 +44,7 @@ export async function provisionCompanyForUser(
     .values({
       id: companyId,
       name: "E2E Company",
-      orgCode: `e2e-${userId.slice(0, 8)}`,
+      orgCode: "CORPORATE",
     })
     .onConflictDoNothing();
   await authDb

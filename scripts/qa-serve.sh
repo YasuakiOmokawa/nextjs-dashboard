@@ -51,7 +51,7 @@ serve() {
   company="cmp_qa${id:0:8}"
   docker exec "$PG" psql -qU postgres -d auth \
     -c "INSERT INTO \"user\" (id, name, email, email_verified) VALUES ('$id', 'QA 管理者', '$email', false)" \
-    -c "INSERT INTO company (id, name, org_code) VALUES ('$company', 'QA 事業所', 'qa-${id:0:8}')" \
+    -c "INSERT INTO company (id, name, org_code) VALUES ('$company', 'QA 事業所', 'CORPORATE')" \
     -c "INSERT INTO membership (id, user_id, company_id, role) VALUES (gen_random_uuid()::text, '$id', '$company', 'OWNER')" \
     -c "UPDATE \"user\" SET last_used_company_id = '$company' WHERE id = '$id'"
 
