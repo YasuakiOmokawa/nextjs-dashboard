@@ -2,6 +2,7 @@ import type { Role } from "@taimei-code/auth-client";
 import { Context } from "effect";
 
 // CompanyContext と分ける理由は docs/adr/0002-company-data-scoping.md の D2
+/** @effect-leakable-service */
 export class AuthorizationContext extends Context.Service<
   AuthorizationContext,
   { readonly userId: string; readonly role: Role | undefined }

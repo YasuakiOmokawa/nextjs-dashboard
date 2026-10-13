@@ -1,6 +1,10 @@
-import { Effect, Layer, Result } from "effect";
+import { Effect, Exit, Layer, Result, Schema } from "effect";
 import { expect, it } from "vitest";
-import { type TeamsGroup, Unauthenticated } from "@/src/spa-contract";
+import {
+  LevelEntry,
+  type TeamsGroup,
+  Unauthenticated,
+} from "@/src/spa-contract";
 import {
   type DecodedHandlers,
   SpaApiLive,
@@ -40,4 +44,14 @@ it("web handler は作った時には組まず、最初の要求で 1 回組み�
   await request();
 
   expect([beforeRequest, afterFirst, builds]).toEqual([0, 1, 1]);
+});
+
+it("契約は有限でないレベルを decode しない", () => {
+  const decoded = Schema.decodeExit(LevelEntry)({
+    skillId: "s",
+    level: Number.POSITIVE_INFINITY,
+    wantsToLearn: false,
+  });
+
+  expect(Exit.isFailure(decoded)).toBe(true);
 });

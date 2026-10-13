@@ -114,9 +114,9 @@ export type TeamPage = typeof TeamPage.Type;
 // 1 文の INSERT の bind parameter は PostgreSQL の上限 65535 個 (1 entry に 6 個) を超えられない
 export const MAX_LEVEL_ENTRIES_PER_SAVE = 1000;
 
-const LevelEntry = Schema.Struct({
+export const LevelEntry = Schema.Struct({
   skillId: Schema.String,
-  level: Schema.Number,
+  level: Schema.Finite,
   wantsToLearn: Schema.Boolean,
 });
 export type LevelEntry = typeof LevelEntry.Type;

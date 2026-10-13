@@ -20,10 +20,13 @@
     "plugins": [
       {
         "name": "@effect/language-service",
-        "diagnosticSeverity": {
-          // HttpApi と Atom は unstable と承知で採用した (docs/adr/0007-spa-api-contract-and-effect-atom.md)
-          "unstableApiUsage": "off"
-        },
+        // unstable と承知で採用した module (docs/adr/0007-spa-api-contract-and-effect-atom.md)
+        "allowedUnstableApis": [
+          "effect/http-api",
+          "effect/http",
+          "effect/reactivity",
+          "@effect/atom-react"
+        ],
         "overrides": [
           {
             // @ts-expect-error で型エラーを確かめる行に、tsc の型エラーと重ねて出る

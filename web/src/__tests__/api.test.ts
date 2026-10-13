@@ -272,7 +272,7 @@ describe("waitForValue", () => {
 
 describe("loadedValueOf", () => {
   it("裏の取り直しに失敗しても、前の成功値があればそれを返す", () => {
-    const failed = AsyncResult.failure(Cause.fail(new Error("offline")), {
+    const failed = AsyncResult.failure(Cause.fail(new Offline()), {
       previousSuccess: Option.some(AsyncResult.success("cached")),
     });
 

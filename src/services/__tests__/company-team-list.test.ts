@@ -1,9 +1,10 @@
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { TeamId } from "@/db/ids";
 import { sendErrorReportsTo } from "@/src/lib/report-error";
 import {
   CompanyTeamList,
+  decodeTeamListSnapshot,
   LIFETIME_MS,
   rewriteTeamList,
   type TeamListSnapshot,
@@ -272,5 +273,15 @@ describe("CompanyTeamList", () => {
 
     expect(failing.clear).toHaveBeenCalledTimes(2);
     expect(reports).toHaveBeenCalledOnce();
+  });
+});
+
+describe("decodeTeamListSnapshot", () => {
+  it("有限でない版の一覧は読まない", async () => {
+    const decoded = await Effect.runPromiseExit(
+      decodeTeamListSnapshot({ version: Number.POSITIVE_INFINITY, teams: [] }),
+    );
+
+    expect(Exit.isFailure(decoded)).toBe(true);
   });
 });
