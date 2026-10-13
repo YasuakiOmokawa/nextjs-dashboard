@@ -1,11 +1,10 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, type LinkProps, Outlet } from "@tanstack/react-router";
-import { meQuery } from "@/api";
+import { meAtom, useLoadedValue } from "@/api";
 import MyServiceName from "@/components/my-service-name";
 
 // ponytail: 導線が header に収まらなくなったら shadcn の sidebar にする
 export default function DashboardLayout() {
-  const { data: me } = useSuspenseQuery(meQuery);
+  const me = useLoadedValue(meAtom);
 
   return (
     <div className="flex min-h-screen flex-col">

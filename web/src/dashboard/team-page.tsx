@@ -1,28 +1,28 @@
 import {
-  useMutation,
-  useQueryClient,
-  useSuspenseQuery,
-} from "@tanstack/react-query";
-import {
   type ErrorComponentProps,
   Link,
   useNavigate,
   useParams,
 } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
-import type { ComponentProps, FormEvent, ReactNode, SubmitEvent } from "react";
+import {
+  type ComponentProps,
+  type FormEvent,
+  type ReactNode,
+  type SubmitEvent,
+} from "react";
 import {
   addSkill,
   assignMember,
   deleteTeam,
-  markTeamListStaleWithoutRefetch,
-  meQuery,
+  meAtom,
   removeSkill,
   renameTeam,
   saveMyLevels,
-  teamQuery,
+  teamAtom,
   unassignMember,
-  writeSavedMyLevels,
+  useApiMutation,
+  useLoadedValue,
 } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -60,10 +60,8 @@ const messagesWithoutMatrix: Record<
 
 export default function TeamPage() {
   const { teamId } = useParams({ from: "/dashboard/teams/$teamId" });
-  const { data: me } = useSuspenseQuery(meQuery);
-  const {
-    data: { team: savedTeam, members },
-  } = useSuspenseQuery(teamQuery(teamId));
+  const me = useLoadedValue(meAtom);
+  const { team: savedTeam, members } = useLoadedValue(teamAtom(teamId));
   const { teamWithPendingSave: team, ...myLevelsForm } = useSaveMyLevels(
     teamId,
     me.userId,
@@ -102,21 +100,6 @@ export default function TeamPage() {
   );
 }
 
-function useTeamMutation<Variables>(
-  teamId: string,
-  mutationFn: (variables: Variables) => Promise<unknown>,
-) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn,
-    onSuccess: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: teamQuery(teamId).queryKey }),
-        markTeamListStaleWithoutRefetch(queryClient),
-      ]),
-  });
-}
-
 function SkillsSection({
   teamId,
   skills,
@@ -126,8 +109,8 @@ function SkillsSection({
   skills: TeamDetail["skills"];
   canManage: boolean;
 }) {
-  const add = useTeamMutation(teamId, (name: string) => addSkill(teamId, name));
-  const remove = useTeamMutation(teamId, removeSkill);
+  const add = useApiMutation(addSkill(teamId));
+  const remove = useApiMutation(removeSkill(teamId));
 
   return (
     <Section title="スキル" description="星取表の列になります">
@@ -179,9 +162,7 @@ function AssignmentsSection({
   roster: Roster;
   canManage: boolean;
 }) {
-  const unassign = useTeamMutation(teamId, (userId: string) =>
-    unassignMember(teamId, userId),
-  );
+  const unassign = useApiMutation(unassignMember(teamId));
   const assignedItem = (userId: string, name: string) => ({
     key: userId,
     name,
@@ -235,7 +216,7 @@ function AssignmentFooter({
 }: {
   teamId: string;
   candidates: readonly Member[];
-  unassignError: Error | null;
+  unassignError: unknown;
 }) {
   if (candidates.length === 0 && !unassignError) return null;
   return (
@@ -269,9 +250,7 @@ function AssignForm({
   teamId: string;
   candidates: readonly Member[];
 }) {
-  const assign = useTeamMutation(teamId, (userId: string) =>
-    assignMember(teamId, userId),
-  );
+  const assign = useApiMutation(assignMember(teamId));
   if (candidates.length === 0) return null;
 
   const submit = (event: SubmitEvent<HTMLFormElement>) => {
@@ -346,17 +325,10 @@ function TeamNameAndDeletion({
   team: TeamDetail;
   canManage: boolean;
 }) {
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const rename = useTeamMutation(teamId, (name: string) =>
-    renameTeam(teamId, name),
-  );
-  const remove = useMutation({
-    mutationFn: () => deleteTeam(teamId),
-    onSuccess: async () => {
-      await markTeamListStaleWithoutRefetch(queryClient);
-      await navigate({ to: "/dashboard/teams" });
-    },
+  const rename = useApiMutation(renameTeam(teamId));
+  const remove = useApiMutation(deleteTeam(teamId), {
+    onSuccess: () => navigate({ to: "/dashboard/teams" }),
   });
   if (!canManage) return null;
 
@@ -421,7 +393,7 @@ function MyLevelsForm({
 }: {
   cells: readonly Cell[];
   saving: boolean;
-  error: Error | null;
+  error: unknown;
   onSave: (entries: readonly MyLevelEntry[]) => void;
 }) {
   if (cells.length === 0) return null;
@@ -482,16 +454,10 @@ function useSaveMyLevels(
   myUserId: string,
   savedTeam: TeamDetail,
 ) {
-  const queryClient = useQueryClient();
-  const save = useMutation({
-    mutationFn: (entries: readonly MyLevelEntry[]) =>
-      saveMyLevels(teamId, entries),
-    onSuccess: (_saved, entries) =>
-      writeSavedMyLevels(queryClient, teamId, myUserId, entries),
-  });
+  const save = useApiMutation(saveMyLevels(teamId, myUserId));
   return {
-    teamWithPendingSave: save.isPending
-      ? withMyLevels(savedTeam, myUserId, save.variables)
+    teamWithPendingSave: save.pendingVariables
+      ? withMyLevels(savedTeam, myUserId, save.pendingVariables)
       : savedTeam,
     saving: save.isPending,
     error: save.error,

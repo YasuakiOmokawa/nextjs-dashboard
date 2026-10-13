@@ -4,7 +4,7 @@ export default function FailureAlert({
   error,
   fallbackMessage,
 }: {
-  error: Error | null;
+  error: unknown;
   fallbackMessage: string;
 }) {
   if (!error) return null;
