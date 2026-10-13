@@ -1,4 +1,5 @@
 import type { SubmitEvent } from "react";
+import type { ShownFailure } from "@/api";
 import { Button } from "@/components/ui/button";
 import FailureAlert from "@/dashboard/failure-alert";
 
@@ -7,7 +8,7 @@ export default function NameForm({
   defaultValue,
   submitLabel,
   pending,
-  error,
+  failure,
   fallbackMessage,
   onSubmit,
 }: {
@@ -15,7 +16,7 @@ export default function NameForm({
   defaultValue?: string;
   submitLabel: string;
   pending: boolean;
-  error: Error | null;
+  failure: ShownFailure | undefined;
   fallbackMessage: string;
   onSubmit: (name: string, options: { onSuccess: () => void }) => void;
 }) {
@@ -43,7 +44,7 @@ export default function NameForm({
           {submitLabel}
         </Button>
       </div>
-      <FailureAlert error={error} fallbackMessage={fallbackMessage} />
+      <FailureAlert failure={failure} fallbackMessage={fallbackMessage} />
     </form>
   );
 }

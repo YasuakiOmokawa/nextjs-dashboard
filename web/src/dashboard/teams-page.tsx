@@ -1,25 +1,21 @@
-import {
-  useMutation,
-  useQueryClient,
-  useSuspenseQuery,
-} from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import {
   createTeam,
-  markTeamListStaleWithoutRefetch,
-  meQuery,
-  teamsQuery,
+  failureMessageOf,
+  meAtom,
+  teamsAtom,
+  useApiMutation,
+  useLoadedValue,
+  useLoadFailure,
 } from "@/api";
 import { Card } from "@/components/ui/card";
 import CardMessage from "@/dashboard/card-message";
 import NameForm from "@/dashboard/name-form";
 
 export default function TeamsPage() {
-  const { data: me } = useSuspenseQuery(meQuery);
-  const {
-    data: { teams },
-  } = useSuspenseQuery(teamsQuery);
+  const me = useLoadedValue(meAtom);
+  const { teams } = useLoadedValue(teamsAtom);
 
   return (
     <TeamsFrame>
@@ -50,17 +46,10 @@ export default function TeamsPage() {
 }
 
 function CreateTeamForm({ canManage }: { canManage: boolean }) {
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const create = useMutation({
-    mutationFn: createTeam,
-    onSuccess: async ({ id }) => {
-      await markTeamListStaleWithoutRefetch(queryClient);
-      await navigate({
-        to: "/dashboard/teams/$teamId",
-        params: { teamId: id },
-      });
-    },
+  const create = useApiMutation(createTeam, {
+    onSuccess: ({ id }) =>
+      navigate({ to: "/dashboard/teams/$teamId", params: { teamId: id } }),
   });
   if (!canManage) return null;
 
@@ -70,7 +59,7 @@ function CreateTeamForm({ canManage }: { canManage: boolean }) {
         label="チーム名"
         submitLabel="チームを作る"
         pending={create.isPending}
-        error={create.error}
+        failure={create.failure}
         fallbackMessage="チームを作れませんでした"
         onSubmit={create.mutate}
       />
@@ -79,9 +68,12 @@ function CreateTeamForm({ canManage }: { canManage: boolean }) {
 }
 
 export function TeamsError() {
+  const failure = useLoadFailure(teamsAtom);
   return (
     <TeamsFrame>
-      <CardMessage>チームを取得できませんでした</CardMessage>
+      <CardMessage>
+        {failureMessageOf(failure, "チームを取得できませんでした")}
+      </CardMessage>
     </TeamsFrame>
   );
 }

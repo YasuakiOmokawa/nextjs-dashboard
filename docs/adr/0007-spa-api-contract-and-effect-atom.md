@@ -1,6 +1,6 @@
 # ADR-0007: SPA が呼ぶ API は Effect HttpApi の契約で書いて Hono の中に載せ、画面のデータ取得は Effect Atom にする
 
-- **Status**: Accepted (2026-10-10)。2026-10-12 に改訂した (#602)。移すのは #603〜#605 で、移し終えるまでのコードは「改訂前の判断」の形のまま。データ取得を Atom にする部分は #604 の結果で確定する
+- **Status**: Accepted (2026-10-10)。2026-10-12 に改訂した (#602)。#603〜#605 で移した。データ取得を Atom にする部分は #604 の prototype の結果で、#605 で確定した (2026-10-13)
 - **Date**: 2026-10-10 (改訂 2026-10-12)
 - **References**: ADR-0002 (事業所のデータに session 無しで触れない)、ADR-0006 (Static Assets の SPA と Worker)、taimei-auth の ADR-0017 (`vendor/taimei-auth/docs/adr/0017-effect-v4-full-adoption.md` の「web への拡大」「SPA の API 契約」)
 
@@ -49,12 +49,19 @@ taimei で今書ける間違いと、移した後に何が止めるか:
 - 7 点のほかに、レベルの記入の楽観的更新 (`web/src/api.ts` の `writeSavedMyLevels` が取り直さずに cache を書き換え、`web/src/dashboard/team-page.tsx` が保存中の値を表に出す) と、失敗の種類で分ける表示 (`team-page.tsx` の 404) の Atom での書き方も、prototype で確かめる。保つことは #605 の受け入れ条件が求める
 - このうち taimei-code/taimei-auth#269 で確かめたのは、loader と `beforeLoad` で atom を読むこと、atom の寿命 (購読が 0 になると registry から外れる) で、2〜7 は確かめていない (taimei-auth は先読みも、`web/index.html` の JS を待たない fetch も使わない)
 - #604 で保てない振る舞いがあれば、データ取得は TanStack Query のまま (#603 の形) にし、この ADR の Atom の部分を改める。API の契約の判断はそのまま残す
+- #604 の結果: 7 点と追加の 2 点は保てた (既存の e2e が spec を変えずに通った)。#605 で確定した。書き方は `web/src/CLAUDE.md`
+  - registry は `createAppRouter` が作る。`main.tsx` が描画の前に `router.load()` を呼ぶため
+  - 古くした印 (`markStale`) は loader (`loadAtom`) だけが読む値として registry の外に持ち、回数で比べる。atom の結果からは「古くしたので取り直している」と「裏の取り直し」を区別できず (Query の `isInvalidated` にあたる区別)、印の前に始まった取得の値を新しい値として受けてしまうため
+  - 画面の atom は購読が無くなっても 5 分残す。Query の既定の `gcTime` と同じ
+  - チームの atom (`teamAtom`) は保存した自分のレベルを書ける writable にする。`Atom.optimistic` は成功の後に取り直すため
+  - 更新は、送る処理と成功の後の処理 (`afterSuccess`) を持つ定義 (`ApiMutation`) で書き、`afterSuccess` を型で省けなくする。取り直す key の付け忘れを型で止めるため。更新の atom は呼び出しごとに作る。`AtomHttpApi.mutation` の atom は endpoint ごとに 1 つで、同じ atom への次の呼び出しが前の呼び出しを中断するため。契約に無い応答と decode の失敗は、query と同じく defect にする
+  - 失敗の文言 (`failureMessageOf`) は契約に宣言した失敗の型から選び、読み取りの失敗も router の `error` (`unknown`) ではなく atom から読む (`useLoadFailure`)。Context の表の 1 行目のため
 
 ## 引き換えと埋め方
 
 | 引き換え | 大きさ | 埋め方 |
 | :-- | :-- | :-- |
-| SPA の bundle が大きくなる | taimei-auth では、Atom と契約の client で web の JS の gzip が main 比 +64.6 kB。改訂前の判断の検証の Worker では `HttpApiClient` が effect ごと 116,874 B | #603・#605 で変更の前後の SPA の JS (gzip) を記録する。#605 で `@tanstack/react-query` を外す。画面の最初の API は `web/index.html` が JS を待たずに呼ぶので、JS が大きくなっても API の応答を待ち始める時刻は遅れない |
+| SPA の bundle が大きくなる | taimei-auth では、Atom と契約の client で web の JS の gzip が main 比 +64.6 kB。改訂前の判断の検証の Worker では `HttpApiClient` が effect ごと 116,874 B。taimei の #605 は 180,164 → 182,912 B (+2,748 B、`@tanstack/react-query` を外した分と Atom を足した分がほぼ打ち消し合う) | #603・#605 で変更の前後の SPA の JS (gzip) を記録した。#605 で `@tanstack/react-query` を外した。画面の最初の API は `web/index.html` が JS を待たずに呼ぶので、JS が大きくなっても API の応答を待ち始める時刻は遅れない |
 | `HttpApi`・`AtomHttpApi`・`effect/reactivity` が `@stability unstable` | effect の minor の更新で API が変わりうる | `effect` を `package.json` の exact pin のまま、Dependabot の更新の PR で上げる。壊れた箇所は typecheck とテストで一覧になる。taimei-auth と同じ扱い |
 | `HttpApi.middleware()` は呼んだ時点で追加済みの group にしか掛からず、後から足した group は認証なしになる | 認証の掛け忘れ | `HttpApi.reflect` で契約の全 endpoint を数え上げ、cookie 無しの要求が 401 になるテストで止める。掛け方 (API 全体に 1 回か、group ごとか) は #603 で決め、Decision の認証の項に書いた |
 | Workers Free の CPU が増える | taimei-auth では起動時の JS が 32.7 → 40.7 ms、worker の gzip が +16% | #603 で変更の前後の Worker の bundle と起動時の CPU を記録し、本番に出す前に staging で CPU (p50・p95)・`exceededResources`・cold の TTFB を確かめる。CPU の上限での打ち切りが出たら本番に出さず、Paid にするか、この ADR を改めるかを決める |
@@ -63,7 +70,7 @@ taimei-auth の数値は、`taimei-code/taimei-auth@d63097b` の ADR-0017 の「
 
 ## 文書の直し
 
-移し終えるまで、CLAUDE.md は今のコードの書き方を述べる。#603 より前に足す API は今の形で書き、#603 で契約に移す。#605 で移し終えたら、この ADR の Status と「改訂前の判断」節の冒頭、ADR-0006 の追記にある「移し終えるまで」の句を消す。
+#603〜#605 で次の文書を直した。
 
 | 文書 | 今の記述 | 直す issue |
 | :-- | :-- | :-- |
@@ -79,11 +86,15 @@ taimei-auth の数値は、`taimei-code/taimei-auth@d63097b` の ADR-0017 の「
 ## Consequences
 
 - 失敗の応答の本文は `{ _tag, message }` (401・409 は `{ _tag }`) から契約の失敗 (`{ _tag }`) に変わり、`message` が無くなる。文言は SPA が失敗の型から引く。deploy の前に開いたタブは、応答の `x-taimei-session` に入る Worker の version が変わるので、次の API の応答で再読み込みして新しい SPA を取り直す (#612)。書き込みの要求は 409 になり、書き込まない
-- 型の外に残るもの: アプリの外の失敗 (Workers の CPU の上限での打ち切り、network、本体の予期しない失敗 (defect))、書き込みの後に取り直す key の付け忘れ (taimei-auth と同じく e2e で止める)
+- 型の外に残るもの: アプリの外の失敗 (Workers の CPU の上限での打ち切り、network、本体の予期しない失敗 (defect))、書き込みの後に何を古くするか・取り直すかの正しさ (`afterSuccess` を書くことは型が強いるが、中身は e2e で止める)
+- TanStack Query の既定と違い、次の 3 つをしない。どれも 7 点の外で、要った時に足す
+  - focus と再接続での取り直し。Workers Free の CPU を増やすので、足すかは観測で決める。足すなら query の atom に `Atom.refreshOnWindowFocus`
+  - 失敗した読み取りの再試行。一時的な網・5xx の失敗がすぐ失敗の表示になる。足すなら `AtomHttpApi.Service` の `transformClient` に `HttpClient.retryTransient`
+  - 値が同じ裏の取り直しで描き直さないこと (読む部品は取り直しの前後で 2 回描き直す)。足すなら `waiting` を落とした派生の atom を読ませる
 
 ## 改訂前の判断 (2026-10-10)
 
-下は 2026-10-10 の判断の原文で、移し終えるまでのコードはこの形である。
+下は 2026-10-10 の判断の原文である。
 
 ### Context
 
