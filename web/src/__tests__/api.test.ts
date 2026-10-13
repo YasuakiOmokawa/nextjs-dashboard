@@ -101,12 +101,14 @@ describe("failureMessageOf", () => {
   });
 });
 
+class Offline extends Schema.TaggedError<Offline>()("Offline", {}) {}
+
 const sourceResolvedByTest = <A>() => {
-  const fetchesInOrder: PromiseWithResolvers<Effect.Effect<A, Error>>[] = [];
+  const fetchesInOrder: PromiseWithResolvers<Effect.Effect<A, Offline>>[] = [];
   const atom = Atom.make(
     Effect.flatten(
       Effect.promise(() => {
-        const fetch = Promise.withResolvers<Effect.Effect<A, Error>>();
+        const fetch = Promise.withResolvers<Effect.Effect<A, Offline>>();
         fetchesInOrder.push(fetch);
         return fetch.promise;
       }),
@@ -233,7 +235,7 @@ describe("loadAtom", () => {
     await loadInitialValue("cached");
     registry.refresh(atom);
     const refetching = waitForRefetch(registry, atom);
-    fetchesInOrder.at(-1)?.resolve(Effect.fail(new Error("offline")));
+    fetchesInOrder.at(-1)?.resolve(Effect.fail(new Offline()));
     await refetching;
 
     await expect(loadAtom(registry, atom)).resolves.toBe("cached");
@@ -242,7 +244,7 @@ describe("loadAtom", () => {
   it("取得に失敗した atom は、失敗を返さずに取り直し、その値で解決する", async () => {
     const { atom, fetchesInOrder } = sourceResolvedByTest<string>();
     const first = loadAtom(registry, atom);
-    fetchesInOrder[0]?.resolve(Effect.fail(new Error("offline")));
+    fetchesInOrder[0]?.resolve(Effect.fail(new Offline()));
     await first.catch(() => {});
 
     const loading = loadAtom(registry, atom);
@@ -634,7 +636,7 @@ describe("waitForRefetch", () => {
     registry.refresh(atom);
 
     const waiting = waitForRefetch(registry, atom);
-    fetchesInOrder.at(-1)?.resolve(Effect.fail(new Error("offline")));
+    fetchesInOrder.at(-1)?.resolve(Effect.fail(new Offline()));
 
     await expect(waiting).resolves.toBeUndefined();
   });

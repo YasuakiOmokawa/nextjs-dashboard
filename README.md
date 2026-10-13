@@ -26,4 +26,6 @@ taimei は SPA (`web/`) を `bun run build` で build し、Worker (`src/worker.
 
 ## 型チェック
 
-`bun run typecheck` を使う (TypeScript 7。root と `web/` の tsconfig を両方検査する)。
+`bun run typecheck` を使う (TypeScript 7。root と `web/` の tsconfig を両方検査する)。Effect の書き間違い (`yield*` の無い Effect など) も、`@effect/tsgo` に同梱の Effect の診断入りの `tsc` が型エラーにする。診断の重さは `tsconfig.json` の `plugins` で決める。
+
+`@effect/tsgo` は対応する `typescript` の版を狭く決めていて、合わない版では `bun run typecheck` が `UnsupportedTargetPackageVersionError` で止まる。`typescript` は、`node_modules/@effect/tsgo/README.md` の Supported Package Versions に載る版へ、`@effect/tsgo` と一緒に上げる。
