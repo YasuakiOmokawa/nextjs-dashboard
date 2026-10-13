@@ -1,16 +1,16 @@
-import { failureMessageOf } from "@/api";
+import { failureMessageOf, type ShownFailure } from "@/api";
 
 export default function FailureAlert({
-  error,
+  failure,
   fallbackMessage,
 }: {
-  error: Error | null;
+  failure: ShownFailure | undefined;
   fallbackMessage: string;
 }) {
-  if (!error) return null;
+  if (!failure) return null;
   return (
     <p role="alert" className="text-sm text-destructive">
-      {failureMessageOf(error, fallbackMessage)}
+      {failureMessageOf(failure, fallbackMessage)}
     </p>
   );
 }

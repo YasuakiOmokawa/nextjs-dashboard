@@ -1,28 +1,21 @@
-import {
-  useMutation,
-  useQueryClient,
-  useSuspenseQuery,
-} from "@tanstack/react-query";
-import {
-  type ErrorComponentProps,
-  Link,
-  useNavigate,
-  useParams,
-} from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
 import type { ComponentProps, FormEvent, ReactNode, SubmitEvent } from "react";
 import {
   addSkill,
   assignMember,
   deleteTeam,
-  markTeamListStaleWithoutRefetch,
-  meQuery,
+  failureMessageOf,
+  meAtom,
   removeSkill,
   renameTeam,
+  type ShownFailure,
   saveMyLevels,
-  teamQuery,
+  teamAtom,
   unassignMember,
-  writeSavedMyLevels,
+  useApiMutation,
+  useLoadedValue,
+  useLoadFailure,
 } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -45,7 +38,6 @@ import {
   teamSkillMatrix,
   withMyLevels,
 } from "@/dashboard/skill-matrix";
-import { TeamNotFound } from "../../../src/spa-contract";
 
 type ReadyRoster = Extract<Roster, { _tag: "MatrixReady" }>;
 
@@ -60,10 +52,8 @@ const messagesWithoutMatrix: Record<
 
 export default function TeamPage() {
   const { teamId } = useParams({ from: "/dashboard/teams/$teamId" });
-  const { data: me } = useSuspenseQuery(meQuery);
-  const {
-    data: { team: savedTeam, members },
-  } = useSuspenseQuery(teamQuery(teamId));
+  const me = useLoadedValue(meAtom);
+  const { team: savedTeam, members } = useLoadedValue(teamAtom(teamId));
   const { teamWithPendingSave: team, ...myLevelsForm } = useSaveMyLevels(
     teamId,
     me.userId,
@@ -102,21 +92,6 @@ export default function TeamPage() {
   );
 }
 
-function useTeamMutation<Variables>(
-  teamId: string,
-  mutationFn: (variables: Variables) => Promise<unknown>,
-) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn,
-    onSuccess: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: teamQuery(teamId).queryKey }),
-        markTeamListStaleWithoutRefetch(queryClient),
-      ]),
-  });
-}
-
 function SkillsSection({
   teamId,
   skills,
@@ -126,8 +101,8 @@ function SkillsSection({
   skills: TeamDetail["skills"];
   canManage: boolean;
 }) {
-  const add = useTeamMutation(teamId, (name: string) => addSkill(teamId, name));
-  const remove = useTeamMutation(teamId, removeSkill);
+  const add = useApiMutation(addSkill(teamId));
+  const remove = useApiMutation(removeSkill(teamId));
 
   return (
     <Section title="スキル" description="星取表の列になります">
@@ -150,14 +125,14 @@ function SkillsSection({
       {canManage ? (
         <div className="space-y-2 border-t px-6 py-4">
           <FailureAlert
-            error={remove.error}
+            failure={remove.failure}
             fallbackMessage="スキルを削除できませんでした"
           />
           <NameForm
             label="スキル名"
             submitLabel="スキルを足す"
             pending={add.isPending}
-            error={add.error}
+            failure={add.failure}
             fallbackMessage="スキルを足せませんでした"
             onSubmit={add.mutate}
           />
@@ -179,9 +154,7 @@ function AssignmentsSection({
   roster: Roster;
   canManage: boolean;
 }) {
-  const unassign = useTeamMutation(teamId, (userId: string) =>
-    unassignMember(teamId, userId),
-  );
+  const unassign = useApiMutation(unassignMember(teamId));
   const assignedItem = (userId: string, name: string) => ({
     key: userId,
     name,
@@ -218,7 +191,7 @@ function AssignmentsSection({
               <AssignmentFooter
                 teamId={teamId}
                 candidates={roster.candidates}
-                unassignError={unassign.error}
+                unassignFailure={unassign.failure}
               />
             </>
           ) : null}
@@ -231,16 +204,19 @@ function AssignmentsSection({
 function AssignmentFooter({
   teamId,
   candidates,
-  unassignError,
+  unassignFailure,
 }: {
   teamId: string;
   candidates: readonly Member[];
-  unassignError: Error | null;
+  unassignFailure: ShownFailure | undefined;
 }) {
-  if (candidates.length === 0 && !unassignError) return null;
+  if (candidates.length === 0 && !unassignFailure) return null;
   return (
     <div className="space-y-2 border-t px-6 py-4">
-      <FailureAlert error={unassignError} fallbackMessage="外せませんでした" />
+      <FailureAlert
+        failure={unassignFailure}
+        fallbackMessage="外せませんでした"
+      />
       <AssignForm teamId={teamId} candidates={candidates} />
     </div>
   );
@@ -269,9 +245,7 @@ function AssignForm({
   teamId: string;
   candidates: readonly Member[];
 }) {
-  const assign = useTeamMutation(teamId, (userId: string) =>
-    assignMember(teamId, userId),
-  );
+  const assign = useApiMutation(assignMember(teamId));
   if (candidates.length === 0) return null;
 
   const submit = (event: SubmitEvent<HTMLFormElement>) => {
@@ -300,7 +274,7 @@ function AssignForm({
         </Button>
       </div>
       <FailureAlert
-        error={assign.error}
+        failure={assign.failure}
         fallbackMessage="割り当てられませんでした"
       />
     </form>
@@ -346,17 +320,10 @@ function TeamNameAndDeletion({
   team: TeamDetail;
   canManage: boolean;
 }) {
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const rename = useTeamMutation(teamId, (name: string) =>
-    renameTeam(teamId, name),
-  );
-  const remove = useMutation({
-    mutationFn: () => deleteTeam(teamId),
-    onSuccess: async () => {
-      await markTeamListStaleWithoutRefetch(queryClient);
-      await navigate({ to: "/dashboard/teams" });
-    },
+  const rename = useApiMutation(renameTeam(teamId));
+  const remove = useApiMutation(deleteTeam(teamId), {
+    onSuccess: () => navigate({ to: "/dashboard/teams" }),
   });
   if (!canManage) return null;
 
@@ -369,7 +336,7 @@ function TeamNameAndDeletion({
           defaultValue={team.name}
           submitLabel="名前を変える"
           pending={rename.isPending}
-          error={rename.error}
+          failure={rename.failure}
           fallbackMessage="名前を変えられませんでした"
           onSubmit={rename.mutate}
         />
@@ -380,7 +347,7 @@ function TeamNameAndDeletion({
         </p>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <FailureAlert
-            error={remove.error}
+            failure={remove.failure}
             fallbackMessage="チームを削除できませんでした"
           />
           <ConfirmedRemoveButton
@@ -416,12 +383,12 @@ const levelOptions = Object.entries(levels).map(
 function MyLevelsForm({
   cells,
   saving,
-  error,
+  failure,
   onSave,
 }: {
   cells: readonly Cell[];
   saving: boolean;
-  error: Error | null;
+  failure: ShownFailure | undefined;
   onSave: (entries: readonly MyLevelEntry[]) => void;
 }) {
   if (cells.length === 0) return null;
@@ -470,7 +437,10 @@ function MyLevelsForm({
           <Button type="submit" size="sm" disabled={saving}>
             保存
           </Button>
-          <FailureAlert error={error} fallbackMessage="保存できませんでした" />
+          <FailureAlert
+            failure={failure}
+            fallbackMessage="保存できませんでした"
+          />
         </div>
       </form>
     </Section>
@@ -482,30 +452,25 @@ function useSaveMyLevels(
   myUserId: string,
   savedTeam: TeamDetail,
 ) {
-  const queryClient = useQueryClient();
-  const save = useMutation({
-    mutationFn: (entries: readonly MyLevelEntry[]) =>
-      saveMyLevels(teamId, entries),
-    onSuccess: (_saved, entries) =>
-      writeSavedMyLevels(queryClient, teamId, myUserId, entries),
-  });
+  const save = useApiMutation(saveMyLevels(teamId, myUserId));
   return {
-    teamWithPendingSave: save.isPending
-      ? withMyLevels(savedTeam, myUserId, save.variables)
+    teamWithPendingSave: save.pendingVariables
+      ? withMyLevels(savedTeam, myUserId, save.pendingVariables)
       : savedTeam,
     saving: save.isPending,
-    error: save.error,
+    failure: save.failure,
     onSave: save.mutate,
   };
 }
 
-export function TeamError({ error }: ErrorComponentProps) {
-  const notFound = error instanceof TeamNotFound;
+export function TeamError() {
+  const { teamId } = useParams({ from: "/dashboard/teams/$teamId" });
+  const failure = useLoadFailure(teamAtom(teamId));
   return (
     <TeamFrame>
       <Card>
         <CardMessage>
-          {notFound ? "チームが見つかりません" : "チームを取得できませんでした"}
+          {failureMessageOf(failure, "チームを取得できませんでした")}
         </CardMessage>
       </Card>
     </TeamFrame>

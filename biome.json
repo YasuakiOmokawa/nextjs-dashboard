@@ -68,6 +68,15 @@
                 "message": "handler は契約が decode した値を受け、成功の値を返す。effect/http を使えるのは、契約の web handler を組む src/spa-http-api.ts と、SPA の契約の client を作る web/src/api.ts だけ (ADR-0007)"
               },
               {
+                "group": [
+                  "@effect/atom-react",
+                  "@effect/atom-react/*",
+                  "effect/reactivity",
+                  "effect/reactivity/*"
+                ],
+                "message": "画面は web/src/api.ts の atom を useLoadedValue・useLoadFailure で読み、更新を useApiMutation で流す。Atom を直に使えるのは web/src/api.ts と、registry を組む web/src/router.tsx だけ (web/src/CLAUDE.md)"
+              },
+              {
                 "group": ["@sentry/*"],
                 "message": "Sentry の SDK は Worker の入口 (src/worker.ts) だけが使う。報告は src/lib/report-error.ts の reportError (src/lib/CLAUDE.md)"
               }
