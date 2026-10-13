@@ -16,7 +16,7 @@ export type DurableObjectContext = {
 };
 
 const TeamListSnapshot = Schema.Struct({
-  version: Schema.Number,
+  version: Schema.Finite,
   teams: Schema.Array(
     Schema.Struct({
       id: TeamId,

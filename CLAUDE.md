@@ -6,7 +6,7 @@ Effect の書き方 (Service・Layer・エラー・テスト) は `node_modules/
 
 ## Gotcha
 
-- 型チェックは `bun run typecheck`。bare の `tsc` は `web/` を検査しない。
+- 型チェックは `bun run typecheck`。bare の `tsc` は `web/` も Effect の診断も検査しない。
 - `bun vitest run <file>` の前に `docker compose up -d test_db --wait` が要る。全件は `bun run test:db`。
 - Stacked PR の上流は `--delete-branch` なしでマージする。付けると下流 PR が auto-close され reopen できない。ブランチは下流のマージ後に消す。
 - e2e の流し方と、手元で taimei-auth と一緒に配信して画面を確かめる手順は `e2e/CLAUDE.md`。

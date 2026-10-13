@@ -16,7 +16,31 @@
     "paths": {
       "@/*": ["./*"]
     },
-    "types": ["vitest/globals"]
+    "types": ["vitest/globals"],
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        // unstable と承知で採用した module (docs/adr/0007-spa-api-contract-and-effect-atom.md)
+        "allowedUnstableApis": [
+          "effect/http-api",
+          "effect/http",
+          "effect/reactivity",
+          "@effect/atom-react"
+        ],
+        "overrides": [
+          {
+            // @ts-expect-error で型エラーを確かめる行に、tsc の型エラーと重ねて出る
+            "include": ["**/*.test.ts"],
+            "options": {
+              "diagnosticSeverity": {
+                "missingEffectContext": "off",
+                "missingEffectError": "off"
+              }
+            }
+          }
+        ]
+      }
+    ]
   },
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules", "e2e", "vendor", "web"]
