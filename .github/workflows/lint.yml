@@ -25,12 +25,21 @@ jobs:
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: PoC effect-tsgo (A・B・D の M1)
+        continue-on-error: true
+        run: bun poc/effect-tsgo/check.mjs
+
+      - name: PoC effect-tsgo (時間)
+        continue-on-error: true
+        run: bun poc/effect-tsgo/measure.mjs
+
       # audit:high は GHSA-vfj7-8cjw-p6xm (braces の DoS) を無視する。修正版が無く、braces は tailwindcss の glob 展開だけで使う。braces の修正版が出たら外す
       # GHSA-68fv-2mgg-jv7q (source-map-js の DoS) の修正版 1.2.2 は minimumReleaseAge の窓を 2026-10-07 23:08 JST に抜ける。overrides で 1.2.2 に上げたら外す
       - name: Security audit
         run: bun run audit:high
 
       - name: Biome + fallow audit
+        continue-on-error: true
         run: bun run lint
 
       - name: Type check

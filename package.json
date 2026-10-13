@@ -15,7 +15,7 @@
     "lint": "biome check . && fallow audit",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p web",
+    "typecheck": "$(effect-tsgo get-exe-path) --noEmit && $(effect-tsgo get-exe-path) --noEmit -p web",
     "audit:high": "bun audit --audit-level=high --ignore=GHSA-vfj7-8cjw-p6xm --ignore=GHSA-68fv-2mgg-jv7q"
   },
   "dependencies": {
@@ -46,6 +46,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
+    "@effect/tsgo": "^0.48.1",
     "@tailwindcss/forms": "^0.5.11",
     "@types/node": "^26.6.1",
     "@types/pg": "^8.23.1",

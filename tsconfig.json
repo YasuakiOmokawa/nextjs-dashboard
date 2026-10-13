@@ -16,7 +16,18 @@
     "paths": {
       "@/*": ["./*"]
     },
-    "types": ["vitest/globals"]
+    "types": ["vitest/globals"],
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "diagnosticSeverity": {
+          "unstableApiUsage": "off",
+          "missingEffectContext": "off",
+          "missingEffectError": "off",
+          "globalErrorInEffectFailure": "off"
+        }
+      }
+    ]
   },
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules", "e2e", "vendor", "web"]
