@@ -1,6 +1,6 @@
 # taimei
 
-taimei は、事業所ごとにチームの星取表を持つ toB サービスである。認証・事業所・membership・role・招待の語彙は taimei-auth リポジトリの `CONTEXT.md` が定める。製品の決定とその理由は `docs/adr/0004-company-unit-skill-matrix.md` にある。
+taimei は、事業所ごとにチームの星取表を持つ toB サービスである。認証・事業所・membership・role・招待の語彙は taimei-auth リポジトリの `GLOSSARY.md` が定める。製品の決定とその理由は `docs/adr/0004-company-unit-skill-matrix.md` にある。
 
 ## Language
 
