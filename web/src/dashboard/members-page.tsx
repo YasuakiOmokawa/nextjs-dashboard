@@ -1,7 +1,6 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
 import { ExternalLink } from "lucide-react";
 import type { ReactNode } from "react";
-import { membersQuery } from "@/api";
+import { membersAtom, useLoadedValue } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import CardMessage from "@/dashboard/card-message";
@@ -10,9 +9,7 @@ import CardMessage from "@/dashboard/card-message";
 const roleLabels = { OWNER: "オーナー", ADMIN: "管理者", MEMBER: "メンバー" };
 
 export default function MembersPage() {
-  const {
-    data: { members },
-  } = useSuspenseQuery(membersQuery);
+  const { members } = useLoadedValue(membersAtom);
 
   return (
     <MembersFrame>

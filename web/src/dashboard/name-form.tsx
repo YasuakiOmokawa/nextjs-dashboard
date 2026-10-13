@@ -15,7 +15,7 @@ export default function NameForm({
   defaultValue?: string;
   submitLabel: string;
   pending: boolean;
-  error: Error | null;
+  error: unknown;
   fallbackMessage: string;
   onSubmit: (name: string, options: { onSuccess: () => void }) => void;
 }) {
