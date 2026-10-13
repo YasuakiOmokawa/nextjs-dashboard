@@ -33,5 +33,10 @@ updates:
       - taimei-code-npm
     open-pull-requests-limit: 5
     groups:
+      # effect/reactivity は unstable で、@effect/atom-react は同じ版の effect に合わせて作られる
+      effect:
+        patterns:
+          - "effect"
+          - "@effect/*"
       dev-dependencies:
         dependency-type: "development"
