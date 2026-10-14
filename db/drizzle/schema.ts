@@ -25,6 +25,12 @@ const companyId = () =>
 export const COMPANY_ID_SETTING = "app.company_id";
 export const MEMBER_SKILLS_ASSIGNMENT_FK = "member_skills_assignment_fk";
 export const MEMBER_SKILLS_SKILL_FK = "member_skills_skill_fk";
+export const TEAMS_NAME_UNIQUE = "teams_company_id_name_unique";
+export const SKILLS_NAME_UNIQUE = "skills_team_id_name_unique";
+export const SKILLS_TEAM_FK =
+  "skills_team_id_company_id_teams_id_company_id_fk";
+export const TEAM_ASSIGNMENTS_TEAM_FK =
+  "team_assignments_team_id_company_id_teams_id_company_id_fk";
 
 // docs/adr/0005
 const companyIsolation = (table: { companyId: PgColumn }) => {
@@ -48,7 +54,7 @@ export const teams = pgTable(
   },
   (table) => [
     unique().on(table.id, table.companyId),
-    unique().on(table.companyId, table.name),
+    unique(TEAMS_NAME_UNIQUE).on(table.companyId, table.name),
     companyIsolation(table),
   ],
 );
@@ -72,10 +78,11 @@ export const skills = pgTable(
     createdAt: createdAt(),
   },
   (table) => [
-    unique().on(table.teamId, table.name),
+    unique(SKILLS_NAME_UNIQUE).on(table.teamId, table.name),
     unique().on(table.id, table.teamId, table.companyId),
     companyIsolation(table),
     foreignKey({
+      name: SKILLS_TEAM_FK,
       columns: [table.teamId, table.companyId],
       foreignColumns: [teams.id, teams.companyId],
     }).onDelete("cascade"),
@@ -94,6 +101,7 @@ export const teamAssignments = pgTable(
     primaryKey({ columns: [table.teamId, table.userId] }),
     companyIsolation(table),
     foreignKey({
+      name: TEAM_ASSIGNMENTS_TEAM_FK,
       columns: [table.teamId, table.companyId],
       foreignColumns: [teams.id, teams.companyId],
     }).onDelete("cascade"),

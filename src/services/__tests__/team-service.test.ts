@@ -12,9 +12,11 @@ import { CompanyId, TeamId } from "@/db/ids";
 import type { Level } from "@/src/spa-contract";
 import type { AuthorizationContext } from "../authorization-context";
 import type { CompanyContext } from "../company-context";
-import { CompanyMembers, MemberListError } from "../company-members-service";
+import { CompanyMembers } from "../company-members-service";
 import { Db } from "../db-service";
-import { TeamManagement, TeamService } from "../team-service";
+import { MemberListError } from "../failures";
+import { TeamManagement } from "../team-management";
+import { TeamService } from "../team-service";
 import {
   seedAssignment,
   seedLevel,
@@ -868,7 +870,10 @@ describe("saveMyLevels", () => {
       expect(await memberSkillRows(tx)).toEqual([]);
     }));
 
-  it("同じスキルが 2 回あれば、どの値も保存しない", () =>
+  it.each([
+    ["同じ表記", (id: string) => id],
+    ["大文字の表記", (id: string) => id.toUpperCase()],
+  ])("同じスキルが 2 回 (%s) あれば、どの値も保存しない", (_, formatSkillId) =>
     withRollback(async (tx) => {
       const teamId = await seedTeam(tx, "cmp_a", "X");
       const skillId = await seedSkill(tx, "cmp_a", teamId, "設計");
@@ -880,13 +885,14 @@ describe("saveMyLevels", () => {
       )((s) =>
         s.saveMyLevels(teamId, [
           { skillId, level: 1, wantsToLearn: false },
-          { skillId, level: 3, wantsToLearn: true },
+          { skillId: formatSkillId(skillId), level: 3, wantsToLearn: true },
         ]),
       );
 
       expect(failureTag(result)).toBe("InvalidLevel");
       expect(await memberSkillRows(tx)).toEqual([]);
-    }));
+    }),
+  );
 
   it("レベルとスキルの両方が不正なら、レベルの失敗を返す", () =>
     withRollback(async (tx) => {
