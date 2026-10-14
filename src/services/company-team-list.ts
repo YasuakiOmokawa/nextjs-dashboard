@@ -1,123 +1,11 @@
 import { sql } from "drizzle-orm";
-import { Context, Effect, Schema } from "effect";
-import { type CompanyId, TeamId } from "@/db/ids";
+import { Context, Effect, Result, Schema } from "effect";
+import type { CompanyId } from "@/db/ids";
 import { reportError } from "@/src/lib/report-error";
+import { writeInCompanyScope } from "./company-scope";
 import type { Db } from "./db-service";
-
-export type SqlStorage = {
-  exec(
-    query: string,
-    ...bindings: (string | number)[]
-  ): { toArray(): Record<string, unknown>[] };
-};
-
-export type DurableObjectContext = {
-  readonly storage: { readonly sql: SqlStorage };
-};
-
-const TeamListSnapshot = Schema.Struct({
-  version: Schema.Finite,
-  teams: Schema.Array(
-    Schema.Struct({
-      id: TeamId,
-      name: Schema.String,
-      assignedUserIds: Schema.Array(Schema.String),
-    }),
-  ),
-});
-export type TeamListSnapshot = typeof TeamListSnapshot.Type;
-
-export const LIFETIME_MS = 3_600_000;
-
-const decodeSnapshot = Schema.decodeUnknownSync(TeamListSnapshot);
-
-export class TeamListStore {
-  constructor(private readonly sql: SqlStorage) {
-    sql.exec(
-      "CREATE TABLE IF NOT EXISTS team_list (position INTEGER PRIMARY KEY, team_id TEXT NOT NULL, name TEXT NOT NULL, assigned_user_ids TEXT NOT NULL)",
-    );
-    sql.exec(
-      "CREATE TABLE IF NOT EXISTS team_list_meta (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL, worker_version TEXT NOT NULL, stored_at INTEGER NOT NULL)",
-    );
-  }
-
-  #storedMeta() {
-    const [meta] = this.sql
-      .exec("SELECT version, worker_version, stored_at FROM team_list_meta")
-      .toArray();
-    return meta === undefined
-      ? undefined
-      : {
-          version: Number(meta.version),
-          workerVersion: String(meta.worker_version),
-          fresh: Number(meta.stored_at) > Date.now() - LIFETIME_MS,
-        };
-  }
-
-  read(workerVersion: string): TeamListSnapshot | undefined {
-    const meta = this.#storedMeta();
-    if (!meta?.fresh || meta.workerVersion !== workerVersion) return undefined;
-    try {
-      const teams = this.sql
-        .exec(
-          "SELECT team_id, name, assigned_user_ids FROM team_list ORDER BY position",
-        )
-        .toArray()
-        .map((row) => ({
-          id: row.team_id,
-          name: row.name,
-          assignedUserIds: JSON.parse(String(row.assigned_user_ids)),
-        }));
-      return decodeSnapshot({ version: meta.version, teams });
-    } catch {
-      this.clear();
-      return undefined;
-    }
-  }
-
-  replace(workerVersion: string, { version, teams }: TeamListSnapshot) {
-    const meta = this.#storedMeta();
-    const sameList =
-      meta?.version === version && meta.workerVersion === workerVersion;
-    if (meta?.fresh && (version < meta.version || sameList)) return;
-    if (sameList) {
-      this.sql.exec("UPDATE team_list_meta SET stored_at = ?", Date.now());
-      return;
-    }
-    this.clear();
-    teams.forEach((team, position) =>
-      this.sql.exec(
-        "INSERT INTO team_list (position, team_id, name, assigned_user_ids) VALUES (?, ?, ?, ?)",
-        position,
-        team.id,
-        team.name,
-        JSON.stringify(team.assignedUserIds),
-      ),
-    );
-    this.sql.exec(
-      "INSERT INTO team_list_meta (id, version, worker_version, stored_at) VALUES (1, ?, ?, ?)",
-      version,
-      workerVersion,
-      Date.now(),
-    );
-  }
-
-  clear() {
-    this.sql.exec("DELETE FROM team_list");
-    this.sql.exec("DELETE FROM team_list_meta");
-  }
-}
-
-export type TeamListStub = {
-  read(
-    workerVersion: string,
-  ): TeamListSnapshot | undefined | Promise<TeamListSnapshot | undefined>;
-  replace(
-    workerVersion: string,
-    snapshot: TeamListSnapshot,
-  ): void | Promise<void>;
-  clear(): void | Promise<void>;
-};
+import { type DbFailure, DbUnavailable, failureOfDbError } from "./failures";
+import { TeamListSnapshot, type TeamListStub } from "./team-list-store";
 
 const CALL_TIMEOUT = "1 second";
 
@@ -188,16 +76,6 @@ export class CompanyTeamList extends Context.Service<
     });
 }
 
-export const bumpTeamListInWriteTransaction = async (
-  writeTransaction: Pick<Db["Service"], "execute">,
-  companyId: CompanyId,
-) =>
-  (
-    await writeTransaction.execute<{ result: unknown }>(
-      sql`select bump_company_team_list(${companyId}) as result`,
-    )
-  ).rows[0]?.result;
-
 export const decodeTeamListSnapshot =
   Schema.decodeUnknownEffect(TeamListSnapshot);
 
@@ -216,3 +94,46 @@ export const rewriteTeamList = (
       ),
     ),
   );
+
+const incrementTeamListVersion = async (
+  tx: Db["Service"],
+  companyId: CompanyId,
+) => {
+  try {
+    const { rows } = await tx.execute<{ result: unknown }>(
+      sql`select bump_company_team_list(${companyId}) as result`,
+    );
+    return Result.succeed(rows[0]?.result);
+  } catch (cause) {
+    return Result.fail(failureOfDbError(cause));
+  }
+};
+
+// 一覧を変える書き込みの手順 (docs/adr/0008-company-teams-cache.md)
+export const writeTeamList = async <A, E>(
+  db: Db["Service"],
+  companyId: CompanyId,
+  teamListOf: (companyId: CompanyId) => CompanyTeamList["Service"],
+  write: (tx: Db["Service"]) => Promise<Result.Result<A, E>>,
+): Promise<Result.Result<A, E | DbFailure>> => {
+  const teamList = teamListOf(companyId);
+  const result = await writeInCompanyScope<
+    { readonly value: A; readonly list: unknown },
+    E | DbFailure
+  >(db, companyId, async (tx) => {
+    const written = await write(tx);
+    if (Result.isFailure(written)) return Result.fail(written.failure);
+    return Result.map(
+      await incrementTeamListVersion(tx, companyId),
+      (list) => ({
+        value: written.success,
+        list,
+      }),
+    );
+  });
+  if (Result.isSuccess(result))
+    await Effect.runPromise(rewriteTeamList(teamList, result.success.list));
+  else if (result.failure instanceof DbUnavailable)
+    await Effect.runPromise(teamList.clear);
+  return Result.map(result, ({ value }) => value);
+};

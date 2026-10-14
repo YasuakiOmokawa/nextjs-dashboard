@@ -13,9 +13,9 @@ import {
 import { CompanyId } from "@/db/ids";
 import type { CheckMemberships } from "@/src/lib/purge-departed";
 import { reportError } from "@/src/lib/report-error";
-import type { RequestSession } from "@/src/services";
 import { CompanyMembers } from "@/src/services/company-members-service";
 import type { CompanyTeamList } from "@/src/services/company-team-list";
+import type { RequestSession } from "@/src/services/request-session";
 
 export type AuthEnv = {
   readonly AUTH: { fetch: typeof fetch };

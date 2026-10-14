@@ -25,7 +25,7 @@ import {
   withRollbackDb,
 } from "@/src/services/__tests__/db/test-db";
 import { emptyTeamListStore } from "@/src/services/__tests__/request";
-import type { TeamListStore } from "@/src/services/company-team-list";
+import type { TeamListStore } from "@/src/services/team-list-store";
 import {
   Authenticated,
   MAX_LEVEL_ENTRIES_PER_SAVE,

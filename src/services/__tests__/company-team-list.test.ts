@@ -1,15 +1,35 @@
-import { Effect, Exit } from "effect";
+import { eq, sql } from "drizzle-orm";
+import { Effect, Exit, Result } from "effect";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
-import { TeamId } from "@/db/ids";
+import { teams } from "@/db/drizzle/schema";
+import { CompanyId, TeamId } from "@/db/ids";
 import { sendErrorReportsTo } from "@/src/lib/report-error";
 import {
   CompanyTeamList,
   decodeTeamListSnapshot,
-  LIFETIME_MS,
   rewriteTeamList,
+  writeTeamList,
+} from "../company-team-list";
+import type { Db } from "../db-service";
+import { DbUnavailable } from "../failures";
+import {
+  LIFETIME_MS,
   type TeamListSnapshot,
   TeamListStore,
-} from "../company-team-list";
+} from "../team-list-store";
+import {
+  functionValue,
+  type TestDb,
+  teamListVersion,
+  withRollback,
+} from "./db/test-db";
+import {
+  captureReports,
+  companyTeamListBackedBy,
+  readReplaceClearCounts,
+  type TeamListStubSpy,
+  teamListStubOf,
+} from "./request";
 import { sqliteStorage } from "./sqlite-storage";
 
 const snapshotOf = (version: number, name = "開発"): TeamListSnapshot => ({
@@ -157,16 +177,6 @@ describe("TeamListStore", () => {
 });
 
 describe("CompanyTeamList", () => {
-  const captureReports = () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    const send = vi.fn();
-    sendErrorReportsTo(send);
-    onTestFinished(() => {
-      sendErrorReportsTo(() => {});
-      vi.restoreAllMocks();
-    });
-    return send;
-  };
   const stub = () => ({
     read: vi.fn((): TeamListSnapshot | undefined => snapshotOf(5)),
     replace: vi.fn(),
@@ -284,4 +294,127 @@ describe("decodeTeamListSnapshot", () => {
 
     expect(Exit.isFailure(decoded)).toBe(true);
   });
+});
+
+describe("writeTeamList", () => {
+  const companyId = CompanyId.make("cmp_write");
+  const stubbedTeamList = () => {
+    const stub = teamListStubOf();
+    return { stub, teamListOf: companyTeamListBackedBy(stub) };
+  };
+  const teamNames = async (tx: TestDb) =>
+    (
+      await tx
+        .select({ name: teams.name })
+        .from(teams)
+        .where(eq(teams.companyId, companyId))
+    ).map((team) => team.name);
+  const insertTeam = (name: string) => async (tx: Db["Service"]) => {
+    await tx.insert(teams).values({ companyId, name });
+    return Result.succeed(name);
+  };
+
+  it("本体が書いて成功すると、行が残り、版が 1 増え、commit の後に増えた版の一覧で 1 回書き直してから返す", () =>
+    withRollback(async (tx) => {
+      const { stub, teamListOf } = stubbedTeamList();
+      const before = await teamListVersion(tx, companyId);
+      const order: string[] = [];
+      stub.replace.mockImplementation(async () => {
+        await Promise.resolve();
+        order.push("replaced");
+      });
+
+      const result = await writeTeamList(
+        tx,
+        companyId,
+        teamListOf,
+        insertTeam("書いたチーム"),
+      );
+      order.push("returned");
+
+      expect(result).toEqual(Result.succeed("書いたチーム"));
+      expect(order).toEqual(["replaced", "returned"]);
+      const [[, snapshot]] = stub.replace.mock.calls;
+      expect(snapshot.version).toBe(before + 1);
+      expect(snapshot.teams.map((team) => team.name)).toEqual(["書いたチーム"]);
+      expect(await teamNames(tx)).toEqual(["書いたチーム"]);
+      expect(await teamListVersion(tx, companyId)).toBe(before + 1);
+    }));
+
+  it("本体が書いた後に Result の失敗を返すと、行を戻し、版を変えず、DO を触らない", () =>
+    withRollback(async (tx) => {
+      const { stub, teamListOf } = stubbedTeamList();
+      const before = await teamListVersion(tx, companyId);
+
+      const result = await writeTeamList(
+        tx,
+        companyId,
+        teamListOf,
+        async (scoped) => {
+          await insertTeam("戻るチーム")(scoped);
+          return Result.fail("rejected" as const);
+        },
+      );
+
+      expect(result).toEqual(Result.fail("rejected"));
+      expect(await teamNames(tx)).toEqual([]);
+      expect(await teamListVersion(tx, companyId)).toBe(before);
+      expect(readReplaceClearCounts(stub)).toEqual([0, 0, 0]);
+    }));
+
+  it("本体が投げると同じ値で reject し、行を戻し、DO を触らない", () =>
+    withRollback(async (tx) => {
+      const { stub, teamListOf } = stubbedTeamList();
+      const defect = new Error("bug");
+
+      await expect(
+        writeTeamList(tx, companyId, teamListOf, async (scoped) => {
+          await insertTeam("戻るチーム")(scoped);
+          throw defect;
+        }),
+      ).rejects.toBe(defect);
+
+      expect(await teamNames(tx)).toEqual([]);
+      expect(readReplaceClearCounts(stub)).toEqual([0, 0, 0]);
+    }));
+
+  it("transaction が DB を通らずに失敗する (commit したか分からない) と、DbUnavailable を返し、DO の一覧を消す", () =>
+    withRollback(async (tx) => {
+      const { stub, teamListOf } = stubbedTeamList();
+      const cause = new Error("connection terminated");
+      vi.spyOn(tx, "transaction").mockRejectedValueOnce(cause);
+
+      const result = await writeTeamList(
+        tx,
+        companyId,
+        teamListOf,
+        insertTeam("届かないチーム"),
+      );
+
+      expect(result).toEqual(Result.fail(new DbUnavailable({ cause })));
+      expect(readReplaceClearCounts(stub)).toEqual([0, 0, 1]);
+    }));
+
+  it("版を増やす文を DB が拒むと、TeamServiceError を返し、本体の行を戻し、DO を触らない", () =>
+    withRollback(async (tx) => {
+      const { stub, teamListOf } = stubbedTeamList();
+
+      const result = await writeTeamList(
+        tx,
+        companyId,
+        teamListOf,
+        async (scoped) => {
+          await scoped.execute(
+            sql`alter function bump_company_team_list(varchar) rename to bump_company_team_list_gone`,
+          );
+          return insertTeam("戻るチーム")(scoped);
+        },
+      );
+
+      expect(Result.isFailure(result) && result.failure._tag).toBe(
+        "TeamServiceError",
+      );
+      expect(await teamNames(tx)).toEqual([]);
+      expect(readReplaceClearCounts(stub)).toEqual([0, 0, 0]);
+    }));
 });

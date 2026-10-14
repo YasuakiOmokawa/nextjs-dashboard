@@ -73,6 +73,16 @@ export const functionValue = async (db: Pick<TestDb, "execute">, call: SQL) => {
   return rows[0]?.value;
 };
 
+export const teamListVersion = async (
+  db: Pick<TestDb, "execute">,
+  companyId: string,
+) =>
+  (
+    (await functionValue(db, sql`company_team_list(${companyId})`)) as {
+      version: number;
+    }
+  ).version;
+
 export const currentCompanySetting = async (db: Pick<TestDb, "execute">) => {
   const { rows } = await db.execute<{ company_id: string | null }>(
     sql`select current_setting(${COMPANY_ID_SETTING}, true) as company_id`,

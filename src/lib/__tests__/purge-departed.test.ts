@@ -10,8 +10,16 @@ import { CompanyId } from "@/db/ids";
 import {
   functionValue,
   type TestDb,
+  teamListVersion,
   withRollback,
 } from "@/src/services/__tests__/db/test-db";
+import {
+  captureReports,
+  companyTeamListBackedBy,
+  readReplaceClearCounts,
+  type TeamListStubSpy,
+  teamListStubOf,
+} from "@/src/services/__tests__/request";
 import { type CheckMemberships, purgeDeparted } from "../purge-departed";
 import { sendErrorReportsTo } from "../report-error";
 
@@ -75,17 +83,26 @@ const assignedUserIds = async (tx: TestDb, companyId: string) =>
 
 const startedAt = new Date("2026-10-06T18:00:00Z");
 
-const replaceTeamList = vi.fn(
-  async (_companyId: string, _bumped: unknown) => {},
+const teamListStubs = new Map<string, TeamListStubSpy>();
+const teamListStubFor = (companyId: string) => {
+  const stub = teamListStubs.get(companyId) ?? teamListStubOf();
+  teamListStubs.set(companyId, stub);
+  return stub;
+};
+const teamListOf = vi.fn((companyId: CompanyId) =>
+  companyTeamListBackedBy(teamListStubFor(companyId))(),
 );
-beforeEach(() => replaceTeamList.mockReset());
-
-const listVersion = async (tx: TestDb, companyId: string) =>
-  (
-    (await functionValue(tx, sql`company_team_list(${companyId})`)) as {
-      version: number;
-    }
-  ).version;
+beforeEach(() => {
+  teamListStubs.clear();
+  teamListOf.mockClear();
+});
+const replacedSnapshots = (companyId: string) =>
+  teamListStubs.get(companyId)?.replace.mock.calls.map(([, list]) => list) ??
+  [];
+const readReplaceClearCountsOf = (companyId: string) => {
+  const stub = teamListStubs.get(companyId);
+  return stub ? readReplaceClearCounts(stub) : [0, 0, 0];
+};
 
 const answering =
   (
@@ -113,7 +130,7 @@ describe("purgeDeparted", () => {
 
       await purgeDeparted({
         db: tx,
-        replaceTeamList,
+        teamListOf,
         checkMemberships: answering({
           cmp_gone: { companyActive: false, memberUserIds: [] },
         }),
@@ -135,7 +152,7 @@ describe("purgeDeparted", () => {
 
       const report = await purgeDeparted({
         db: tx,
-        replaceTeamList,
+        teamListOf,
         checkMemberships: answering({
           cmp_active: { companyActive: true, memberUserIds: ["u_stays"] },
         }),
@@ -156,7 +173,7 @@ describe("purgeDeparted", () => {
 
       await purgeDeparted({
         db: tx,
-        replaceTeamList,
+        teamListOf,
         checkMemberships: answering({
           cmp_new: { companyActive: true, memberUserIds: [] },
         }),
@@ -173,7 +190,7 @@ describe("purgeDeparted", () => {
 
       const report = await purgeDeparted({
         db: tx,
-        replaceTeamList,
+        teamListOf,
         checkMemberships: answering({
           cmp_unreachable: new Error("taimei-auth unavailable"),
           cmp_gone: { companyActive: false, memberUserIds: [] },
@@ -192,19 +209,13 @@ describe("purgeDeparted", () => {
 
   it("照合の失敗は、事業所の id を message に、原因を cause にした Error で 1 回報告する", () =>
     withRollback(async (tx) => {
-      vi.spyOn(console, "error").mockImplementation(() => {});
-      const send = vi.fn();
-      sendErrorReportsTo(send);
-      onTestFinished(() => {
-        sendErrorReportsTo(() => {});
-        vi.restoreAllMocks();
-      });
+      const send = captureReports();
       const cause = new Error("taimei-auth unavailable");
       await seedTeam(tx, "cmp_unreachable", ["u_1"]);
 
       await purgeDeparted({
         db: tx,
-        replaceTeamList,
+        teamListOf,
         checkMemberships: answering({ cmp_unreachable: cause }),
         startedAt,
       });
@@ -225,7 +236,7 @@ describe("purgeDeparted", () => {
 
       await purgeDeparted({
         db: tx,
-        replaceTeamList,
+        teamListOf,
         checkMemberships: answering({
           cmp_gone: { companyActive: false, memberUserIds: [] },
           cmp_other: { companyActive: true, memberUserIds: ["u_2"] },
@@ -247,13 +258,13 @@ describe("purgeDeparted", () => {
 
       const first = await purgeDeparted({
         db: tx,
-        replaceTeamList,
+        teamListOf,
         checkMemberships,
         startedAt,
       });
       const second = await purgeDeparted({
         db: tx,
-        replaceTeamList,
+        teamListOf,
         checkMemberships,
         startedAt,
       });
@@ -275,33 +286,33 @@ describe("purgeDeparted が一覧を変えた事業所の DO の一覧", () => {
   it("ACTIVE でない事業所のチームを消した後に、増やした版の空の一覧で書き直す", () =>
     withRollback(async (tx) => {
       await seedTeam(tx, "cmp_gone", ["u_1"]);
-      const before = await listVersion(tx, "cmp_gone");
+      const before = await teamListVersion(tx, "cmp_gone");
 
       await purgeDeparted({
         db: tx,
-        replaceTeamList,
+        teamListOf,
         checkMemberships: answering({
           cmp_gone: { companyActive: false, memberUserIds: [] },
         }),
         startedAt,
       });
 
-      expect(replaceTeamList).toHaveBeenCalledExactlyOnceWith("cmp_gone", {
-        version: before + 1,
-        teams: [],
-      });
+      expect(teamListOf).toHaveBeenCalledExactlyOnceWith("cmp_gone");
+      expect(replacedSnapshots("cmp_gone")).toEqual([
+        { version: before + 1, teams: [] },
+      ]);
     }));
 
   it("所属しない人の割り当てを外した事業所は、増やした版の外した後の一覧で書き直し、外す人のいない事業所は書き直さない", () =>
     withRollback(async (tx) => {
       await seedTeam(tx, "cmp_active", ["u_stays", "u_left"]);
       await seedTeam(tx, "cmp_unchanged", ["u_stays"]);
-      const before = await listVersion(tx, "cmp_active");
-      const unchangedBefore = await listVersion(tx, "cmp_unchanged");
+      const before = await teamListVersion(tx, "cmp_active");
+      const unchangedBefore = await teamListVersion(tx, "cmp_unchanged");
 
       await purgeDeparted({
         db: tx,
-        replaceTeamList,
+        teamListOf,
         checkMemberships: answering({
           cmp_active: { companyActive: true, memberUserIds: ["u_stays"] },
           cmp_unchanged: { companyActive: true, memberUserIds: ["u_stays"] },
@@ -309,14 +320,11 @@ describe("purgeDeparted が一覧を変えた事業所の DO の一覧", () => {
         startedAt,
       });
 
-      expect(replaceTeamList).toHaveBeenCalledOnce();
-      const [[companyId, bumped]] = replaceTeamList.mock.calls;
-      expect(companyId).toBe("cmp_active");
-      expect(bumped).toMatchObject({
-        version: before + 1,
-        teams: [{ assignedUserIds: ["u_stays"] }],
-      });
-      expect(await listVersion(tx, "cmp_unchanged")).toBe(unchangedBefore);
+      expect(replacedSnapshots("cmp_active")).toMatchObject([
+        { version: before + 1, teams: [{ assignedUserIds: ["u_stays"] }] },
+      ]);
+      expect(await teamListVersion(tx, "cmp_unchanged")).toBe(unchangedBefore);
+      expect(readReplaceClearCountsOf("cmp_unchanged")).toEqual([0, 0, 0]);
     }));
 
   it("照合に失敗して飛ばした事業所の一覧は書き直さない", () =>
@@ -327,10 +335,11 @@ describe("purgeDeparted が一覧を変えた事業所の DO の一覧", () => {
       });
       await seedTeam(tx, "cmp_unreachable", ["u_1"]);
       await seedTeam(tx, "cmp_gone", ["u_2"]);
+      const before = await teamListVersion(tx, "cmp_unreachable");
 
       const report = await purgeDeparted({
         db: tx,
-        replaceTeamList,
+        teamListOf,
         checkMemberships: answering({
           cmp_unreachable: new Error("taimei-auth unavailable"),
           cmp_gone: { companyActive: false, memberUserIds: [] },
@@ -339,26 +348,23 @@ describe("purgeDeparted が一覧を変えた事業所の DO の一覧", () => {
       });
 
       expect(report.skippedCompanyIds).toEqual(["cmp_unreachable"]);
-      expect(replaceTeamList).toHaveBeenCalledOnce();
-      expect(replaceTeamList.mock.calls[0][0]).toBe("cmp_gone");
+      expect(readReplaceClearCountsOf("cmp_unreachable")).toEqual([0, 0, 0]);
+      expect(await teamListVersion(tx, "cmp_unreachable")).toBe(before);
+      expect(replacedSnapshots("cmp_gone")).toHaveLength(1);
     }));
 
   it("一覧を書き直せなくても 1 回報告し、次の事業所を続ける", () =>
     withRollback(async (tx) => {
-      vi.spyOn(console, "error").mockImplementation(() => {});
-      const send = vi.fn();
-      sendErrorReportsTo(send);
-      onTestFinished(() => {
-        sendErrorReportsTo(() => {});
-        vi.restoreAllMocks();
-      });
+      const send = captureReports();
       await seedTeam(tx, "cmp_gone", ["u_1"]);
       await seedTeam(tx, "cmp_also_gone", ["u_2"]);
-      replaceTeamList.mockRejectedValueOnce(new Error("DO に届かない"));
+      teamListStubFor("cmp_gone").replace.mockRejectedValue(
+        new Error("DO に届かない"),
+      );
 
       const report = await purgeDeparted({
         db: tx,
-        replaceTeamList,
+        teamListOf,
         checkMemberships: answering({
           cmp_gone: { companyActive: false, memberUserIds: [] },
           cmp_also_gone: { companyActive: false, memberUserIds: [] },
@@ -367,9 +373,96 @@ describe("purgeDeparted が一覧を変えた事業所の DO の一覧", () => {
       });
 
       expect(send).toHaveBeenCalledOnce();
+      expect(readReplaceClearCountsOf("cmp_gone")).toEqual([0, 2, 1]);
       expect(report.deletedCompanyIds.sort()).toEqual([
         "cmp_also_gone",
         "cmp_gone",
       ]);
+      expect(replacedSnapshots("cmp_also_gone")).toHaveLength(1);
+    }));
+
+  it("去った人がいても、照合の開始の後に作った割り当てだけで消した行が 0 なら、版を増やして書き直す", () =>
+    withRollback(async (tx) => {
+      const afterStart = new Date(startedAt.getTime() + 1000);
+      await seedTeam(tx, "cmp_new", ["u_new"], afterStart);
+      const before = await teamListVersion(tx, "cmp_new");
+
+      const report = await purgeDeparted({
+        db: tx,
+        teamListOf,
+        checkMemberships: answering({
+          cmp_new: { companyActive: true, memberUserIds: [] },
+        }),
+        startedAt,
+      });
+
+      expect(report.removedAssignments).toBe(0);
+      expect(await teamListVersion(tx, "cmp_new")).toBe(before + 1);
+      expect(replacedSnapshots("cmp_new")).toHaveLength(1);
+    }));
+
+  const failingTransactionCall = (tx: TestDb, failingCall: number) => {
+    const transaction = tx.transaction.bind(tx);
+    let calls = 0;
+    vi.spyOn(tx, "transaction").mockImplementation((fn) =>
+      ++calls === failingCall
+        ? Promise.reject(new Error("connection terminated"))
+        : transaction(fn),
+    );
+  };
+
+  it("ある事業所の書き込みが commit したか分からないと、その DO の一覧を消して飛ばし、1 回報告して次の事業所を続ける", () =>
+    withRollback(async (tx) => {
+      const send = captureReports();
+      await seedTeam(tx, "cmp_gone", ["u_1"]);
+      await seedTeam(tx, "cmp_also_gone", ["u_2"]);
+      // 1 社目の割り当ての読み取りが 1 本目、1 社目の書き込みが 2 本目
+      failingTransactionCall(tx, 2);
+
+      const report = await purgeDeparted({
+        db: tx,
+        teamListOf,
+        checkMemberships: answering({
+          cmp_gone: { companyActive: false, memberUserIds: [] },
+          cmp_also_gone: { companyActive: false, memberUserIds: [] },
+        }),
+        startedAt,
+      });
+
+      const [failed] = report.skippedCompanyIds;
+      const [deleted] = report.deletedCompanyIds;
+      expect(report.skippedCompanyIds).toHaveLength(1);
+      expect(report.deletedCompanyIds).toHaveLength(1);
+      expect(readReplaceClearCountsOf(failed)).toEqual([0, 0, 1]);
+      expect(replacedSnapshots(deleted)).toHaveLength(1);
+      expect(send).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ message: expect.stringContaining(failed) }),
+      );
+    }));
+
+  it("ある事業所の処理が投げても、1 回報告して飛ばし、次の事業所を続ける", () =>
+    withRollback(async (tx) => {
+      const send = captureReports();
+      await seedTeam(tx, "cmp_gone", ["u_1"]);
+      await seedTeam(tx, "cmp_also_gone", ["u_2"]);
+      failingTransactionCall(tx, 1);
+
+      const report = await purgeDeparted({
+        db: tx,
+        teamListOf,
+        checkMemberships: answering({
+          cmp_gone: { companyActive: false, memberUserIds: [] },
+          cmp_also_gone: { companyActive: false, memberUserIds: [] },
+        }),
+        startedAt,
+      });
+
+      const [failed] = report.skippedCompanyIds;
+      expect(report.skippedCompanyIds).toHaveLength(1);
+      expect(report.deletedCompanyIds).toHaveLength(1);
+      expect(readReplaceClearCountsOf(failed)).toEqual([0, 0, 0]);
+      expect(send).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ message: expect.stringContaining(failed) }),
+      );
     }));
 });

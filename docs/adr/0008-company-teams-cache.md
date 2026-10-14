@@ -22,7 +22,7 @@
 - 一覧の新しさは Postgres の表 `company_team_list_versions` の版で比べる。一覧を変える書き込みは `TeamManagement` (管理者) と `purgeDeparted` だけで、どちらも書き込みと同じ transaction の中で `bump_company_team_list` を呼び、版を増やして新しい一覧を読む。commit の後、応答の前に、その版で DO の表を書き直す。DO は、置いている版より小さい版では書き直さない。置いた Worker の version が違っても版は戻さない (deploy の間に、新しい Worker が少し前に読んだ古い版で、古い Worker が置いた新しい版を上書きしないため)書き込みを DO に通して並べる代わりに、版の行の lock が同じ事業所の書き込みを版の順に並べる
 - `bump_company_team_list` は、版を増やす文と一覧を読む文を分ける。1 文にすると、前の書き込みの commit を待つ前の snapshot で一覧を読み、新しい版に古い一覧が付く
 - `GET /api/teams` は DO の表を読み、見える範囲 (管理者か、割り当てがあるか) は要求ごとに Worker が判定する。DO が空、置いた Worker の version が違う (deploy の後)、置いてから 1 時間を過ぎた、のどれかの時だけ、`company_team_list` を 1 文読んで DO に置く
-- メンバーのレベルの保存 (`runScopedService`) は DO を触らない
+- メンバーのレベルの保存 (`runTeamService`) は DO を触らない
 - 寿命 1 時間は安全網として持つ。commit の後、DO を書き直す前に Worker が止まると、書き込みの少ない事業所では次の管理者の書き込みまで古い一覧が残り続けるため。費用は事業所ごとに 1 時間に 1 回の DB の 1 文で、要らなければ定数を消せば、DB を読むのは DO が空の時と deploy の後だけになる
 - 寿命が切れても同じ版なら、一覧の行を書き直さず寿命だけを延ばす。書き直しは「チームの数 × 2 + 2」行を書き、毎時の書き直しが Free 枠の行の書き込みを使い切りうるため
 - 手作業の SQL の後に消す HTTP の口 (#591 の AC 4) は作らない。口を作ると、認証の付いた新しい入口 (秘密・CSRF・テスト) が要る。手作業の SQL は版を増やさないので、その後は GitHub Actions の Deploy を流し直し、Worker の version を変えて全事業所の一覧を DB から読み直させる。DB を backup から戻した後 (版が過去に戻る) も流し直す

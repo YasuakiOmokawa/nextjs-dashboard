@@ -2,14 +2,12 @@ import { Effect, Result } from "effect";
 import { expect, it, vi } from "vitest";
 import { teams } from "@/db/drizzle/schema";
 import { CompanyId } from "@/db/ids";
-import {
-  type RequestSession,
-  runManagerScopedService,
-  runReadService,
-} from "..";
+import { runTeamManagement, runTeamReads } from "..";
 import { CompanyMembers } from "../company-members-service";
-import { CompanyTeamList, type TeamListStub } from "../company-team-list";
+import { CompanyTeamList } from "../company-team-list";
 import { Db } from "../db-service";
+import type { RequestSession } from "../request-session";
+import type { TeamListStub } from "../team-list-store";
 import { TeamReads } from "../team-reads";
 import { seedTeam } from "./db/seed";
 import { withRollbackDb } from "./db/test-db";
@@ -49,11 +47,9 @@ it("外れの読み取りが DB を読んだ後に管理者の書き込みが新
       clear: () => store.clear(),
     });
 
-    const staleRead = runReadService(session, () =>
-      TeamReads.use((reads) => reads.listTeams),
-    );
+    const staleRead = runTeamReads(session, (reads) => reads.listTeams);
     await readerReplaceReached.promise;
-    const written = await runManagerScopedService(session, () =>
+    const written = await runTeamManagement(session, () =>
       Db.use((scoped) =>
         Effect.promise(() =>
           scoped.insert(teams).values({ companyId, name: "新しいチーム" }),

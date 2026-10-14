@@ -1,7 +1,7 @@
 // @cloudflare/workers-types を入れずに、使う型だけを書く
 declare module "cloudflare:workers" {
   type DurableObjectContext =
-    import("@/src/services/company-team-list").DurableObjectContext;
+    import("@/src/services/team-list-store").DurableObjectContext;
 
   export abstract class DurableObject {
     protected readonly ctx: DurableObjectContext;

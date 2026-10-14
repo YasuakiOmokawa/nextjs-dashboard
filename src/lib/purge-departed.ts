@@ -1,8 +1,12 @@
 import { and, inArray, lte, sql } from "drizzle-orm";
+import { Result } from "effect";
 import { teamAssignments, teams } from "@/db/drizzle/schema";
 import { CompanyId } from "@/db/ids";
 import { companyFilter, withCompanyScope } from "@/db/scoped";
-import { bumpTeamListInWriteTransaction } from "@/src/services/company-team-list";
+import {
+  type CompanyTeamList,
+  writeTeamList,
+} from "@/src/services/company-team-list";
 import type { Db } from "@/src/services/db-service";
 import { reportError } from "./report-error";
 
@@ -20,28 +24,21 @@ export type PurgeReport = {
 export const purgeDeparted = async ({
   db,
   checkMemberships,
-  replaceTeamList,
+  teamListOf,
   startedAt,
 }: {
   db: Db["Service"];
   checkMemberships: CheckMemberships;
-  replaceTeamList: (companyId: CompanyId, bumped: unknown) => Promise<void>;
+  teamListOf: (companyId: CompanyId) => CompanyTeamList["Service"];
   startedAt: Date;
 }): Promise<PurgeReport> => {
-  const replaceReportingFailure = (companyId: CompanyId, bumped: unknown) =>
-    replaceTeamList(companyId, bumped).catch((cause: unknown) =>
-      reportError(new Error(`replaceTeamList failed: ${companyId}`, { cause })),
-    );
   const report: PurgeReport = {
     deletedCompanyIds: [],
     removedAssignments: 0,
     skippedCompanyIds: [],
   };
-  const { rows } = await db.execute<{ company_id: string }>(
-    sql`select company_id from company_ids_with_teams() as company_id`,
-  );
-  // ponytail: Service Binding は 1 起動 32 回までで、チームを持つ事業所が約 31 を超えると後ろの事業所を毎回飛ばす。超えたら taimei-auth に複数の事業所を 1 回で照合する RPC を足す
-  for (const companyId of rows.map((row) => CompanyId.make(row.company_id))) {
+
+  const purgeCompany = async (companyId: CompanyId) => {
     const userIds = await withCompanyScope(db, companyId, async (tx) =>
       (
         await tx
@@ -60,45 +57,50 @@ export const purgeDeparted = async ({
     );
     if (!answer) {
       report.skippedCompanyIds.push(companyId);
-      continue;
+      return;
     }
     if (!answer.companyActive) {
-      const list = await withCompanyScope(db, companyId, async (tx) => {
-        await tx.delete(teams).where(companyFilter(teams, companyId));
-        return bumpTeamListInWriteTransaction(tx, companyId);
-      });
-      await replaceReportingFailure(companyId, list);
+      Result.getOrThrow(
+        await writeTeamList(db, companyId, teamListOf, async (tx) =>
+          Result.succeed(
+            await tx.delete(teams).where(companyFilter(teams, companyId)),
+          ),
+        ),
+      );
       report.deletedCompanyIds.push(companyId);
-      continue;
+      return;
     }
     const members = new Set(answer.memberUserIds);
     const departed = userIds.filter((userId) => !members.has(userId));
-    if (departed.length === 0) continue;
-    const { removed, list } = await withCompanyScope(
-      db,
-      companyId,
-      async (tx) => {
-        const removed = await tx
-          .delete(teamAssignments)
-          .where(
-            and(
-              companyFilter(teamAssignments, companyId),
-              inArray(teamAssignments.userId, departed),
-              lte(teamAssignments.createdAt, startedAt),
-            ),
-          )
-          .returning({ userId: teamAssignments.userId });
-        return {
-          removed,
-          list:
-            removed.length > 0
-              ? await bumpTeamListInWriteTransaction(tx, companyId)
-              : undefined,
-        };
-      },
+    if (departed.length === 0) return;
+    const removed = Result.getOrThrow(
+      await writeTeamList(db, companyId, teamListOf, async (tx) =>
+        Result.succeed(
+          await tx
+            .delete(teamAssignments)
+            .where(
+              and(
+                companyFilter(teamAssignments, companyId),
+                inArray(teamAssignments.userId, departed),
+                lte(teamAssignments.createdAt, startedAt),
+              ),
+            )
+            .returning({ userId: teamAssignments.userId }),
+        ),
+      ),
     );
-    if (removed.length > 0) await replaceReportingFailure(companyId, list);
     report.removedAssignments += removed.length;
+  };
+
+  const { rows } = await db.execute<{ company_id: string }>(
+    sql`select company_id from company_ids_with_teams() as company_id`,
+  );
+  // ponytail: Service Binding は 1 起動 32 回までで、チームを持つ事業所が約 31 を超えると後ろの事業所を毎回飛ばす。超えたら taimei-auth に複数の事業所を 1 回で照合する RPC を足す
+  for (const companyId of rows.map((row) => CompanyId.make(row.company_id))) {
+    await purgeCompany(companyId).catch((cause: unknown) => {
+      reportError(new Error(`purgeDeparted failed: ${companyId}`, { cause }));
+      report.skippedCompanyIds.push(companyId);
+    });
   }
   return report;
 };

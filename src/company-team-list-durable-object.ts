@@ -3,7 +3,7 @@ import {
   type TeamListSnapshot,
   TeamListStore,
   type TeamListStub,
-} from "@/src/services/company-team-list";
+} from "@/src/services/team-list-store";
 
 export class CompanyTeamListDurableObject
   extends DurableObject

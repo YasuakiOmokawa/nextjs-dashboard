@@ -1,4 +1,5 @@
 import { DrizzleQueryError } from "drizzle-orm";
+import { Effect } from "effect";
 import type { ExecutionContext } from "hono";
 import type { Pool } from "pg";
 import { afterEach, expect, it, vi } from "vitest";
@@ -245,7 +246,7 @@ it("Worker の module が export する DO は、事業所のチーム一覧を�
   expect(teamList.read("v1")).toBeUndefined();
 });
 
-it("定期処理が purgeDeparted に渡す replaceTeamList は、その事業所の名前の DO の一覧を書き直す", async () => {
+it("定期処理が purgeDeparted に渡す teamListOf は、その事業所の名前の DO の一覧を返す", async () => {
   vi.mocked(purgeDeparted).mockResolvedValue(PURGE_REPORT);
   const store = emptyTeamListStore();
   const replace = vi.spyOn(store, "replace");
@@ -255,9 +256,11 @@ it("定期処理が purgeDeparted に渡す replaceTeamList は、その事業�
     { ...envWithBinding(), COMPANY_TEAM_LIST: { getByName } },
     collectingContext().ctx,
   );
-  const [{ replaceTeamList }] = vi.mocked(purgeDeparted).mock.calls[0];
+  const [{ teamListOf }] = vi.mocked(purgeDeparted).mock.calls[0];
 
-  await replaceTeamList(CompanyId.make("cmp_x"), { version: 2, teams: [] });
+  await Effect.runPromise(
+    teamListOf(CompanyId.make("cmp_x")).replace({ version: 2, teams: [] }),
+  );
 
   expect(getByName).toHaveBeenCalledExactlyOnceWith("cmp_x");
   expect(replace).toHaveBeenCalledExactlyOnceWith("v1", {

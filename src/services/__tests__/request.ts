@@ -1,14 +1,12 @@
 import type { Role } from "@taimei-code/auth-client";
 import { Effect, Result } from "effect";
-import { vi } from "vitest";
+import { onTestFinished, vi } from "vitest";
 import { CompanyId } from "@/db/ids";
+import { sendErrorReportsTo } from "@/src/lib/report-error";
 import { AuthorizationContext } from "../authorization-context";
 import { CompanyContext } from "../company-context";
-import {
-  CompanyTeamList,
-  TeamListStore,
-  type TeamListStub,
-} from "../company-team-list";
+import { CompanyTeamList } from "../company-team-list";
+import { TeamListStore, type TeamListStub } from "../team-list-store";
 import { sqliteStorage } from "./sqlite-storage";
 
 export type Actor = {
@@ -70,9 +68,26 @@ export const teamListStubOf = (
 });
 export type TeamListStubSpy = ReturnType<typeof teamListStubOf>;
 
+export const readReplaceClearCounts = (stub: TeamListStubSpy) => [
+  stub.read.mock.calls.length,
+  stub.replace.mock.calls.length,
+  stub.clear.mock.calls.length,
+];
+
 export const WORKER_VERSION = "v1";
 
 export const companyTeamListBackedBy =
   (stub: TeamListStub = emptyTeamListStore()) =>
   () =>
     CompanyTeamList.fromStub(() => stub, WORKER_VERSION);
+
+export const captureReports = () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const send = vi.fn();
+  sendErrorReportsTo(send);
+  onTestFinished(() => {
+    sendErrorReportsTo(() => {});
+    vi.restoreAllMocks();
+  });
+  return send;
+};

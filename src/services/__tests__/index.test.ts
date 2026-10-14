@@ -5,32 +5,35 @@ import { teamAssignments, teams } from "@/db/drizzle/schema";
 import { CompanyId } from "@/db/ids";
 import { NotManager, TeamNotFound } from "@/src/spa-contract";
 import {
-  type RequestSession,
-  runManagerScopedService,
-  runReadService,
-  runScopedService,
   runServiceWithoutDb,
+  runTeamManagement,
+  runTeamReads,
+  runTeamService,
 } from "..";
 import { AuthorizationContext } from "../authorization-context";
 import { CompanyContext } from "../company-context";
-import { CompanyMembers, MemberListError } from "../company-members-service";
+import { CompanyMembers } from "../company-members-service";
 import { CompanyTeamList } from "../company-team-list";
-import { Db, DbUnavailable } from "../db-service";
-import { TeamServiceError } from "../team-errors";
+import { Db } from "../db-service";
+import { DbUnavailable, MemberListError, TeamServiceError } from "../failures";
+import type { RequestSession } from "../request-session";
+import { TeamManagement } from "../team-management";
 import { TeamReads } from "../team-reads";
-import { TeamManagement, TeamService } from "../team-service";
+import { TeamService } from "../team-service";
 import { seedAssignment, seedSkill, seedTeam } from "./db/seed";
 import {
   currentCompanySetting,
   dbInRollback,
   functionValue,
   type TestDb,
+  teamListVersion,
   withRollbackDb,
 } from "./db/test-db";
 import {
   companyTeamListBackedBy,
   emptyTeamListStore,
   failureTag,
+  readReplaceClearCounts,
   type TeamListStubSpy,
   teamListStubOf,
 } from "./request";
@@ -58,6 +61,7 @@ const session: RequestSession = {
   companyTeamListOf: () => companyTeamListBackedBy()(),
 };
 const listCompanyMembers = () => CompanyMembers.use((members) => members.list);
+const teamListBody = () => CompanyTeamList.use(() => Effect.void);
 
 const teamsNamed = (tx: TestDb, name: string) =>
   tx.select().from(teams).where(eq(teams.name, name));
@@ -94,7 +98,7 @@ describe("runServiceWithoutDb", () => {
     const result = await runServiceWithoutDb(session, () =>
       Effect.succeed("ok"),
     );
-    const scoped = await runScopedService(session, () => Effect.succeed("ok"));
+    const scoped = await runTeamService(session, () => Effect.succeed("ok"));
 
     expect(Result.getOrThrow(result)).toBe("ok");
     expect(Result.isFailure(scoped) && scoped.failure._tag).toBe(
@@ -120,19 +124,22 @@ describe("runServiceWithoutDb", () => {
     expect(consoleError).not.toHaveBeenCalled();
   });
 
-  it("本体は Db と TeamService を要求できない (bun run typecheck で見る)", () => {
+  it("本体は Db・TeamService・CompanyTeamList を要求できない (bun run typecheck で見る)", () => {
     const requiresDb = () =>
       // @ts-expect-error runServiceWithoutDb は Db を provide しない
       runServiceWithoutDb(session, () => Db.use(() => Effect.void));
     const requiresTeamService = () =>
       // @ts-expect-error runServiceWithoutDb は TeamService を provide しない
       runServiceWithoutDb(session, () => TeamService.use(() => Effect.void));
+    const requiresTeamList = () =>
+      // @ts-expect-error DO の一覧に触れるのは TeamReads と writeTeamList だけ
+      runServiceWithoutDb(session, teamListBody);
 
-    expect([requiresDb, requiresTeamService]).toHaveLength(2);
+    expect([requiresDb, requiresTeamService, requiresTeamList]).toHaveLength(3);
   });
 });
 
-describe("runReadService", () => {
+describe("runTeamReads", () => {
   it("transaction を開かずに、session の事業所・user・role で TeamReads を走らせる", () =>
     withRollbackDb(async (tx) => {
       await tx.insert(teams).values([
@@ -142,9 +149,7 @@ describe("runReadService", () => {
       const transaction = vi.spyOn(dbInRollback, "transaction");
       const execute = vi.spyOn(dbInRollback, "execute");
 
-      const result = await runReadService(session, () =>
-        TeamReads.use((reads) => reads.listTeams),
-      );
+      const result = await runTeamReads(session, (reads) => reads.listTeams);
 
       expect(Result.getOrThrow(result).map((team) => team.name)).toEqual([
         "自社のチーム",
@@ -156,42 +161,46 @@ describe("runReadService", () => {
   it("本体の予期しない失敗は、その失敗を返し、報告は HTTP の境界に任せる", async () => {
     const failure = new TeamServiceError({ cause: "connection lost" });
 
-    const result = await runReadService(session, () => Effect.fail(failure));
+    const result = await runTeamReads(session, () => Effect.fail(failure));
 
     expect(result).toEqual(Result.fail(failure));
     expect(consoleError).not.toHaveBeenCalled();
   });
 
-  it("本体は Db・TeamService・TeamManagement を要求できない (bun run typecheck で見る)", () => {
+  it("本体は Db・TeamService・TeamManagement・CompanyTeamList を要求できない (bun run typecheck で見る)", () => {
     const requiresDb = () =>
-      // @ts-expect-error runReadService は transaction の Db を provide しない
-      runReadService(session, () => Db.use(() => Effect.void));
+      // @ts-expect-error runTeamReads は transaction の Db を provide しない
+      runTeamReads(session, () => Db.use(() => Effect.void));
     const requiresTeamService = () =>
       // @ts-expect-error 書き込みの Service は transaction の外で走らせない
-      runReadService(session, () => TeamService.use(() => Effect.void));
+      runTeamReads(session, () => TeamService.use(() => Effect.void));
     const requiresTeamManagement = () =>
       // @ts-expect-error 書き込みの Service は transaction の外で走らせない
-      runReadService(session, () => TeamManagement.use(() => Effect.void));
+      runTeamReads(session, () => TeamManagement.use(() => Effect.void));
+    const requiresTeamList = () =>
+      // @ts-expect-error DO の一覧は TeamReads の中だけが読む
+      runTeamReads(session, teamListBody);
 
     expect([
       requiresDb,
       requiresTeamService,
       requiresTeamManagement,
-    ]).toHaveLength(3);
+      requiresTeamList,
+    ]).toHaveLength(4);
   });
 });
 
-describe("runScopedService", () => {
+describe("runTeamService", () => {
   it("session の companyMembers を CompanyMembers として本体に渡す", () =>
     withRollbackDb(async () => {
-      const result = await runScopedService(session, listCompanyMembers);
+      const result = await runTeamService(session, listCompanyMembers);
 
       expect(Result.getOrThrow(result)).toEqual(sessionMembers);
     }));
 
   it("session の事業所を CompanyContext として本体に渡す", () =>
     withRollbackDb(async () => {
-      const result = await runScopedService(session, () =>
+      const result = await runTeamService(session, () =>
         CompanyContext.use(({ companyId }) => Effect.succeed(companyId)),
       );
 
@@ -200,7 +209,7 @@ describe("runScopedService", () => {
 
   it("session の user id と role を AuthorizationContext として本体に渡す", () =>
     withRollbackDb(async () => {
-      const result = await runScopedService(session, () =>
+      const result = await runTeamService(session, () =>
         AuthorizationContext.use(Effect.succeed),
       );
 
@@ -212,7 +221,7 @@ describe("runScopedService", () => {
 
   it("本体の Db は、session の事業所を app.company_id に設定した transaction", () =>
     withRollbackDb(async () => {
-      const result = await runScopedService(session, () =>
+      const result = await runTeamService(session, () =>
         Db.use((scoped) => Effect.promise(() => currentCompanySetting(scoped))),
       );
 
@@ -221,7 +230,7 @@ describe("runScopedService", () => {
 
   it("本体の TeamService は、本体の Db と同じ transaction で読む", () =>
     withRollbackDb(async () => {
-      const result = await runScopedService(session, () =>
+      const result = await runTeamService(session, (service) =>
         Db.use((scoped) =>
           Effect.promise(async () => {
             const [team] = await scoped
@@ -233,32 +242,35 @@ describe("runScopedService", () => {
               .values({ companyId, teamId: team.id, userId: session.userId });
             return team.id;
           }),
-        ).pipe(
-          Effect.flatMap((teamId) =>
-            TeamService.use((service) => service.saveMyLevels(teamId, [])),
-          ),
-        ),
+        ).pipe(Effect.flatMap((teamId) => service.saveMyLevels(teamId, []))),
       );
 
       expect(Result.isSuccess(result)).toBe(true);
     }));
 
-  it("本体は TeamReads と TeamManagement を要求できない (bun run typecheck で見る)", () => {
+  it("本体は TeamReads・TeamManagement・CompanyTeamList を要求できない (bun run typecheck で見る)", () => {
     const requiresTeamReads = () =>
-      // @ts-expect-error 読み取りは transaction を開かない runReadService で走らせる
-      runScopedService(session, () => TeamReads.use(() => Effect.void));
+      // @ts-expect-error 読み取りは transaction を開かない runTeamReads で走らせる
+      runTeamService(session, () => TeamReads.use(() => Effect.void));
     const requiresTeamManagement = () =>
-      // @ts-expect-error 管理の操作は管理者を判定する runManagerScopedService で走らせる
-      runScopedService(session, () => TeamManagement.use(() => Effect.void));
+      // @ts-expect-error 管理の操作は管理者を判定する runTeamManagement で走らせる
+      runTeamService(session, () => TeamManagement.use(() => Effect.void));
+    const requiresTeamList = () =>
+      // @ts-expect-error レベルの保存は DO の一覧に触れない
+      runTeamService(session, teamListBody);
 
-    expect([requiresTeamReads, requiresTeamManagement]).toHaveLength(2);
+    expect([
+      requiresTeamReads,
+      requiresTeamManagement,
+      requiresTeamList,
+    ]).toHaveLength(3);
   });
 
   it("本体が書いた後に失敗すると、その失敗を返し、書いた行を戻す", () =>
     withRollbackDb(async (tx) => {
       const failure = new TeamNotFound({ teamId: "t" });
 
-      const result = await runScopedService(session, () =>
+      const result = await runTeamService(session, () =>
         insertTeam("失敗で戻るチーム").pipe(
           Effect.andThen(Effect.fail(failure)),
         ),
@@ -270,7 +282,7 @@ describe("runScopedService", () => {
 
   it("本体が書いて成功すると、書いた行が残る", () =>
     withRollbackDb(async (tx) => {
-      const result = await runScopedService(session, () =>
+      const result = await runTeamService(session, () =>
         insertTeam("成功で残るチーム"),
       );
 
@@ -283,7 +295,7 @@ describe("runScopedService", () => {
       const cause = new Error("connection refused");
       vi.spyOn(tx, "transaction").mockRejectedValue(cause);
 
-      const result = await runScopedService(session, () =>
+      const result = await runTeamService(session, () =>
         Effect.succeed("unreachable"),
       );
 
@@ -296,7 +308,7 @@ describe("runScopedService", () => {
       const defect = new Error("bug");
 
       await expect(
-        runScopedService(session, () => Effect.die(defect)),
+        runTeamService(session, () => Effect.die(defect)),
       ).rejects.toBe(defect);
     }));
 
@@ -305,7 +317,7 @@ describe("runScopedService", () => {
       const bug = new TypeError("bug");
 
       await expect(
-        runScopedService(session, () => {
+        runTeamService(session, () => {
           throw bug;
         }),
       ).rejects.toBe(bug);
@@ -313,7 +325,7 @@ describe("runScopedService", () => {
 
   it("利用者の操作で起きる失敗は報告しない", () =>
     withRollbackDb(async () => {
-      const result = await runScopedService(session, () =>
+      const result = await runTeamService(session, () =>
         Effect.fail(new TeamNotFound({ teamId: "t" })),
       );
 
@@ -325,7 +337,7 @@ describe("runScopedService", () => {
     withRollbackDb(async () => {
       const cause = new Error("query failed");
 
-      const result = await runScopedService(session, () =>
+      const result = await runTeamService(session, () =>
         Effect.fail(new TeamServiceError({ cause })),
       );
 
@@ -334,24 +346,20 @@ describe("runScopedService", () => {
     }));
 });
 
-describe("runManagerScopedService", () => {
+describe("runTeamManagement", () => {
   it("管理者には TeamManagement を渡す", () =>
     withRollbackDb(async () => {
-      const result = await runManagerScopedService(session, () =>
-        TeamManagement.use(() => Effect.void),
-      );
+      const result = await runTeamManagement(session, () => Effect.void);
 
       expect(Result.isSuccess(result)).toBe(true);
     }));
 
   it("管理者でない人には、管理者の要求の後でも NotManager を返し、本体を実行せず、報告しない", () =>
     withRollbackDb(async () => {
-      const byManager = await runManagerScopedService(session, () =>
-        TeamManagement.use(() => Effect.void),
-      );
+      const byManager = await runTeamManagement(session, () => Effect.void);
       const body = vi.fn();
 
-      const byMember = await runManagerScopedService(
+      const byMember = await runTeamManagement(
         { ...session, role: "MEMBER" },
         () => Effect.sync(body),
       );
@@ -365,7 +373,7 @@ describe("runManagerScopedService", () => {
   it("管理者でない人には、transaction を開く前に NotManager を返す", async () => {
     const transaction = vi.spyOn(dbInRollback, "transaction");
 
-    const result = await runManagerScopedService(
+    const result = await runTeamManagement(
       { ...session, role: "MEMBER" },
       () => Effect.void,
     );
@@ -378,21 +386,30 @@ describe("runManagerScopedService", () => {
     withRollbackDb(async () => {
       const cause = new Error("query failed");
 
-      const result = await runManagerScopedService(session, () =>
-        TeamManagement.use(() => Effect.fail(new TeamServiceError({ cause }))),
+      const result = await runTeamManagement(session, () =>
+        Effect.fail(new TeamServiceError({ cause })),
       );
 
       expect(result).toEqual(Result.fail(new TeamServiceError({ cause })));
       expect(consoleError).not.toHaveBeenCalled();
     }));
 
-  it("本体は TeamService を要求できない (bun run typecheck で見る)", () => {
-    const bodyRequiringTeamService = () => TeamService.use(() => Effect.void);
+  it("本体は TeamService・TeamReads・CompanyTeamList を要求できない (bun run typecheck で見る)", () => {
     const requiresTeamService = () =>
-      // @ts-expect-error 記入はメンバーも通る runScopedService で走らせる
-      runManagerScopedService(session, bodyRequiringTeamService);
+      // @ts-expect-error 記入はメンバーも通る runTeamService で走らせる
+      runTeamManagement(session, () => TeamService.use(() => Effect.void));
+    const requiresTeamReads = () =>
+      // @ts-expect-error 読み取りは transaction を開かない runTeamReads で走らせる
+      runTeamManagement(session, () => TeamReads.use(() => Effect.void));
+    const requiresTeamList = () =>
+      // @ts-expect-error DO の一覧は commit の後に writeTeamList が書き直す
+      runTeamManagement(session, teamListBody);
 
-    expect(requiresTeamService).toBeTypeOf("function");
+    expect([
+      requiresTeamService,
+      requiresTeamReads,
+      requiresTeamList,
+    ]).toHaveLength(3);
   });
 });
 
@@ -408,18 +425,6 @@ describe("管理者の書き込みは、同じ transaction で版を増やし、
       } satisfies RequestSession,
     };
   };
-  const listVersion = async (tx: TestDb) =>
-    (
-      (await functionValue(tx, sql`company_team_list(${companyId})`)) as {
-        version: number;
-      }
-    ).version;
-  const doCalls = (teamList: TeamListStubSpy) => [
-    teamList.read.mock.calls.length,
-    teamList.replace.mock.calls.length,
-    teamList.clear.mock.calls.length,
-  ];
-
   it("一覧は session の事業所の id で作る", () =>
     withRollbackDb(async () => {
       const { teamList } = sessionWithTeamList();
@@ -428,12 +433,8 @@ describe("管理者の書き込みは、同じ transaction で版を増やし、
       );
       const withTeamListOf = { ...session, companyTeamListOf };
 
-      await runReadService(withTeamListOf, () =>
-        TeamReads.use((reads) => reads.listTeams),
-      );
-      await runManagerScopedService(withTeamListOf, () =>
-        TeamManagement.use(() => Effect.void),
-      );
+      await runTeamReads(withTeamListOf, (reads) => reads.listTeams);
+      await runTeamManagement(withTeamListOf, () => Effect.void);
 
       expect(new Set(companyTeamListOf.mock.calls.map(([id]) => id))).toEqual(
         new Set([session.companyId]),
@@ -443,7 +444,7 @@ describe("管理者の書き込みは、同じ transaction で版を増やし、
   it("本体が書いて成功すると、commit の後に、増やした版と書いたチームを含む一覧で 1 回書き直す", () =>
     withRollbackDb(async (tx) => {
       const { teamList, session } = sessionWithTeamList();
-      const before = await listVersion(tx);
+      const before = await teamListVersion(tx, companyId);
       const order: string[] = [];
       const transaction = dbInRollback.transaction;
       vi.spyOn(dbInRollback, "transaction").mockImplementation((fn) =>
@@ -453,7 +454,7 @@ describe("管理者の書き込みは、同じ transaction で版を増やし、
         order.push("replace");
       });
 
-      const result = await runManagerScopedService(session, () =>
+      const result = await runTeamManagement(session, () =>
         insertTeam("書いたチーム"),
       );
 
@@ -463,7 +464,7 @@ describe("管理者の書き込みは、同じ transaction で版を増やし、
       expect(workerVersion).toBe("v1");
       expect(snapshot.version).toBe(before + 1);
       expect(snapshot.teams.map((team) => team.name)).toContain("書いたチーム");
-      expect(await listVersion(tx)).toBe(before + 1);
+      expect(await teamListVersion(tx, companyId)).toBe(before + 1);
     }));
 
   it("書き直し終わるまで結果を返さない", () =>
@@ -476,7 +477,7 @@ describe("管理者の書き込みは、同じ transaction で版を増やし、
         return replaceFinished.promise;
       });
 
-      const running = runManagerScopedService(session, () =>
+      const running = runTeamManagement(session, () =>
         insertTeam("待つチーム"),
       );
       await replaceReached.promise;
@@ -493,17 +494,17 @@ describe("管理者の書き込みは、同じ transaction で版を増やし、
   it("本体が書いた後に失敗して戻ると、DO を触らず、版も変わらない", () =>
     withRollbackDb(async (tx) => {
       const { teamList, session } = sessionWithTeamList();
-      const before = await listVersion(tx);
+      const before = await teamListVersion(tx, companyId);
 
-      const result = await runManagerScopedService(session, () =>
+      const result = await runTeamManagement(session, () =>
         insertTeam("戻るチーム").pipe(
           Effect.andThen(Effect.fail(new TeamNotFound({ teamId: "t" }))),
         ),
       );
 
       expect(failureTag(result)).toBe("TeamNotFound");
-      expect(doCalls(teamList)).toEqual([0, 0, 0]);
-      expect(await listVersion(tx)).toBe(before);
+      expect(readReplaceClearCounts(teamList)).toEqual([0, 0, 0]);
+      expect(await teamListVersion(tx, companyId)).toBe(before);
     }));
 
   it("本体の defect で reject すると、DO を触らない", () =>
@@ -511,9 +512,9 @@ describe("管理者の書き込みは、同じ transaction で版を増やし、
       const { teamList, session } = sessionWithTeamList();
 
       await expect(
-        runManagerScopedService(session, () => Effect.die(new Error("bug"))),
+        runTeamManagement(session, () => Effect.die(new Error("bug"))),
       ).rejects.toThrow("bug");
-      expect(doCalls(teamList)).toEqual([0, 0, 0]);
+      expect(readReplaceClearCounts(teamList)).toEqual([0, 0, 0]);
     }));
 
   it("transaction を開けない (commit したか分からない) 時は、DO の一覧を消す", () =>
@@ -521,40 +522,38 @@ describe("管理者の書き込みは、同じ transaction で版を増やし、
       const { teamList, session } = sessionWithTeamList();
       vi.spyOn(tx, "transaction").mockRejectedValue(new Error("refused"));
 
-      const result = await runManagerScopedService(session, () => Effect.void);
+      const result = await runTeamManagement(session, () => Effect.void);
 
       expect(failureTag(result)).toBe("DbUnavailable");
-      expect(doCalls(teamList)).toEqual([0, 0, 1]);
+      expect(readReplaceClearCounts(teamList)).toEqual([0, 0, 1]);
     }));
 
   it("管理者でない人の管理は NotManager で、DO を触らない", async () => {
     const { teamList, session } = sessionWithTeamList("MEMBER");
 
-    const result = await runManagerScopedService(session, () => Effect.void);
+    const result = await runTeamManagement(session, () => Effect.void);
 
     expect(result).toEqual(Result.fail(new NotManager()));
-    expect(doCalls(teamList)).toEqual([0, 0, 0]);
+    expect(readReplaceClearCounts(teamList)).toEqual([0, 0, 0]);
   });
 
-  it("メンバーのレベルの保存 (runScopedService) は、DO を触らず、版も変わらない", () =>
+  it("メンバーのレベルの保存 (runTeamService) は、DO を触らず、版も変わらない", () =>
     withRollbackDb(async (tx) => {
       const { teamList, session } = sessionWithTeamList("MEMBER");
       const teamId = await seedTeam(tx, companyId, "メンバーのチーム");
       const skillId = await seedSkill(tx, companyId, teamId, "設計");
       await seedAssignment(tx, companyId, teamId, session.userId);
-      const before = await listVersion(tx);
+      const before = await teamListVersion(tx, companyId);
 
-      const result = await runScopedService(session, () =>
-        TeamService.use((service) =>
-          service.saveMyLevels(teamId, [
-            { skillId, level: 2, wantsToLearn: true },
-          ]),
-        ),
+      const result = await runTeamService(session, (service) =>
+        service.saveMyLevels(teamId, [
+          { skillId, level: 2, wantsToLearn: true },
+        ]),
       );
 
       expect(Result.isSuccess(result)).toBe(true);
-      expect(doCalls(teamList)).toEqual([0, 0, 0]);
-      expect(await listVersion(tx)).toBe(before);
+      expect(readReplaceClearCounts(teamList)).toEqual([0, 0, 0]);
+      expect(await teamListVersion(tx, companyId)).toBe(before);
     }));
 
   it("DB を使わない実行口は DO を触らず、読み取りの実行口は一覧を消さない", () =>
@@ -562,10 +561,8 @@ describe("管理者の書き込みは、同じ transaction で版を増やし、
       const { teamList, session } = sessionWithTeamList();
 
       const withoutDb = await runServiceWithoutDb(session, () => Effect.void);
-      expect(doCalls(teamList)).toEqual([0, 0, 0]);
-      const read = await runReadService(session, () =>
-        TeamReads.use((reads) => reads.listTeams),
-      );
+      expect(readReplaceClearCounts(teamList)).toEqual([0, 0, 0]);
+      const read = await runTeamReads(session, (reads) => reads.listTeams);
 
       expect([Result.isSuccess(withoutDb), Result.isSuccess(read)]).toEqual([
         true,
@@ -583,12 +580,12 @@ describe("管理者の書き込みは、同じ transaction で版を増やし、
         ),
       );
 
-      const result = await runManagerScopedService(session, () =>
+      const result = await runTeamManagement(session, () =>
         insertTeam("書けたチーム"),
       );
 
       expect(Result.isSuccess(result)).toBe(true);
-      expect(doCalls(teamList)).toEqual([0, 0, 1]);
+      expect(readReplaceClearCounts(teamList)).toEqual([0, 0, 1]);
       expect(consoleError).toHaveBeenCalledOnce();
     }));
 
@@ -599,7 +596,7 @@ describe("管理者の書き込みは、同じ transaction で版を増やし、
         throw new Error("DO に届かない");
       });
 
-      const result = await runManagerScopedService(session, () =>
+      const result = await runTeamManagement(session, () =>
         insertTeam("書けたチーム"),
       );
 
