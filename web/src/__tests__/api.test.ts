@@ -23,6 +23,7 @@ import {
   loadAtom,
   loadedValueOf,
   loadFailureOf,
+  type MutationDefinition,
   markStale,
   meAtom,
   membersAtom,
@@ -39,6 +40,9 @@ import {
   waitForValue,
   writeSavedMyLevels,
 } from "../api";
+
+const isGet = (init: RequestInit | undefined) =>
+  (init?.method ?? "GET") === "GET";
 
 const stubLocation = () => {
   const location = {
@@ -652,8 +656,6 @@ it("保存の level に文字列を渡すと型エラーになる (bun run typec
 
 describe("runApiMutation", () => {
   const TEAM_ID = "00000000-0000-4000-8000-0000000000cc";
-  const isGet = (init: RequestInit | undefined) =>
-    (init?.method ?? "GET") === "GET";
   const teamPageNamed = (name: string) => ({
     team: { id: TEAM_ID, name, skills: [], assignedUserIds: [], levels: [] },
     members: null,
@@ -752,11 +754,19 @@ describe("runApiMutation", () => {
   it("更新の定義は api.ts の外で作れない (bun run typecheck で見る)", () => {
     const handWritten = {
       send: () => Effect.succeed("ok"),
-      afterSuccess: () => undefined,
+      changed: () => ({ _tag: "TeamList" }) as const,
     };
     // @ts-expect-error 成功の後の処理を api.ts の定義の外で書かせない
     const mutation: ApiMutation<void, string, never> = handWritten;
     expect(mutation).toBeDefined();
+  });
+
+  it("更新の定義は何を変えたかの宣言を省けない (bun run typecheck で見る)", () => {
+    // @ts-expect-error changed が無いと、成功の後にどの atom を古くするかが決まらない
+    const withoutChanged: MutationDefinition<void, string, never> = {
+      send: () => Effect.succeed("ok"),
+    };
+    expect(withoutChanged).toBeDefined();
   });
 });
 
@@ -809,6 +819,114 @@ describe("runApiMutationForScreen", () => {
   });
 });
 
+describe("書き込みが変えた物ごとの、成功の後の鮮度", () => {
+  const TEAM_ID = "00000000-0000-4000-8000-0000000000dd";
+  const SKILL_ID = "00000000-0000-4000-8000-0000000000ee";
+  const teamPath = `/api/teams/${TEAM_ID}`;
+  const teamPage = {
+    team: {
+      id: TEAM_ID,
+      name: "開発",
+      skills: [{ id: SKILL_ID, name: "設計" }],
+      assignedUserIds: ["u_1"],
+      levels: [],
+    },
+    members: null,
+  };
+  const stubServer = () => {
+    let teamsOnServer: { id: string; name: string }[] = [];
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      if (!isGet(init)) return Response.json({ id: TEAM_ID });
+      return new URL(String(input)).pathname === teamPath
+        ? Response.json(teamPage)
+        : Response.json({ teams: teamsOnServer });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const getCountOf = (path: string) =>
+      fetch.mock.calls.filter(
+        ([input, init]) =>
+          isGet(init) && new URL(String(input)).pathname === path,
+      ).length;
+    const changeListOnServer = () => {
+      teamsOnServer = [{ id: TEAM_ID, name: "サーバーで変わった一覧" }];
+    };
+    return { getCountOf, changeListOnServer };
+  };
+  const loadTeamListAndTeam = async () => {
+    registry.mount(teamsAtom);
+    registry.mount(teamAtom(TEAM_ID));
+    await loadAtom(registry, teamsAtom);
+    await loadAtom(registry, teamAtom(TEAM_ID));
+    await yieldToEventLoop();
+  };
+  const nextListLoadSeesServerChange = async (
+    changeListOnServer: () => void,
+  ) => {
+    changeListOnServer();
+    return (await loadAtom(registry, teamsAtom)).teams.length > 0;
+  };
+
+  it("一覧を変えた書き込み (チームの作成) は、一覧を古くし、チームを取り直さない", async () => {
+    const { getCountOf, changeListOnServer } = stubServer();
+    await loadTeamListAndTeam();
+    const teamGetsBefore = getCountOf(teamPath);
+
+    await runMutation(createTeam, "営業");
+    await yieldToEventLoop();
+
+    expect(getCountOf(teamPath)).toBe(teamGetsBefore);
+    expect(await nextListLoadSeesServerChange(changeListOnServer)).toBe(true);
+  });
+
+  it("表示中のチームを変えた書き込み (名前の変更) は、一覧を古くし、チームを取り直し終えてから解決する", async () => {
+    const { getCountOf, changeListOnServer } = stubServer();
+    await loadTeamListAndTeam();
+    const teamGetsBefore = getCountOf(teamPath);
+
+    await runMutation(renameTeam(TEAM_ID), "新しい名前");
+
+    expect(getCountOf(teamPath)).toBe(teamGetsBefore + 1);
+    expect(await nextListLoadSeesServerChange(changeListOnServer)).toBe(true);
+  });
+
+  it("チームを消した書き込みは、一覧と消したチームを古くし、チームを取り直さない", async () => {
+    const { getCountOf, changeListOnServer } = stubServer();
+    await loadTeamListAndTeam();
+    const teamGetsBefore = getCountOf(teamPath);
+
+    await runMutation(deleteTeam(TEAM_ID), undefined);
+    await yieldToEventLoop();
+
+    expect(getCountOf(teamPath)).toBe(teamGetsBefore);
+    expect(await nextListLoadSeesServerChange(changeListOnServer)).toBe(true);
+    await loadAtom(registry, teamAtom(TEAM_ID));
+    expect(getCountOf(teamPath)).toBe(teamGetsBefore + 1);
+  });
+
+  it("自分のレベルを保存した書き込みは、チームを取り直さずに保存した値を書き、一覧を古くしない", async () => {
+    const { getCountOf, changeListOnServer } = stubServer();
+    await loadTeamListAndTeam();
+    const teamGetsBefore = getCountOf(teamPath);
+    const entries = [
+      {
+        skillId: SkillId.make(SKILL_ID),
+        level: 2 as const,
+        wantsToLearn: true,
+      },
+    ];
+
+    await runMutation(saveMyLevels(TEAM_ID, "u_1"), entries);
+    await yieldToEventLoop();
+
+    expect(getCountOf(teamPath)).toBe(teamGetsBefore);
+    expect(
+      Option.getOrThrow(AsyncResult.value(registry.get(teamAtom(TEAM_ID)))).team
+        .levels,
+    ).toEqual([{ userId: "u_1", ...entries[0] }]);
+    expect(await nextListLoadSeesServerChange(changeListOnServer)).toBe(false);
+  });
+});
+
 describe("一覧を古くする更新", () => {
   it("一覧を表示している間にチームを作っても一覧を取り直さず、次に一覧を開く時に取り直しを待つ", async () => {
     const createdTeam = {
@@ -826,8 +944,7 @@ describe("一覧を古くする更新", () => {
     const unmountList = registry.mount(teamsAtom);
     await loadAtom(registry, teamsAtom);
     const listGets = () =>
-      fetch.mock.calls.filter(([, init]) => (init?.method ?? "GET") === "GET")
-        .length;
+      fetch.mock.calls.filter(([, init]) => isGet(init)).length;
 
     await runMutation(createTeam, "開発");
     await yieldToEventLoop();

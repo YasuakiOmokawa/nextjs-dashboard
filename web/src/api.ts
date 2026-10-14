@@ -5,7 +5,16 @@ import {
   useAtomValue,
 } from "@effect/atom-react";
 // biome-ignore-end lint/style/noRestrictedImports: 画面の atom と hook を置く file
-import { Cause, Effect, Exit, Layer, Option, Schema } from "effect";
+import {
+  Cause,
+  Data,
+  Effect,
+  Exit,
+  Layer,
+  Match,
+  Option,
+  Schema,
+} from "effect";
 // biome-ignore lint/style/noRestrictedImports: SPA の契約の client を作る file (ADR-0007)
 import { FetchHttpClient, HttpClientError } from "effect/http";
 // biome-ignore-start lint/style/noRestrictedImports: 画面の atom と hook を置く file
@@ -26,7 +35,11 @@ import {
   type TeamPage,
   type Unauthenticated,
 } from "../../src/spa-contract";
-import { type MyLevelEntry, withMyLevels } from "./dashboard/skill-matrix";
+import {
+  type MyLevelEntry,
+  type TeamDetail,
+  withMyLevels,
+} from "./dashboard/skill-matrix";
 
 declare global {
   // web/index.html が JS の読み込みを待たずに始めた画面の API の fetch
@@ -181,13 +194,21 @@ type SpaClient = SpaApiClient["Service"];
 
 const definedInApiTs = Symbol("definedInApiTs");
 
-type MutationDefinition<V, A, E> = {
+type ChangedByMutation = Data.TaggedEnum<{
+  TeamList: {};
+  Team: { readonly teamId: string };
+  TeamDeleted: { readonly teamId: string };
+  MyLevels: {
+    readonly teamId: string;
+    readonly myUserId: string;
+    readonly entries: readonly MyLevelEntry[];
+  };
+}>;
+const ChangedByMutation = Data.taggedEnum<ChangedByMutation>();
+
+export type MutationDefinition<V, A, E> = {
   readonly send: (client: SpaClient, variables: V) => Effect.Effect<A, E>;
-  readonly afterSuccess: (
-    registry: AtomRegistry.AtomRegistry,
-    variables: V,
-    value: A,
-  ) => unknown;
+  readonly changed: (variables: V) => ChangedByMutation;
 };
 
 export type ApiMutation<V, A, E> = MutationDefinition<V, A, E> & {
@@ -209,7 +230,7 @@ const apiMutation = <A, E, V = void>(
       isClientDefect,
       Effect.die,
     ),
-  afterSuccess: mutation.afterSuccess,
+  changed: mutation.changed,
   [definedInApiTs]: true,
 });
 
@@ -232,9 +253,24 @@ const refetchUpdatedTeam = (
   return waitForRefetch(registry, teamAtom(teamId));
 };
 
+const refreshAfter = (
+  registry: AtomRegistry.AtomRegistry,
+  changed: ChangedByMutation,
+) =>
+  Match.valueTags(changed, {
+    TeamList: () => markTeamListStale(registry),
+    Team: ({ teamId }) => refetchUpdatedTeam(registry, teamId),
+    TeamDeleted: ({ teamId }) => {
+      markTeamListStale(registry);
+      markStale(registry, teamAtom(teamId));
+    },
+    MyLevels: ({ teamId, myUserId, entries }) =>
+      writeSavedMyLevels(registry, teamId, myUserId, entries),
+  });
+
 export const createTeam = apiMutation({
   send: (client, name: string) => client.teams.create({ payload: { name } }),
-  afterSuccess: markTeamListStale,
+  changed: () => ChangedByMutation.TeamList(),
 });
 
 const teamUpdate = <V, A, E>(
@@ -243,7 +279,7 @@ const teamUpdate = <V, A, E>(
 ) =>
   apiMutation<A, E, V>({
     send,
-    afterSuccess: (registry) => refetchUpdatedTeam(registry, teamId),
+    changed: () => ChangedByMutation.Team({ teamId }),
   });
 
 export const renameTeam = (teamId: string) =>
@@ -254,10 +290,7 @@ export const renameTeam = (teamId: string) =>
 export const deleteTeam = (teamId: string) =>
   apiMutation({
     send: (client) => client.teams.delete({ params: { teamId } }),
-    afterSuccess: (registry) => {
-      markTeamListStale(registry);
-      markStale(registry, teamAtom(teamId));
-    },
+    changed: () => ChangedByMutation.TeamDeleted({ teamId }),
   });
 
 export const addSkill = (teamId: string) =>
@@ -284,8 +317,8 @@ export const saveMyLevels = (teamId: string, myUserId: string) =>
   apiMutation({
     send: (client, levels: readonly MyLevelEntry[]) =>
       client.teams.saveMyLevels({ params: { teamId }, payload: { levels } }),
-    afterSuccess: (registry, levels) =>
-      writeSavedMyLevels(registry, teamId, myUserId, levels),
+    changed: (entries) =>
+      ChangedByMutation.MyLevels({ teamId, myUserId, entries }),
   });
 
 // AtomHttpApi.mutation の atom は endpoint ごとに 1 つで、同じ atom への次の呼び出しが前の呼び出しを中断するので、呼び出しごとに作る
@@ -308,7 +341,7 @@ export const runApiMutation = async <V, A, E>(
     });
     const exit = await Effect.runPromiseExit(nonWaitingResult(registry, atom));
     if (Exit.isSuccess(exit))
-      await mutation.afterSuccess(registry, variables, exit.value);
+      await refreshAfter(registry, mutation.changed(variables));
     return exit;
   } finally {
     unmount();
@@ -433,6 +466,22 @@ export const useApiMutation = <V, A, E>(
     isPending,
     failure,
     pendingVariables: isPending ? variables : undefined,
+  };
+};
+
+export const useSaveMyLevels = (
+  teamId: string,
+  myUserId: string,
+  savedTeam: TeamDetail,
+) => {
+  const save = useApiMutation(saveMyLevels(teamId, myUserId));
+  return {
+    teamWithPendingSave: save.pendingVariables
+      ? withMyLevels(savedTeam, myUserId, save.pendingVariables)
+      : savedTeam,
+    saving: save.isPending,
+    failure: save.failure,
+    onSave: save.mutate,
   };
 };
 
