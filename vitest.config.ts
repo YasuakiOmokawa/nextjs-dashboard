@@ -5,7 +5,6 @@ export default defineConfig({
   test: {
     environment: "node",
     globals: true,
-    globalSetup: ["./src/services/__tests__/db/global-setup.ts"],
     // root所有のディレクトリや、テストに不要なディレクトリをスキャン対象から除外
     exclude: [
       "**/node_modules/**",
@@ -16,16 +15,36 @@ export default defineConfig({
       "**/e2e/**",
       "**/vendor/**",
     ],
-  },
-  resolve: {
-    alias: [
-      { find: "@", replacement: resolve(__dirname, "./") },
+    projects: [
       {
-        find: "cloudflare:workers",
-        replacement: resolve(
-          __dirname,
-          "./src/__tests__/cloudflare-workers.ts",
-        ),
+        extends: true,
+        test: {
+          name: "server",
+          exclude: ["web/**"],
+          globalSetup: ["./src/services/__tests__/db/global-setup.ts"],
+        },
+        resolve: {
+          alias: [
+            { find: "@", replacement: resolve(__dirname, "./") },
+            {
+              find: "cloudflare:workers",
+              replacement: resolve(
+                __dirname,
+                "./src/__tests__/cloudflare-workers.ts",
+              ),
+            },
+          ],
+        },
+      },
+      {
+        extends: "./web/vite.config.ts",
+        test: {
+          name: "web",
+          root: __dirname,
+          environment: "node",
+          globals: true,
+          include: ["web/src/**/*.test.{ts,tsx}"],
+        },
       },
     ],
   },
