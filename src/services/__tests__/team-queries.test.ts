@@ -94,6 +94,10 @@ describe("表で引けない違反は、予期しない失敗にする", () => {
       "RLS でない 42501 (権限の不足)",
       writeError({ code: "42501", routine: "aclcheck_error" }),
     ],
+    [
+      "RLS の違反を表す名と同じ文字列の制約名",
+      writeError({ code: "23503", constraint: "rls_policy_violation" }),
+    ],
   ])("%s", (_, cause) => {
     expect(
       failureOfWrite(

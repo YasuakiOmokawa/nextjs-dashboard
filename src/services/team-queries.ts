@@ -37,7 +37,7 @@ export const runQuery = <A>(run: () => Promise<A>) =>
   Effect.tryPromise({ try: run, catch: failureOfDbError });
 
 // RLS の policy の違反は制約名を持たない。PostgreSQL は権限の不足と同じ 42501 で返し、翻訳されない routine (関数名) だけが分かれる
-export const RLS_POLICY_VIOLATION = "rls_policy_violation";
+export const RLS_POLICY_VIOLATION = Symbol("rls_policy_violation");
 const INSUFFICIENT_PRIVILEGE = "42501";
 const RLS_POLICY_VIOLATION_ROUTINE = "ExecWithCheckOptions";
 
