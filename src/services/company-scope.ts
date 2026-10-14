@@ -21,9 +21,11 @@ export const writeInCompanyScope = async <A, E>(
 ): Promise<Result.Result<A, E | DbFailure>> => {
   try {
     return await withCompanyScope(db, companyId, async (tx) => {
-      const written = await Promise.try(write, tx).catch((defect: unknown) => {
-        throw new WriteDefect(defect);
-      });
+      const written = await Promise.resolve()
+        .then(() => write(tx))
+        .catch((defect: unknown) => {
+          throw new WriteDefect(defect);
+        });
       if (Result.isFailure(written)) throw new WriteFailure(written.failure);
       return written;
     });
