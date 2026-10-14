@@ -9,7 +9,6 @@ import { purgeDeparted } from "@/src/lib/purge-departed";
 import { sendErrorReportsTo } from "@/src/lib/report-error";
 import { app, companyTeamListOf, type Env } from "./app";
 import { checkMembershipsOf } from "./auth";
-import { rewriteTeamListAfterCommit } from "./services";
 
 export { CompanyTeamListDurableObject } from "./company-team-list-durable-object";
 
@@ -34,8 +33,7 @@ export const handler = {
       purgeDeparted({
         db,
         checkMemberships: checkMembershipsOf(env),
-        replaceTeamList: (companyId, bumped) =>
-          rewriteTeamListAfterCommit(companyTeamListOf(env, companyId), bumped),
+        teamListOf: (companyId) => companyTeamListOf(env, companyId),
         startedAt: new Date(),
       }),
     );

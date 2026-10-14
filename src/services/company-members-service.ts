@@ -3,15 +3,9 @@ import {
   type Member,
   Result,
 } from "@taimei-code/auth-client";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { Unauthenticated } from "@/src/spa-contract";
-
-export class MemberListError extends Schema.TaggedError<MemberListError>()(
-  "MemberListError",
-  {
-    cause: Schema.Defect(),
-  },
-) {}
+import { MemberListError } from "./failures";
 
 type ListFailure = MemberListError | Unauthenticated;
 

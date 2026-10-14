@@ -10,12 +10,12 @@ import {
   removeSkill,
   renameTeam,
   type ShownFailure,
-  saveMyLevels,
   teamAtom,
   unassignMember,
   useApiMutation,
   useLoadedValue,
   useLoadFailure,
+  useSaveMyLevels,
 } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -36,7 +36,6 @@ import {
   type Roster,
   type TeamDetail,
   teamSkillMatrix,
-  withMyLevels,
 } from "@/dashboard/skill-matrix";
 
 type ReadyRoster = Extract<Roster, { _tag: "MatrixReady" }>;
@@ -445,22 +444,6 @@ function MyLevelsForm({
       </form>
     </Section>
   );
-}
-
-function useSaveMyLevels(
-  teamId: string,
-  myUserId: string,
-  savedTeam: TeamDetail,
-) {
-  const save = useApiMutation(saveMyLevels(teamId, myUserId));
-  return {
-    teamWithPendingSave: save.pendingVariables
-      ? withMyLevels(savedTeam, myUserId, save.pendingVariables)
-      : savedTeam,
-    saving: save.isPending,
-    failure: save.failure,
-    onSave: save.mutate,
-  };
 }
 
 export function TeamError() {

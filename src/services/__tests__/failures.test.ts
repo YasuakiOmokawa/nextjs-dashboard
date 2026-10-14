@@ -1,9 +1,14 @@
+import { DatabaseError } from "pg";
 import { expect, it } from "vitest";
-import { MemberListError } from "@/src/services/company-members-service";
-import { DbUnavailable } from "@/src/services/db-service";
-import { TeamServiceError } from "@/src/services/team-errors";
 import { NotManager } from "@/src/spa-contract";
-import { defectOf, isUnexpectedFailure } from "../team-failure";
+import {
+  DbUnavailable,
+  defectOf,
+  failureOfDbError,
+  isUnexpectedFailure,
+  MemberListError,
+  TeamServiceError,
+} from "../failures";
 
 const cause = new Error("connection refused");
 
@@ -35,4 +40,18 @@ it.each([
   [new NotManager(), false],
 ])("%s は予期しない失敗か: %s", (failure, unexpected) => {
   expect(isUnexpectedFailure(failure)).toBe(unexpected);
+});
+
+it("DB が答えた失敗 (drizzle が包んだ DatabaseError) は、commit していないので TeamServiceError にする", () => {
+  const cause = new Error("Failed query", {
+    cause: new DatabaseError("deadlock detected", 0, "error"),
+  });
+
+  expect(failureOfDbError(cause)).toEqual(new TeamServiceError({ cause }));
+});
+
+it("drizzle を通らない接続の失敗は、commit したか分からないので DbUnavailable にする", () => {
+  const cause = new Error("connection refused");
+
+  expect(failureOfDbError(cause)).toEqual(new DbUnavailable({ cause }));
 });

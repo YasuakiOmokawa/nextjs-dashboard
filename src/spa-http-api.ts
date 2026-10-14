@@ -10,23 +10,22 @@ import {
 } from "effect/http-api";
 import { reportError } from "@/src/lib/report-error";
 import {
-  defectOf,
-  isUnexpectedFailure,
-  type UnexpectedFailure,
-} from "@/src/lib/team-failure";
-import {
-  type RequestSession,
-  runManagerScopedService,
-  runReadService,
-  runScopedService,
   runServiceWithoutDb,
+  runTeamManagement,
+  runTeamReads,
+  runTeamService,
 } from "@/src/services";
 import { isManager } from "@/src/services/authorization-context";
 import type { CompanyContext } from "@/src/services/company-context";
 import { CompanyMembers } from "@/src/services/company-members-service";
-import type { TeamFailure } from "@/src/services/team-errors";
-import { TeamReads } from "@/src/services/team-reads";
-import { TeamManagement, TeamService } from "@/src/services/team-service";
+import {
+  defectOf,
+  isUnexpectedFailure,
+  type TeamFailure,
+  type UnexpectedFailure,
+} from "@/src/services/failures";
+import type { RequestSession } from "@/src/services/request-session";
+import type { TeamManagement } from "@/src/services/team-management";
 import {
   Authenticated,
   CurrentSession,
@@ -83,8 +82,8 @@ const runTeamManagementWrite = <E extends TeamFailure>(
   ) => Effect.Effect<void, E, CompanyContext>,
 ) =>
   runServiceForCurrentSession((session) =>
-    runManagerScopedService(session, () =>
-      TeamManagement.use(write).pipe(Effect.as({})),
+    runTeamManagement(session, (management) =>
+      write(management).pipe(Effect.as({})),
     ),
   );
 
@@ -120,26 +119,22 @@ const handlers: {
   teams: {
     list: () =>
       runServiceForCurrentSession((session) =>
-        runReadService(session, () =>
-          TeamReads.use((reads) => reads.listTeams).pipe(
-            Effect.map((teams) => ({ teams })),
-          ),
+        runTeamReads(session, (reads) =>
+          reads.listTeams.pipe(Effect.map((teams) => ({ teams }))),
         ),
       ),
     create: ({ payload }) =>
       runServiceForCurrentSession((session) =>
-        runManagerScopedService(session, () =>
-          TeamManagement.use((management) =>
-            management.createTeam(payload.name),
-          ),
+        runTeamManagement(session, (management) =>
+          management.createTeam(payload.name),
         ),
       ),
     get: ({ params }) =>
       runServiceForCurrentSession((session) =>
-        runReadService(session, () =>
+        runTeamReads(session, (reads) =>
           Effect.all(
             {
-              team: TeamReads.use((reads) => reads.getTeam(params.teamId)),
+              team: reads.getTeam(params.teamId),
               members: teamMembersOrNullWhenListFails,
             },
             { concurrency: "unbounded" },
@@ -172,10 +167,8 @@ const handlers: {
       ),
     saveMyLevels: ({ params, payload }) =>
       runServiceForCurrentSession((session) =>
-        runScopedService(session, () =>
-          TeamService.use((teams) =>
-            teams.saveMyLevels(params.teamId, payload.levels),
-          ).pipe(Effect.as({})),
+        runTeamService(session, (teams) =>
+          teams.saveMyLevels(params.teamId, payload.levels).pipe(Effect.as({})),
         ),
       ),
   },

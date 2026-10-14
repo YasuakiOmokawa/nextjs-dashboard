@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import type { SqlStorage } from "../company-team-list";
+import type { SqlStorage } from "../team-list-store";
 
 // node の vitest には DO の SQLite が無いので、ctx.storage.sql と同じ形を node:sqlite の上に作る
 export const sqliteStorage = (): SqlStorage => {

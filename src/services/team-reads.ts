@@ -1,12 +1,12 @@
 import { type SQL, sql } from "drizzle-orm";
 import { Context, Effect, Layer, Schema } from "effect";
-import { DatabaseError } from "pg";
 import { Team, TeamDetail, TeamNotFound } from "@/src/spa-contract";
 import { AuthorizationContext, isManager } from "./authorization-context";
 import { CompanyContext } from "./company-context";
 import { CompanyTeamList, decodeTeamListSnapshot } from "./company-team-list";
-import { DbUnavailable, ReadDb } from "./db-service";
-import { decodeTeamId, TeamServiceError } from "./team-errors";
+import { ReadDb } from "./db-service";
+import { type DbFailure, TeamServiceError } from "./failures";
+import { decodeTeamId, runQuery } from "./team-queries";
 
 type TeamDetail = typeof TeamDetail.Type;
 
@@ -14,44 +14,33 @@ const decodeTeamDetail = Schema.decodeUnknownEffect(Schema.NullOr(TeamDetail));
 
 type RequestContext = CompanyContext | AuthorizationContext;
 
-// drizzle は pg のエラーを cause に包む
-const failureOfQuery = (cause: unknown) =>
-  cause instanceof Error && cause.cause instanceof DatabaseError
-    ? new TeamServiceError({ cause })
-    : new DbUnavailable({ cause });
-
 export class TeamReads extends Context.Service<
   TeamReads,
   {
     readonly listTeams: Effect.Effect<
       readonly (typeof Team.Type)[],
-      TeamServiceError | DbUnavailable,
-      RequestContext | CompanyTeamList
+      DbFailure,
+      RequestContext
     >;
     getTeam(
       teamId: string,
-    ): Effect.Effect<
-      TeamDetail,
-      TeamNotFound | TeamServiceError | DbUnavailable,
-      RequestContext
-    >;
+    ): Effect.Effect<TeamDetail, TeamNotFound | DbFailure, RequestContext>;
   }
 >()("taimei/src/services/TeamReads") {
   static readonly layer = Layer.effect(
     TeamReads,
     Effect.gen(function* () {
       const db = yield* ReadDb;
+      const teamList = yield* CompanyTeamList;
 
       // 関数の値が schema に合わないのは migration と schema の食い違いなので、DB の失敗と同じに扱う
       const selectFunctionResult = <A>(
         call: SQL,
         decode: (value: unknown) => Effect.Effect<A, Schema.SchemaError>,
       ) =>
-        Effect.tryPromise({
-          try: () =>
-            db.execute<{ result: unknown }>(sql`select ${call} as result`),
-          catch: failureOfQuery,
-        }).pipe(
+        runQuery(() =>
+          db.execute<{ result: unknown }>(sql`select ${call} as result`),
+        ).pipe(
           Effect.flatMap(({ rows }) =>
             decode(rows[0]?.result).pipe(
               Effect.mapError((cause) => new TeamServiceError({ cause })),
@@ -68,7 +57,6 @@ export class TeamReads extends Context.Service<
       return TeamReads.of({
         listTeams: Effect.gen(function* () {
           const { companyId, userId, isManager } = yield* requester;
-          const teamList = yield* CompanyTeamList;
           const stored = yield* teamList.read;
           const snapshot =
             stored._tag === "Stored"

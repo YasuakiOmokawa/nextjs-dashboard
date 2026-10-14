@@ -54,7 +54,7 @@ taimei で今書ける間違いと、移した後に何が止めるか:
   - 古くした印 (`markStale`) は loader (`loadAtom`) だけが読む値として registry の外に持ち、回数で比べる。atom の結果からは「古くしたので取り直している」と「裏の取り直し」を区別できず (Query の `isInvalidated` にあたる区別)、印の前に始まった取得の値を新しい値として受けてしまうため
   - 画面の atom は購読が無くなっても 5 分残す。Query の既定の `gcTime` と同じ
   - チームの atom (`teamAtom`) は保存した自分のレベルを書ける writable にする。`Atom.optimistic` は成功の後に取り直すため
-  - 更新は、送る処理と成功の後の処理 (`afterSuccess`) を持つ定義 (`ApiMutation`) で書き、`afterSuccess` を型で省けなくする。取り直す key の付け忘れを型で止めるため。更新の atom は呼び出しごとに作る。`AtomHttpApi.mutation` の atom は endpoint ごとに 1 つで、同じ atom への次の呼び出しが前の呼び出しを中断するため。契約に無い応答と decode の失敗は、query と同じく defect にする
+  - 更新は、送る処理と、何を変えたかの宣言 (`changed`。`ChangedByMutation` の variant) を持つ定義 (`ApiMutation`) で書き、`changed` を型で省けなくする。取り直す key の付け忘れを型で止めるため。更新の atom は呼び出しごとに作る。`AtomHttpApi.mutation` の atom は endpoint ごとに 1 つで、同じ atom への次の呼び出しが前の呼び出しを中断するため。契約に無い応答と decode の失敗は、query と同じく defect にする
   - 失敗の文言 (`failureMessageOf`) は契約に宣言した失敗の型から選び、読み取りの失敗も router の `error` (`unknown`) ではなく atom から読む (`useLoadFailure`)。Context の表の 1 行目のため
 
 ## 引き換えと埋め方
@@ -72,7 +72,7 @@ taimei-auth の数値は、`taimei-code/taimei-auth@d63097b` の ADR-0017 の「
 
 #603〜#605 で次の文書を直した。
 
-| 文書 | 今の記述 | 直す issue |
+| 文書 | 直す前の記述 | 直す issue |
 | :-- | :-- | :-- |
 | `src/CLAUDE.md` | route を `app.ts` に `requireSession` の後で足し、公開の route を `PUBLIC_ENDPOINTS` に書く | #603 |
 | `src/CLAUDE.md` | `resultJson`・`encodedJson`・`jsonBody`・`hono/validator` と `biome-plugins/` の規則 | #603 |
@@ -86,7 +86,7 @@ taimei-auth の数値は、`taimei-code/taimei-auth@d63097b` の ADR-0017 の「
 ## Consequences
 
 - 失敗の応答の本文は `{ _tag, message }` (401・409 は `{ _tag }`) から契約の失敗 (`{ _tag }`) に変わり、`message` が無くなる。文言は SPA が失敗の型から引く。deploy の前に開いたタブは、応答の `x-taimei-session` に入る Worker の version が変わるので、次の API の応答で再読み込みして新しい SPA を取り直す (#612)。書き込みの要求は 409 になり、書き込まない
-- 型の外に残るもの: アプリの外の失敗 (Workers の CPU の上限での打ち切り、network、本体の予期しない失敗 (defect))、書き込みの後に何を古くするか・取り直すかの正しさ (`afterSuccess` を書くことは型が強いるが、中身は e2e で止める)
+- 型の外に残るもの: アプリの外の失敗 (Workers の CPU の上限での打ち切り、network、本体の予期しない失敗 (defect))、書き込みの後に何を古くするか・取り直すかの正しさ (`changed` を書くことは型が強いるが、宣言の正しさは e2e で止める)
 - TanStack Query の既定と違い、次の 3 つをしない。どれも 7 点の外で、要った時に足す
   - focus と再接続での取り直し。Workers Free の CPU を増やすので、足すかは観測で決める。足すなら query の atom に `Atom.refreshOnWindowFocus`
   - 失敗した読み取りの再試行。一時的な網・5xx の失敗がすぐ失敗の表示になる。足すなら `AtomHttpApi.Service` の `transformClient` に `HttpClient.retryTransient`

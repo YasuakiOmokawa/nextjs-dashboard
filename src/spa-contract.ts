@@ -8,7 +8,7 @@ import {
 // SPA の build の alias は @ を web/src に向けるので、repo 内は相対で読む
 import { LEVELS } from "../db/column-values";
 import { SkillId, TeamId } from "../db/ids";
-import type { RequestSession } from "./services";
+import type { RequestSession } from "./services/request-session";
 
 export const SESSION_HEADER = "x-taimei-session";
 

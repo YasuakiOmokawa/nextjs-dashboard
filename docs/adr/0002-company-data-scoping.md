@@ -151,6 +151,8 @@ export async function fetchInvoiceById(id: string) {
 2. `runScopedService` は companyId 引数を持たない → 呼出側が値を供給する経路が存在しない。
 3. companyId は認証済 session から導出 → リクエストパラメータ由来の companyId injection (IDOR) も不能。
 
+2026-10-14 追記: 今の実行口は `src/services/index.ts` の `runTeamReads`・`runTeamService`・`runTeamManagement` で、session から companyId を導く。companyId を引数で受ける書き込みの口 (`src/services/company-scope.ts` の `writeInCompanyScope` と `company-team-list.ts` の `writeTeamList`) は、実行口と、事業所の行 (`company_ids_with_teams()`) を読む cron の `purgeDeparted` だけが使う。session の無い cron は事業所を DB から読むしかないため。使える file の一覧は `src/services/__tests__/company-scope.test.ts` が固定する。
+
 **3 重閉じが守らない範囲 (MECE CR1/CR2、Phase 1 で対応)**: この 3 重は「どの company の文脈で実行するか」を保証するが、以下は型・境界・session 導出では塞がらず個別対応が要る —
 - **mutation 入力の外部 FK**: `create`/`update` の `customerId` は `companyFilter` 対象外 (グローバル FK)。context の companyId で自社帰属を検証する (D2)。
 - **無 scope な list / aggregate メソッド**: `CustomerService.findAll` 等は全件返すため明示的に `companyFilter` を通す。`fetchFiltered` の join 集計も join 先に `companyFilter` を AND する (D1)。

@@ -6,11 +6,9 @@ import { HTTPException } from "hono/http-exception";
 import { validator } from "hono/validator";
 import type { CompanyId } from "@/db/ids";
 import { reportError } from "@/src/lib/report-error";
-import type { RequestSession } from "@/src/services";
-import {
-  CompanyTeamList,
-  type TeamListStub,
-} from "@/src/services/company-team-list";
+import { CompanyTeamList } from "@/src/services/company-team-list";
+import type { RequestSession } from "@/src/services/request-session";
+import type { TeamListStub } from "@/src/services/team-list-store";
 import {
   SESSION_HEADER,
   SessionChanged,
