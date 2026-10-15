@@ -46,12 +46,14 @@ type SessionOptions = {
   companyId?: string;
   role?: "ROLE_OWNER" | "ROLE_ADMIN" | "ROLE_MEMBER";
   createdAt?: string;
+  members?: readonly Record<string, string>[];
 };
 
 const sessionOk = ({
   companyId = "cmp_app_a",
   role,
   createdAt = "2026-10-10T00:00:00.000Z",
+  members = [],
 }: SessionOptions = {}) =>
   Response.json({
     ok: {
@@ -66,6 +68,7 @@ const sessionOk = ({
       },
       session: { id: "s_1", expiresAt: "2099-01-01T00:00:00.000Z" },
       currentRole: role,
+      members,
     },
   });
 
@@ -99,17 +102,23 @@ const envWith = (response: () => Response | Promise<Response>) =>
 const envWithRole = (role: NonNullable<SessionOptions["role"]>) =>
   envWith(() => sessionOk({ role }));
 
-const envWithMembers = (list: () => Response, session: SessionOptions = {}) =>
-  envWithBinding(
-    vi.fn<typeof fetch>(async (input) =>
-      String(input).endsWith("/VerifySession") ? sessionOk(session) : list(),
-    ),
-  );
-
-const membersOk = (
+const envWithMembers = (
   members: readonly Record<string, string>[],
-  companyId = "cmp_app_a",
-) => Response.json({ ok: { companyId, members } });
+  session: Omit<SessionOptions, "members"> = {},
+) => envWith(() => sessionOk({ role: "ROLE_MEMBER", ...session, members }));
+
+const envWithoutGetSession = (
+  list: () => Response,
+  session: Omit<SessionOptions, "members"> = {},
+) =>
+  envWithBinding(
+    vi.fn<typeof fetch>(async (input) => {
+      const rpc = String(input);
+      if (rpc.endsWith("/GetSession"))
+        return Response.json({ code: "unimplemented" }, { status: 404 });
+      return rpc.endsWith("/VerifySession") ? sessionOk(session) : list();
+    }),
+  );
 
 const get = (path: string, env: Env, headers: HeadersInit = COOKIE) =>
   app.request(`${ORIGIN}${path}`, { headers }, env);
@@ -552,7 +561,7 @@ describe("チーム一覧の DO", () => {
   it("星取表・自分の情報・メンバー一覧は DO を呼ばない", () =>
     withRollbackDb(async (tx) => {
       const { teamId } = await seedAssignedTeam(tx);
-      const env = envWithMembers(() => membersOk([]));
+      const env = envWith(sessionOk);
 
       const statuses = [
         (await get(`/api/teams/${teamId}`, env)).status,
@@ -567,7 +576,7 @@ describe("チーム一覧の DO", () => {
   it("一覧を DO に置いた後にレベルを保存しても、次の一覧は DB を読まない", () =>
     withRollbackDb(async (tx) => {
       const { teamId, skillId } = await seedAssignedTeam(tx);
-      const env = envWithMembers(() => membersOk([]), { role: "ROLE_MEMBER" });
+      const env = envWithRole("ROLE_MEMBER");
       await get("/api/teams", env);
       const saved = await sendSameOriginRequest(
         "PUT",
@@ -606,9 +615,7 @@ describe("チーム一覧の DO", () => {
   it("一覧を DO に置いた後に割り当てを外すと、外されたメンバーの次の一覧にそのチームは無い", () =>
     withRollbackDb(async (tx) => {
       const { teamId } = await seedAssignedTeam(tx);
-      const memberEnv = envWithMembers(() => membersOk([]), {
-        role: "ROLE_MEMBER",
-      });
+      const memberEnv = envWithRole("ROLE_MEMBER");
       const managerEnv = envWithRole("ROLE_OWNER");
       expect(await listedNames(await get("/api/teams", memberEnv))).toEqual([
         "開発",
@@ -672,21 +679,20 @@ describe("GET /api/teams/:teamId", () => {
       const response = await get(
         `/api/teams/${teamId}`,
         envWithMembers(
-          () =>
-            membersOk([
-              {
-                userId: "u_1",
-                name: "山田 花子",
-                email: "hanako@example.com",
-                role: "ROLE_MEMBER",
-              },
-              {
-                userId: "u_2",
-                name: " ",
-                email: "taro@example.com",
-                role: "ROLE_ADMIN",
-              },
-            ]),
+          [
+            {
+              userId: "u_1",
+              name: "山田 花子",
+              email: "hanako@example.com",
+              role: "ROLE_MEMBER",
+            },
+            {
+              userId: "u_2",
+              name: " ",
+              email: "taro@example.com",
+              role: "ROLE_ADMIN",
+            },
+          ],
           { role: "ROLE_MEMBER" },
         ),
       );
@@ -733,10 +739,7 @@ describe("GET /api/teams/:teamId", () => {
     withRollbackDb(async (tx) => {
       const other = await seedTeam(tx, "cmp_app_b", "他社");
 
-      const response = await get(
-        `/api/teams/${other}`,
-        envWithMembers(() => membersOk([])),
-      );
+      const response = await get(`/api/teams/${other}`, envWith(sessionOk));
 
       expect(response.status).toBe(404);
       expect(await response.json()).toEqual({
@@ -746,13 +749,13 @@ describe("GET /api/teams/:teamId", () => {
       expect(consoleError).not.toHaveBeenCalled();
     }));
 
-  it("メンバー一覧が取れなくてもチームを返し、一覧は null にして 1 回報告する", () =>
+  it("GetSession を持たない auth ホストでメンバー一覧が取れなくてもチームを返し、一覧は null にして 1 回報告する", () =>
     withRollbackDb(async (tx) => {
       const { teamId } = await seedTeamPage(tx);
 
       const response = await get(
         `/api/teams/${teamId}`,
-        envWithMembers(() =>
+        envWithoutGetSession(() =>
           Response.json({ error: { reason: "RESULT_UNSPECIFIED" } }),
         ),
       );
@@ -769,54 +772,24 @@ describe("GET /api/teams/:teamId", () => {
       );
     }));
 
-  it("メンバー一覧の RPC が session の失敗を返すと 401 で、報告しない", () =>
+  it("GetSession を持たない auth ホストでメンバー一覧の RPC が session の失敗を返すと 401 で、報告しない", () =>
     withRollbackDb(async (tx) => {
       const { teamId } = await seedTeamPage(tx);
 
       const response = await get(
         `/api/teams/${teamId}`,
-        envWithMembers(sessionError),
+        envWithoutGetSession(sessionError),
       );
 
       expect(response.status).toBe(401);
       expect(consoleError).not.toHaveBeenCalled();
     }));
 
-  it(
-    "チームの文がメンバー一覧の RPC の開始を待っても返る (直列なら timeout で落ちる)",
-    () =>
-      withRollbackDb(async (tx) => {
-        const { teamId } = await seedTeamPage(tx);
-        let markMembersRpcStarted = () => {};
-        const membersRpcStarted = new Promise<void>((resolve) => {
-          markMembersRpcStarted = resolve;
-        });
-        const execute = dbInRollback.execute;
-        vi.spyOn(dbInRollback, "execute").mockImplementation(((query) =>
-          membersRpcStarted.then(() => execute(query))) as typeof execute);
-        const env = envWithBinding(
-          vi.fn<typeof fetch>(async (input) => {
-            if (String(input).endsWith("/VerifySession")) return sessionOk();
-            markMembersRpcStarted();
-            return membersOk([]);
-          }),
-        );
-
-        const response = await get(`/api/teams/${teamId}`, env);
-
-        expect(response.status).toBe(200);
-      }),
-    2_000,
-  );
-
   it("UUID でない id は文を流さずに 404", () =>
     withRollbackDb(async () => {
       const db = spyOnDb();
 
-      const response = await get(
-        "/api/teams/not-a-uuid",
-        envWithMembers(() => membersOk([])),
-      );
+      const response = await get("/api/teams/not-a-uuid", envWith(sessionOk));
 
       expect(response.status).toBe(404);
       expect(db.execute).not.toHaveBeenCalled();
@@ -1492,7 +1465,7 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       const response = await assign(
         teamId,
         "u_2",
-        envWithMembers(() => membersOk([companyMember("u_2")]), {
+        envWithMembers([companyMember("u_2")], {
           role: "ROLE_ADMIN",
         }),
       );
@@ -1511,7 +1484,7 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       const response = await assign(
         teamId,
         "u_2",
-        envWithMembers(() => membersOk([companyMember("u_2")]), {
+        envWithMembers([companyMember("u_2")], {
           role: "ROLE_ADMIN",
         }),
       );
@@ -1527,7 +1500,7 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       "NotCompanyMember",
       "ROLE_ADMIN",
       "cmp_app_a",
-      () => membersOk([companyMember("u_3")]),
+      [companyMember("u_3")],
     ],
     [
       "メンバー",
@@ -1535,7 +1508,7 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       "NotManager",
       "ROLE_MEMBER",
       "cmp_app_a",
-      () => membersOk([companyMember("u_2")]),
+      [companyMember("u_2")],
     ],
     [
       "他社のチーム",
@@ -1543,26 +1516,18 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       "TeamNotFound",
       "ROLE_ADMIN",
       "cmp_app_b",
-      () => membersOk([companyMember("u_2")]),
-    ],
-    [
-      "メンバー一覧の RPC が session の失敗を返す時",
-      401,
-      "Unauthenticated",
-      "ROLE_ADMIN",
-      "cmp_app_a",
-      sessionError,
+      [companyMember("u_2")],
     ],
   ] as const)(
     "%s は %i の %s で、割り当てず報告しない",
-    (_, status, tag, role, companyId, list) =>
+    (_, status, tag, role, companyId, members) =>
       withRollbackDb(async (tx) => {
         const teamId = await seedTeam(tx, companyId, "開発");
 
         const response = await assign(
           teamId,
           "u_2",
-          envWithMembers(list, { role }),
+          envWithMembers(members, { role }),
         );
 
         expect(response.status).toBe(status);
@@ -1572,14 +1537,32 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       }),
   );
 
-  it("メンバー一覧が取れないと 500 で本文を返さず、割り当てず listMembers failed を 1 回報告する", () =>
+  it("GetSession を持たない auth ホストでメンバー一覧の RPC が session の失敗を返すと 401 で、割り当てず報告しない", () =>
     withRollbackDb(async (tx) => {
       const teamId = await seedTeam(tx, "cmp_app_a", "開発");
 
       const response = await assign(
         teamId,
         "u_2",
-        envWithMembers(
+        envWithoutGetSession(sessionError, { role: "ROLE_ADMIN" }),
+      );
+
+      expect(response.status).toBe(401);
+      expect(await failureBodyOf(response)).toEqual(
+        expectedFailureBody("Unauthenticated"),
+      );
+      expect(await assignedUserIdsOf(tx, teamId)).toEqual([]);
+      expect(consoleError).not.toHaveBeenCalled();
+    }));
+
+  it("GetSession を持たない auth ホストでメンバー一覧が取れないと 500 で本文を返さず、割り当てず listMembers failed を 1 回報告する", () =>
+    withRollbackDb(async (tx) => {
+      const teamId = await seedTeam(tx, "cmp_app_a", "開発");
+
+      const response = await assign(
+        teamId,
+        "u_2",
+        envWithoutGetSession(
           () => Response.json({ error: { reason: "RESULT_UNSPECIFIED" } }),
           { role: "ROLE_ADMIN" },
         ),
@@ -1652,16 +1635,14 @@ describe("GET /api/members", () => {
   it("名前・メールアドレス・role だけを返す", async () => {
     const response = await get(
       "/api/members",
-      envWithMembers(() =>
-        membersOk([
-          {
-            userId: "u_1",
-            name: "山田 花子",
-            email: "hanako@example.com",
-            role: "ROLE_OWNER",
-          },
-        ]),
-      ),
+      envWithMembers([
+        {
+          userId: "u_1",
+          name: "山田 花子",
+          email: "hanako@example.com",
+          role: "ROLE_OWNER",
+        },
+      ]),
     );
 
     expect(response.status).toBe(200);
@@ -1678,16 +1659,14 @@ describe("GET /api/members", () => {
   ])("%s", async (_, name, shown) => {
     const response = await get(
       "/api/members",
-      envWithMembers(() =>
-        membersOk([
-          {
-            userId: "u_2",
-            name,
-            email: "taro@example.com",
-            role: "ROLE_MEMBER",
-          },
-        ]),
-      ),
+      envWithMembers([
+        {
+          userId: "u_2",
+          name,
+          email: "taro@example.com",
+          role: "ROLE_MEMBER",
+        },
+      ]),
     );
 
     expect((await response.json()).members[0].name).toBe(shown);
@@ -1696,16 +1675,14 @@ describe("GET /api/members", () => {
   it("SDK が知らない role の人には role を載せない", async () => {
     const response = await get(
       "/api/members",
-      envWithMembers(() =>
-        membersOk([
-          {
-            userId: "u_2",
-            name: "山田",
-            email: "taro@example.com",
-            role: "ROLE_UNSPECIFIED",
-          },
-        ]),
-      ),
+      envWithMembers([
+        {
+          userId: "u_2",
+          name: "山田",
+          email: "taro@example.com",
+          role: "ROLE_UNSPECIFIED",
+        },
+      ]),
     );
 
     expect((await response.json()).members[0]).not.toHaveProperty("role");
@@ -1720,15 +1697,14 @@ describe("GET /api/members", () => {
       const response = await get(
         "/api/members",
         envWithMembers(
-          () =>
-            membersOk([
-              {
-                userId: "u_2",
-                name: "山田",
-                email: "taro@example.com",
-                role: "ROLE_ADMIN",
-              },
-            ]),
+          [
+            {
+              userId: "u_2",
+              name: "山田",
+              email: "taro@example.com",
+              role: "ROLE_ADMIN",
+            },
+          ],
           { role },
         ),
       );
@@ -1738,16 +1714,10 @@ describe("GET /api/members", () => {
     },
   );
 
-  it("session の確認と一覧の取得で taimei-auth を 2 回だけ呼ぶ", async () => {
-    await get(
-      "/api/members",
-      envWithMembers(() => membersOk([])),
-    );
+  it("session の確認と一覧の取得で taimei-auth を GetSession の 1 回だけ呼ぶ", async () => {
+    await get("/api/members", envWith(sessionOk));
 
-    expect(rpcNames()).toEqual([
-      "/rpc/auth.v1.AuthService/VerifySession",
-      "/rpc/auth.v1.AuthService/ListCurrentCompanyMembers",
-    ]);
+    expect(rpcNames()).toEqual(["/rpc/auth.v1.AuthService/GetSession"]);
   });
 
   it.each([
@@ -1755,21 +1725,30 @@ describe("GET /api/members", () => {
       "一覧の RPC が失敗を返す",
       () => Response.json({ error: { reason: "RESULT_UNSPECIFIED" } }),
     ],
-    ["一覧の事業所が session の事業所と違う", () => membersOk([], "cmp_app_b")],
-  ])("%s と 500 で本文を返さず、1 回報告する", async (_, list) => {
-    const response = await get("/api/members", envWithMembers(list));
+    [
+      "一覧の事業所が session の事業所と違う",
+      () => Response.json({ ok: { companyId: "cmp_app_b", members: [] } }),
+    ],
+  ])(
+    "GetSession を持たない auth ホストで%s と 500 で本文を返さず、1 回報告する",
+    async (_, list) => {
+      const response = await get("/api/members", envWithoutGetSession(list));
 
-    expect(response.status).toBe(500);
-    expect(await response.text()).toBe("");
-    expect(consoleError).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({
-        message: "listMembers failed: UNSPECIFIED",
-      }),
+      expect(response.status).toBe(500);
+      expect(await response.text()).toBe("");
+      expect(consoleError).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          message: "listMembers failed: UNSPECIFIED",
+        }),
+      );
+    },
+  );
+
+  it("GetSession を持たない auth ホストで一覧の RPC が session の失敗を返すと 401 で、報告しない", async () => {
+    const response = await get(
+      "/api/members",
+      envWithoutGetSession(sessionError),
     );
-  });
-
-  it("一覧の RPC が session の失敗を返すと 401 で、報告しない", async () => {
-    const response = await get("/api/members", envWithMembers(sessionError));
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ _tag: "Unauthenticated" });

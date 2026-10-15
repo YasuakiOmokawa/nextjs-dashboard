@@ -55,7 +55,7 @@ serve() {
     -c "INSERT INTO membership (id, user_id, company_id, role) VALUES (gen_random_uuid()::text, '$id', '$company', 'OWNER')" \
     -c "UPDATE \"user\" SET last_used_company_id = '$company' WHERE id = '$id'"
 
-  # 2 つのリポジトリの .env の AUTH_SERVICE_KEY が違い、そのままだと VerifySession が 401 になる
+  # 2 つのリポジトリの .env の AUTH_SERVICE_KEY が違い、そのままだと taimei-auth への RPC が 401 になる
   (
     cd "$AUTH_DIR"
     PORT=3110 DATABASE_URL=$PG_URL/auth AUTH_SERVICE_URL=http://localhost:3110 \
