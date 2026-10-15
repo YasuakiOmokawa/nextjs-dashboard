@@ -14,7 +14,7 @@ E2E は認証・決済など、壊れたら致命的な導線だけに書く。�
 
 ## auth server
 
-- `vendor/taimei-auth` (submodule) を build する。上げる PR はほかの変更を含めない (ADR-0003)
+- `vendor/taimei-auth` (submodule) を build する。Dependabot の bump の PR はほかの変更を含めない。taimei の変更が新しい taimei-auth を要る時は同じ PR で上げてよい (ADR-0003)
 - e2e の app は image の build で SPA を build し、`bun run start` (`wrangler dev`) で配る。app の DB は superuser で接続し、RLS を通らない
 
 ## 手元で taimei と taimei-auth を配信する (/qa-ui)

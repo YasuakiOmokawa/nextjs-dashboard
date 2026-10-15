@@ -60,7 +60,6 @@ const once = <Args extends readonly unknown[], R>(fn: (...args: Args) => R) => {
   };
 };
 
-// SDK の listMembers は getSession を呼び直すので、1 要求の guard で VerifySession を 1 回にする
 export const authGuardOf = (env: AuthEnv, cookieHeader: string | undefined) => {
   const guard = createAuthGuard({
     client: authClientOf(env),

@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **実装**: submodule `vendor/taimei-auth` を taimei-auth `21ca282` に固定し、`e2e.yml` / `docker-compose.e2e.yml` / `.github/dependabot.yml` を切り替えた。Dependabot の secret への `NPM_TOKEN` の登録 (Consequences の前提条件) は未了
-- **Date**: 2026-09-24
+- **Date**: 2026-09-24 (改訂 2026-10-15)
 - **References**: [taimei-code/taimei-auth#224](https://github.com/taimei-code/taimei-auth/pull/224) (契約違反の実例)、[taimei-code/taimei-auth#225](https://github.com/taimei-code/taimei-auth/pull/225) (契約 test)、taimei-auth の `docs/qa/manual-regression.md` QA-MR-09
 
 ## Context
@@ -23,8 +23,9 @@ taimei-auth#224 は、この状態で起きた不具合である。除名され�
 e2e が使う taimei-auth を git submodule (`vendor/taimei-auth`) で commit に固定し、Dependabot の `gitsubmodule` ecosystem で週次に上げる。
 
 - `docker-compose.e2e.yml` の `e2e-auth-service` の build context を `../taimei-auth` から `./vendor/taimei-auth` に変え、`e2e.yml` の clone step を `actions/checkout` の `submodules: true` に置き換える。
-- `.github/dependabot.yml` に `package-ecosystem: "gitsubmodule"` を `interval: "weekly"` で足す。bump の PR は、taimei-auth の固定を上げる以外の変更を含まない。
-- taimei-auth を上げて e2e が落ちたら、原因は bump の PR が示す commit 範囲 (taimei-auth の 2 つの SHA の間) にある。taimei 側の変更と混ざらない。
+- `.github/dependabot.yml` に `package-ecosystem: "gitsubmodule"` を `interval: "weekly"` で足す。Dependabot の bump の PR は、taimei-auth の固定を上げる以外の変更を含まない。
+- taimei-auth を上げて e2e が落ちたら、原因は bump の PR が示す commit 範囲 (taimei-auth の 2 つの SHA の間) にある。Dependabot の bump の PR では、taimei 側の変更と混ざらない。
+- taimei の変更が taimei-auth の新しい server を要る時 (新しい RPC を使う SDK に上げる時など) は、同じ PR で固定も上げてよい (2026-10-15 改訂、#626)。その PR で e2e が落ちたら、原因は taimei 側の変更と taimei-auth の commit 範囲の両方にありうる。この切り分けの手間は、server と SDK を別の PR で上げる間、e2e が新しい経路を通らないことと引き換えに受け入れる。
 - 本番の認証 server は固定しない (共有の service で、taimei-auth の main から deploy される)。本番との互換は、taimei-auth 側が「SDK の契約を後方互換に保ち、契約違反を自分の CI で止める」ことで守る (taimei-auth#225)。taimei の e2e が本番より最大 1 週間古い server で走ることは、この分担の上で受け入れる。
 
 ## Considered Options

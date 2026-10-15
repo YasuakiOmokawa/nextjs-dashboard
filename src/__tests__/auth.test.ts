@@ -26,16 +26,14 @@ const sentRequest = (spy: ReturnType<typeof vi.fn<typeof fetch>>) => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("authGuardOf の verifySession", () => {
-  it("AUTH_SERVICE_URL が無ければ、binding に VerifySession を POST する", async () => {
+  it("AUTH_SERVICE_URL が無ければ、binding に GetSession を POST する", async () => {
     const { binding, env } = bindingEnv();
 
     await authGuardOf(env, cookie).verifySession();
 
     expect(binding).toHaveBeenCalledOnce();
     const { url, init } = sentRequest(binding);
-    expect(new URL(url).pathname).toBe(
-      "/rpc/auth.v1.AuthService/VerifySession",
-    );
+    expect(new URL(url).pathname).toBe("/rpc/auth.v1.AuthService/GetSession");
     expect(init.method).toBe("POST");
   });
 
@@ -49,7 +47,7 @@ describe("authGuardOf の verifySession", () => {
     await authGuardOf(env, cookie).verifySession();
 
     expect(sentRequest(global).url).toBe(
-      "http://auth.local:3100/rpc/auth.v1.AuthService/VerifySession",
+      "http://auth.local:3100/rpc/auth.v1.AuthService/GetSession",
     );
     expect(binding).not.toHaveBeenCalled();
   });
@@ -109,11 +107,8 @@ const sessionOkFor = (companyId: string) =>
     },
   });
 
-const rpcNamesOf = (spy: ReturnType<typeof vi.fn<typeof fetch>>) =>
-  spy.mock.calls.map(([input]) => new URL(String(input)).pathname);
-
 describe("authGuardOf の memo", () => {
-  it("同じ guard の verifySession を 2 回呼んでも、VerifySession は 1 回だけ送る", async () => {
+  it("同じ guard の verifySession を 2 回呼んでも、taimei-auth へは 1 回だけ送る", async () => {
     const { binding, env } = bindingEnv();
     const guard = authGuardOf(env, cookie);
 
@@ -144,12 +139,8 @@ describe("authGuardOf の memo", () => {
 });
 
 describe("authGuardOf の listMembers", () => {
-  it("verifySession の後の listMembers は VerifySession を流し直さず、一覧の RPC だけを送る", async () => {
-    const binding = vi.fn<typeof fetch>(async (input) =>
-      String(input).endsWith("/VerifySession")
-        ? sessionOkFor("cmp_a")
-        : Response.json({ ok: { companyId: "cmp_a", members: [] } }),
-    );
+  it("verifySession と listMembers を呼んでも、cookie の session token で GetSession を 1 回だけ送る", async () => {
+    const binding = vi.fn<typeof fetch>(async () => sessionOkFor("cmp_a"));
     const guard = authGuardOf(
       { AUTH: { fetch: binding }, AUTH_URL: "https://auth.example" },
       cookie,
@@ -158,9 +149,9 @@ describe("authGuardOf の listMembers", () => {
     await guard.verifySession();
     await guard.listMembers();
 
-    expect(rpcNamesOf(binding)).toEqual([
-      "/rpc/auth.v1.AuthService/VerifySession",
-      "/rpc/auth.v1.AuthService/ListCurrentCompanyMembers",
-    ]);
+    expect(binding).toHaveBeenCalledOnce();
+    const { url, init } = sentRequest(binding);
+    expect(new URL(url).pathname).toBe("/rpc/auth.v1.AuthService/GetSession");
+    expect((await new Request(url, init).json()).sessionToken).toBe("tok");
   });
 });
