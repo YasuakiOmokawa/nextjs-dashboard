@@ -1,5 +1,5 @@
 include:
-  - path: ./vendor/taimei-auth/testing/compose.yml
+  - path: ./node_modules/@taimei-code/auth-client/testing/compose.yml
     env_file: ./e2e/taimei-auth.env
 
 volumes:
@@ -69,6 +69,7 @@ services:
     volumes:
       - ./e2e/playwright-report:/app/playwright-report
       - ./e2e/test-results:/app/test-results
+      - ./node_modules/@taimei-code/auth-client:/app/node_modules/@taimei-code/auth-client:ro
     depends_on:
       - e2e-application
       - taimei-auth

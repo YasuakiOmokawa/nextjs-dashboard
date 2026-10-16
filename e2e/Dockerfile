@@ -7,7 +7,7 @@ ENV NODE_EXTRA_CA_CERTS=/opt/certs/palo-root.pem
 EXPOSE 9323
 WORKDIR /app
 
-COPY ./package*.json ./*.tgz .
+COPY ./package*.json .
 RUN npm ci
 
 COPY . .

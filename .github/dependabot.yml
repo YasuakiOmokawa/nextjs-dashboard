@@ -15,11 +15,6 @@ updates:
       default-days: 7
     open-pull-requests-limit: 5
 
-  - package-ecosystem: "gitsubmodule"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-
   - package-ecosystem: "bun"
     directory: "/"
     schedule:
