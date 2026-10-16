@@ -7,6 +7,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
+    "@taimei-code/auth-client": "file:taimei-code-auth-client-3.5.1.tgz",
     "@types/node": "26.6.1",
     "drizzle-orm": "^0.45.2",
     "pg": "^8.23.0"
