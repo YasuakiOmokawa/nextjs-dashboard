@@ -7,12 +7,14 @@ import { db } from "@/db/drizzle/client";
 import { runWithRequestPool } from "@/db/drizzle/pool";
 import { purgeDeparted } from "@/src/lib/purge-departed";
 import { sendErrorReportsTo } from "@/src/lib/report-error";
-import { app, companyTeamListOf, type Env } from "./app";
-import { checkMembershipsOf } from "./auth";
+import { companyTeamListOf, createApp, type Env } from "./app";
+import { authGuardOf, checkMembershipsOf } from "./auth";
 
 export { CompanyTeamListDurableObject } from "./company-team-list-durable-object";
 
 sendErrorReportsTo(Sentry.captureException);
+
+const app = createApp(authGuardOf);
 
 const inRequestPool = <T>(
   env: Env,

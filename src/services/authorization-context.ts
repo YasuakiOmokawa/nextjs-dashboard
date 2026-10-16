@@ -8,6 +8,11 @@ export class AuthorizationContext extends Context.Service<
   { readonly userId: string; readonly role: Role | undefined }
 >()("taimei/src/services/AuthorizationContext") {}
 
-// undefined は SDK の約束で権限なし
+const CAN_MANAGE_BY_ROLE: Record<Role, boolean> = {
+  OWNER: true,
+  ADMIN: true,
+  MEMBER: false,
+};
+
 export const isManager = (role: Role | undefined) =>
-  role === "OWNER" || role === "ADMIN";
+  role !== undefined && CAN_MANAGE_BY_ROLE[role];

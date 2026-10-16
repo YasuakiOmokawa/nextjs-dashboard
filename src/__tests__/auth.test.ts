@@ -1,11 +1,26 @@
+import {
+  buildSessionCookieHeader,
+  createServiceKeyInterceptor,
+} from "@taimei-code/auth-client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type AuthEnv, authGuardOf } from "../auth";
+import {
+  type AuthEnv,
+  authGuardOf,
+  authTransportOptionsOf,
+  once,
+} from "../auth";
+import { TAIMEI_AUTH_RPC_PATH } from "../taimei-auth-contract";
 
-const sessionNotFound = () =>
-  Response.json({ error: { reason: "RESULT_SESSION_NOT_FOUND" } });
+vi.mock("@taimei-code/auth-client", async (importOriginal) => {
+  const sdk = await importOriginal<typeof import("@taimei-code/auth-client")>();
+  return {
+    ...sdk,
+    createServiceKeyInterceptor: vi.fn(sdk.createServiceKeyInterceptor),
+  };
+});
 
 const bindingEnv = (env: Partial<AuthEnv> = {}) => {
-  const binding = vi.fn<typeof fetch>(async () => sessionNotFound());
+  const binding = vi.fn<typeof fetch>(async () => new Response());
   return {
     binding,
     env: {
@@ -16,142 +31,115 @@ const bindingEnv = (env: Partial<AuthEnv> = {}) => {
   };
 };
 
-const cookie = "better-auth.session_token=tok";
+const ANY_URL = "https://taimei-auth/any";
 
-const sentRequest = (spy: ReturnType<typeof vi.fn<typeof fetch>>) => {
-  const [input, init] = spy.mock.calls[0];
-  return { url: String(input), init: init ?? {} };
-};
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.mocked(createServiceKeyInterceptor).mockClear();
+});
 
-afterEach(() => vi.unstubAllGlobals());
-
-describe("authGuardOf の verifySession", () => {
-  it("AUTH_SERVICE_URL が無ければ、binding に GetSession を POST する", async () => {
-    const { binding, env } = bindingEnv();
-
-    await authGuardOf(env, cookie).verifySession();
-
-    expect(binding).toHaveBeenCalledOnce();
-    const { url, init } = sentRequest(binding);
-    expect(new URL(url).pathname).toBe("/rpc/auth.v1.AuthService/GetSession");
-    expect(init.method).toBe("POST");
+describe("authTransportOptionsOf", () => {
+  it("AUTH_SERVICE_URL が無ければ、送り先は Service Binding が URL を使わない origin の taimei-auth の RPC の path", () => {
+    expect(authTransportOptionsOf(bindingEnv().env).baseUrl).toBe(
+      `https://taimei-auth${TAIMEI_AUTH_RPC_PATH}`,
+    );
   });
 
-  it("AUTH_SERVICE_URL があれば、その URL へ global の fetch で送り、binding を呼ばない", async () => {
-    const global = vi.fn<typeof fetch>(async () => sessionNotFound());
-    vi.stubGlobal("fetch", global);
+  it("AUTH_SERVICE_URL があれば、送り先はその URL の taimei-auth の RPC の path", () => {
+    const { env } = bindingEnv({ AUTH_SERVICE_URL: "http://auth.local:3100" });
+
+    expect(authTransportOptionsOf(env).baseUrl).toBe(
+      `http://auth.local:3100${TAIMEI_AUTH_RPC_PATH}`,
+    );
+  });
+
+  it("AUTH_SERVICE_URL が無ければ binding へ送り、redirect は workerd の fetch が受ける manual にする (connect-web は error を付ける)", async () => {
+    const globalFetch = vi.fn<typeof fetch>(async () => new Response());
+    vi.stubGlobal("fetch", globalFetch);
+    const { binding, env } = bindingEnv();
+
+    await authTransportOptionsOf(env).fetch(ANY_URL, { redirect: "error" });
+
+    expect(binding).toHaveBeenCalledOnce();
+    expect(binding.mock.calls[0][1]?.redirect).toBe("manual");
+    expect(globalFetch).not.toHaveBeenCalled();
+  });
+
+  it("AUTH_SERVICE_URL があれば (手元と e2e の Bun の taimei-auth には Service Binding が届かない)、global の fetch へ redirect: manual で送り、binding を呼ばない", async () => {
+    const globalFetch = vi.fn<typeof fetch>(async () => new Response());
+    vi.stubGlobal("fetch", globalFetch);
     const { binding, env } = bindingEnv({
       AUTH_SERVICE_URL: "http://auth.local:3100",
     });
 
-    await authGuardOf(env, cookie).verifySession();
+    await authTransportOptionsOf(env).fetch(ANY_URL, { redirect: "error" });
 
-    expect(sentRequest(global).url).toBe(
-      "http://auth.local:3100/rpc/auth.v1.AuthService/GetSession",
-    );
+    expect(globalFetch).toHaveBeenCalledOnce();
+    expect(globalFetch.mock.calls[0][1]?.redirect).toBe("manual");
     expect(binding).not.toHaveBeenCalled();
   });
 
-  it("AUTH_SERVICE_KEY があれば X-Service-Key で送る", async () => {
-    const { binding, env } = bindingEnv({ AUTH_SERVICE_KEY: "key-1" });
-
-    await authGuardOf(env, cookie).verifySession();
-
-    expect(
-      new Headers(sentRequest(binding).init.headers).get("X-Service-Key"),
-    ).toBe("key-1");
-  });
-
-  it("AUTH_SERVICE_KEY が無ければ X-Service-Key を送らない", async () => {
-    const { binding, env } = bindingEnv();
-
-    await authGuardOf(env, cookie).verifySession();
-
-    expect(
-      new Headers(sentRequest(binding).init.headers).has("X-Service-Key"),
-    ).toBe(false);
-  });
-
-  it("redirect を manual にして送る", async () => {
-    const { binding, env } = bindingEnv();
-
-    await authGuardOf(env, cookie).verifySession();
-
-    expect(sentRequest(binding).init.redirect).toBe("manual");
-  });
-
-  it("10 秒で打ち切る", async () => {
-    const { binding, env } = bindingEnv();
-
-    await authGuardOf(env, cookie).verifySession();
-
-    expect(
-      new Headers(sentRequest(binding).init.headers).get("Connect-Timeout-Ms"),
-    ).toBe("10000");
-  });
-});
-
-const sessionOkFor = (companyId: string) =>
-  Response.json({
-    ok: {
-      user: {
-        id: "u_1",
-        name: "山田 花子",
-        email: "hanako@example.com",
-        emailVerified: true,
-        createdAt: "2026-10-10T00:00:00.000Z",
-        updatedAt: "2026-10-10T00:00:00.000Z",
-        defaultCompanyId: companyId,
-      },
-      session: { id: "s_1", expiresAt: "2099-01-01T00:00:00.000Z" },
-    },
-  });
-
-describe("authGuardOf の memo", () => {
-  it("同じ guard の verifySession を 2 回呼んでも、taimei-auth へは 1 回だけ送る", async () => {
-    const { binding, env } = bindingEnv();
-    const guard = authGuardOf(env, cookie);
-
-    const first = await guard.verifySession();
-    const second = await guard.verifySession();
-
-    expect(binding).toHaveBeenCalledOnce();
-    expect(second).toBe(first);
-  });
-
-  it("別の cookie の guard は memo を共有せず、それぞれの token で送る", async () => {
-    const { binding, env } = bindingEnv();
-
-    await Promise.all([
-      authGuardOf(env, "better-auth.session_token=tok_a").verifySession(),
-      authGuardOf(env, "better-auth.session_token=tok_b").verifySession(),
-    ]);
-
-    expect(
-      await Promise.all(
-        binding.mock.calls.map(
-          async ([input, init]) =>
-            (await new Request(String(input), init).json()).sessionToken,
-        ),
-      ),
-    ).toEqual(["tok_a", "tok_b"]);
-  });
-});
-
-describe("authGuardOf の listMembers", () => {
-  it("verifySession と listMembers を呼んでも、cookie の session token で GetSession を 1 回だけ送る", async () => {
-    const binding = vi.fn<typeof fetch>(async () => sessionOkFor("cmp_a"));
-    const guard = authGuardOf(
-      { AUTH: { fetch: binding }, AUTH_URL: "https://auth.example" },
-      cookie,
+  it("10 秒で打ち切る", () => {
+    expect(authTransportOptionsOf(bindingEnv().env).defaultTimeoutMs).toBe(
+      10_000,
     );
+  });
 
-    await guard.verifySession();
+  it("AUTH_SERVICE_KEY があれば、その値で作った Service Key の interceptor だけを付ける", () => {
+    const { env } = bindingEnv({ AUTH_SERVICE_KEY: "key-1" });
+
+    const { interceptors } = authTransportOptionsOf(env);
+
+    expect(createServiceKeyInterceptor).toHaveBeenCalledExactlyOnceWith(
+      "key-1",
+    );
+    expect(interceptors).toEqual([
+      vi.mocked(createServiceKeyInterceptor).mock.results[0].value,
+    ]);
+  });
+
+  it("AUTH_SERVICE_KEY が無ければ interceptor を付けない", () => {
+    expect(authTransportOptionsOf(bindingEnv().env).interceptors).toEqual([]);
+  });
+});
+
+describe("authGuardOf", () => {
+  it("1 要求の getSession と listMembers で、要求の cookie を持って taimei-auth へ 1 回だけ送る", async () => {
+    const { binding, env } = bindingEnv();
+    const guard = authGuardOf(env, buildSessionCookieHeader("tok"));
+
+    await guard.getSession();
     await guard.listMembers();
 
     expect(binding).toHaveBeenCalledOnce();
-    const { url, init } = sentRequest(binding);
-    expect(new URL(url).pathname).toBe("/rpc/auth.v1.AuthService/GetSession");
-    expect((await new Request(url, init).json()).sessionToken).toBe("tok");
+  });
+
+  it("別の要求の guard は結果を共有せず、それぞれ送る", async () => {
+    const { binding, env } = bindingEnv();
+
+    await authGuardOf(env, buildSessionCookieHeader("tok_a")).getSession();
+    await authGuardOf(env, buildSessionCookieHeader("tok_b")).getSession();
+
+    expect(binding).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("once", () => {
+  it("引数を見ずに最初の呼び出しの結果を返し続け、包んだ関数を 1 回だけ呼ぶ (SDK が cache で包むのは引数の無い関数だけ)", () => {
+    const fn = vi.fn(() => ({}));
+    const cached = once(fn);
+
+    const first = cached();
+    const second = cached();
+
+    expect(fn).toHaveBeenCalledOnce();
+    expect(second).toBe(first);
+  });
+
+  it("別々に包んだ関数は結果を共有しない", () => {
+    const a = once(() => "a");
+    const b = once(() => "b");
+
+    expect([a(), b()]).toEqual(["a", "b"]);
   });
 });

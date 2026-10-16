@@ -1,3 +1,4 @@
+import { buildSessionCookieHeader } from "@taimei-code/auth-client";
 import { DrizzleQueryError } from "drizzle-orm";
 import { Effect } from "effect";
 import type { ExecutionContext } from "hono";
@@ -51,6 +52,9 @@ const envWithBinding = (fetch: typeof globalThis.fetch = vi.fn()): Env => ({
   CF_VERSION_METADATA: { id: "v1" },
   COMPANY_TEAM_LIST: { getByName: () => emptyTeamListStore() },
 });
+
+const failingBinding = () =>
+  vi.fn<typeof fetch>(async () => new Response(null, { status: 500 }));
 
 const collectingContext = () => {
   const waited: Promise<unknown>[] = [];
@@ -118,27 +122,42 @@ it("purgeDeparted が失敗すると定期処理も同じ error で失敗し、P
   expect(used.pool?.ended).toBe(true);
 });
 
-it("定期処理の照合は taimei-auth の CheckMemberships を Service Binding へ Service Key 付きで送る", async () => {
+it("定期処理の照合は taimei-auth の Service Binding へ送る", async () => {
   vi.mocked(purgeDeparted).mockResolvedValue(PURGE_REPORT);
-  const binding = vi.fn<typeof fetch>(async () =>
-    Response.json({ companyActive: true, memberUserIds: ["u_1"] }),
-  );
+  const binding = failingBinding();
   await handler.scheduled({}, envWithBinding(binding), collectingContext().ctx);
   const [{ checkMemberships }] = vi.mocked(purgeDeparted).mock.calls[0];
 
-  const answer = await checkMemberships({
-    companyId: "cmp_a",
-    userIds: ["u_1"],
-  });
+  await checkMemberships({ companyId: "cmp_a", userIds: ["u_1"] }).catch(
+    () => undefined,
+  );
 
-  expect(answer).toMatchObject({ companyActive: true, memberUserIds: ["u_1"] });
   expect(binding).toHaveBeenCalledOnce();
-  const [input, init] = binding.mock.calls[0];
-  expect(String(input)).toMatch(/\/CheckMemberships$/);
-  expect(new Headers(init?.headers).get("X-Service-Key")).toBe("service-key");
-  expect(
-    JSON.parse(new TextDecoder().decode(init?.body as Uint8Array)),
-  ).toEqual({ companyId: "cmp_a", userIds: ["u_1"] });
+});
+
+it("Worker の fetch は cookie の session を taimei-auth の binding で確かめ、確かめられなければ 401 で、1 回報告する", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  sentry.captureException.mockClear();
+  const binding = failingBinding();
+  const { ctx, waited } = collectingContext();
+
+  const response = await handler.fetch(
+    new Request("http://app.example/api/me", {
+      headers: { Cookie: buildSessionCookieHeader("tok") },
+    }),
+    envWithBinding(binding),
+    ctx,
+  );
+  await Promise.all(waited);
+
+  expect(response.status).toBe(401);
+  expect(binding).toHaveBeenCalledOnce();
+  expect(sentry.captureException).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({
+      message: "taimei-auth で session を確かめられなかった",
+    }),
+  );
+  expect(waited).toHaveLength(1);
 });
 
 it("定期処理は purgeDeparted の結果を 1 回 console.info に出す", async () => {
