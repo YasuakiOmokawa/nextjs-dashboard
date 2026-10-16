@@ -215,6 +215,32 @@ describe("purgeDeparted", () => {
       expect((await rowsOf(tx, COMPANY_GONE)).teams).toBe(0);
     }));
 
+  it("SDK の事業所 id の形に合わない company_id の行は、その事業所だけを飛ばして 1 回報告し、ほかの事業所は消す", () =>
+    withRollback(async (tx) => {
+      const send = captureReports();
+      const malformedCompanyId = COMPANY_UNREACHABLE.slice(0, -1);
+      await tx.execute(
+        sql`insert into teams (company_id, name) values (${malformedCompanyId}, '形の違う事業所')`,
+      );
+      await seedTeam(tx, COMPANY_GONE, ["u_2"]);
+
+      const report = await purgeDeparted({
+        db: tx,
+        teamListOf,
+        checkMemberships: answering({
+          [COMPANY_GONE]: { companyActive: false, memberUserIds: [] },
+        }),
+        startedAt,
+      });
+
+      expect(report).toEqual({
+        deletedCompanyIds: [COMPANY_GONE],
+        removedAssignments: 0,
+        skippedCompanyIds: [malformedCompanyId],
+      });
+      expect(send).toHaveBeenCalledOnce();
+    }));
+
   it("照合の失敗は、事業所の id を message に、原因を cause にした Error で 1 回報告する", () =>
     withRollback(async (tx) => {
       const send = captureReports();
