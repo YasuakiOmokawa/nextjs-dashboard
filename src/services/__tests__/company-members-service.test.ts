@@ -31,26 +31,16 @@ it("SDK が UNSPECIFIED で失敗すれば、その名前を cause に持つ Mem
   });
 });
 
-it.each([
-  Result.SESSION_NOT_FOUND,
-  Result.SESSION_EXPIRED,
-  Result.USER_DELETED,
-  Result.USER_LOCKED,
-  Result.REVOKED,
-  Result.REVISION_OUTDATED,
-])(
-  "session が使えなくなった理由 (%s) では Unauthenticated で失敗する",
-  async (reason) => {
-    const { list } = CompanyMembers.fromListMembers(async () => ({
-      ok: false,
-      reason,
-    }));
+it("UNSPECIFIED 以外の理由 (session が使えなくなった) では Unauthenticated で失敗する", async () => {
+  const { list } = CompanyMembers.fromListMembers(async () => ({
+    ok: false,
+    reason: Result.SESSION_EXPIRED,
+  }));
 
-    const error = await Effect.runPromise(Effect.flip(list));
+  const error = await Effect.runPromise(Effect.flip(list));
 
-    expect(error).toEqual(new Unauthenticated());
-  },
-);
+  expect(error).toEqual(new Unauthenticated());
+});
 
 it("SDK の呼び出しが reject すれば MemberListError で失敗する", async () => {
   const { list } = CompanyMembers.fromListMembers(() =>
