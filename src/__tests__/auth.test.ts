@@ -1,4 +1,5 @@
 import {
+  AUTH_RPC_PATH,
   buildSessionCookieHeader,
   createServiceKeyInterceptor,
 } from "@taimei-code/auth-client";
@@ -9,7 +10,6 @@ import {
   authTransportOptionsOf,
   once,
 } from "../auth";
-import { TAIMEI_AUTH_RPC_PATH } from "../taimei-auth-contract";
 
 vi.mock("@taimei-code/auth-client", async (importOriginal) => {
   const sdk = await importOriginal<typeof import("@taimei-code/auth-client")>();
@@ -41,7 +41,7 @@ afterEach(() => {
 describe("authTransportOptionsOf", () => {
   it("AUTH_SERVICE_URL が無ければ、送り先は Service Binding が URL を使わない origin の taimei-auth の RPC の path", () => {
     expect(authTransportOptionsOf(bindingEnv().env).baseUrl).toBe(
-      `https://taimei-auth${TAIMEI_AUTH_RPC_PATH}`,
+      `https://taimei-auth${AUTH_RPC_PATH}`,
     );
   });
 
@@ -49,7 +49,7 @@ describe("authTransportOptionsOf", () => {
     const { env } = bindingEnv({ AUTH_SERVICE_URL: "http://auth.local:3100" });
 
     expect(authTransportOptionsOf(env).baseUrl).toBe(
-      `http://auth.local:3100${TAIMEI_AUTH_RPC_PATH}`,
+      `http://auth.local:3100${AUTH_RPC_PATH}`,
     );
   });
 

@@ -1,32 +1,33 @@
 import type { Role } from "@taimei-code/auth-client";
 import { Effect, Result } from "effect";
 import { onTestFinished, vi } from "vitest";
-import { CompanyId } from "@/db/ids";
+import type { CompanyId } from "@/db/company-id";
 import { sendErrorReportsTo } from "@/src/lib/report-error";
 import { AuthorizationContext } from "../authorization-context";
 import { CompanyContext } from "../company-context";
 import { CompanyTeamList } from "../company-team-list";
 import { TeamListStore, type TeamListStub } from "../team-list-store";
+import { COMPANY_A } from "./db/seed";
 import { sqliteStorage } from "./sqlite-storage";
 
 export type Actor = {
-  companyId: string;
+  companyId: CompanyId;
   userId: string;
   role: Role | undefined;
 };
 
 export const ADMIN: Actor = {
-  companyId: "cmp_a",
+  companyId: COMPANY_A,
   userId: "u_admin",
   role: "ADMIN",
 };
 export const MEMBER: Actor = {
-  companyId: "cmp_a",
+  companyId: COMPANY_A,
   userId: "u_m",
   role: "MEMBER",
 };
 export const NO_ROLE: Actor = {
-  companyId: "cmp_a",
+  companyId: COMPANY_A,
   userId: "u_m",
   role: undefined,
 };
@@ -43,7 +44,7 @@ export const runAsActor = <A, E>(
     Effect.result(
       effect.pipe(
         Effect.provideService(CompanyContext, {
-          companyId: CompanyId.make(actor.companyId),
+          companyId: actor.companyId,
         }),
         Effect.provideService(AuthorizationContext, {
           userId: actor.userId,

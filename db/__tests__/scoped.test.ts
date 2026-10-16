@@ -3,15 +3,15 @@ import { PgDialect, pgTable, varchar } from "drizzle-orm/pg-core";
 import { Client } from "pg";
 import { expect, it } from "vitest";
 import { TEST_DATABASE_URL } from "@/src/services/__tests__/db/global-setup";
+import { COMPANY_A, fixtureCompanyId } from "@/src/services/__tests__/db/seed";
 import {
   currentCompanySetting,
   withRollback,
 } from "@/src/services/__tests__/db/test-db";
 import * as schema from "../drizzle/schema";
-import { CompanyId } from "../ids";
 import { companyFilter, withCompanyScope } from "../scoped";
 
-const COMPANY_X = CompanyId.make("cmp_x");
+const COMPANY_X = fixtureCompanyId("x");
 
 const scopedRows = pgTable("scoped_rows", {
   companyId: varchar("company_id", { length: 32 }).notNull(),
@@ -19,19 +19,17 @@ const scopedRows = pgTable("scoped_rows", {
 
 it("companyFilter は company_id が渡した事業所と一致する行に絞る", () => {
   expect(
-    new PgDialect().sqlToQuery(
-      companyFilter(scopedRows, CompanyId.make("cmp_a")),
-    ),
+    new PgDialect().sqlToQuery(companyFilter(scopedRows, COMPANY_A)),
   ).toMatchObject({
     sql: '"scoped_rows"."company_id" = $1',
-    params: ["cmp_a"],
+    params: [COMPANY_A],
   });
 });
 
 it("withCompanyScope の中では、渡した事業所が app.company_id に入っている", () =>
   withRollback(async (tx) => {
     const seen = await withCompanyScope(tx, COMPANY_X, currentCompanySetting);
-    expect(seen).toBe("cmp_x");
+    expect(seen).toBe(COMPANY_X);
   }));
 
 it("withCompanyScope を抜けると、同じ接続の app.company_id は渡した事業所でなくなる", async () => {
@@ -41,9 +39,9 @@ it("withCompanyScope を抜けると、同じ接続の app.company_id は渡し�
   try {
     const db = drizzle(client, { schema });
     await withCompanyScope(db, COMPANY_X, async (scoped) => {
-      expect(await currentCompanySetting(scoped)).toBe("cmp_x");
+      expect(await currentCompanySetting(scoped)).toBe(COMPANY_X);
     });
-    expect(await currentCompanySetting(db)).not.toBe("cmp_x");
+    expect(await currentCompanySetting(db)).not.toBe(COMPANY_X);
   } finally {
     await client.end();
   }

@@ -63,6 +63,7 @@ taimei で今書ける間違いと、移した後に何が止めるか:
 | :-- | :-- | :-- |
 | SPA の bundle が大きくなる | taimei-auth では、Atom と契約の client で web の JS の gzip が main 比 +64.6 kB。改訂前の判断の検証の Worker では `HttpApiClient` が effect ごと 116,874 B。taimei の #605 は 180,164 → 182,912 B (+2,748 B、`@tanstack/react-query` を外した分と Atom を足した分がほぼ打ち消し合う) | #603・#605 で変更の前後の SPA の JS (gzip) を記録した。#605 で `@tanstack/react-query` を外した。画面の最初の API は `web/index.html` が JS を待たずに呼ぶので、JS が大きくなっても API の応答を待ち始める時刻は遅れない |
 | `HttpApi`・`AtomHttpApi`・`effect/reactivity` が `@stability unstable` | effect の minor の更新で API が変わりうる | `effect` を `package.json` の exact pin のまま、Dependabot の更新の PR で上げる。壊れた箇所は typecheck とテストで一覧になる。taimei-auth と同じ扱い |
+| 試験の事業所 id を作る `effect/Arbitrary` も `@stability unstable` (#629) | effect の minor の更新で、API か、`fixtureCompanyId` に同じ引数を渡して作る id が変わりうる | `tsconfig.json` の overrides で試験の file だけに許し、本体の code で使うと typecheck が落ちる。試験は id の値ではなく定数 (`COMPANY_A` など) で比べるので、id が変わっても期待値は直さずに済む |
 | `HttpApi.middleware()` は呼んだ時点で追加済みの group にしか掛からず、後から足した group は認証なしになる | 認証の掛け忘れ | `HttpApi.reflect` で契約の全 endpoint を数え上げ、cookie 無しの要求が 401 になるテストで止める。掛け方 (API 全体に 1 回か、group ごとか) は #603 で決め、Decision の認証の項に書いた |
 | Workers Free の CPU が増える | taimei-auth では起動時の JS が 32.7 → 40.7 ms、worker の gzip が +16% | #603 で変更の前後の Worker の bundle と起動時の CPU を記録し、本番に出す前に staging で CPU (p50・p95)・`exceededResources`・cold の TTFB を確かめる。CPU の上限での打ち切りが出たら本番に出さず、Paid にするか、この ADR を改めるかを決める |
 

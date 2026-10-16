@@ -1,11 +1,11 @@
 import { sql } from "drizzle-orm";
 import { afterEach, expect, it, vi } from "vitest";
 import { TEST_DATABASE_URL } from "@/src/services/__tests__/db/global-setup";
+import { fixtureCompanyId } from "@/src/services/__tests__/db/seed";
 import {
   currentCompanySetting,
   type TestDb,
 } from "@/src/services/__tests__/db/test-db";
-import { CompanyId } from "../ids";
 import { withCompanyScope } from "../scoped";
 
 const urlWithApplicationName = (applicationName: string) => {
@@ -42,7 +42,7 @@ const importClientWithDatabaseUrl = async (databaseUrl: string | undefined) => {
   return { ...client, ...pools, insideRequestPool };
 };
 
-const COMPANY = CompanyId.make("cmp_client_test");
+const COMPANY = fixtureCompanyId("client_test");
 
 // transaction が接続を専有しないと、途中で外から流した文が同じ接続で実行され、事業所の設定が見える
 const companyScopeSeenBy = (db: Parameters<typeof withCompanyScope>[0]) =>

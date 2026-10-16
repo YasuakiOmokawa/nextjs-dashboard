@@ -1,4 +1,4 @@
-import type { CompanyId } from "@/db/ids";
+import type { CompanyId } from "@/db/company-id";
 import type { AuthorizationContext } from "./authorization-context";
 import type { CompanyContext } from "./company-context";
 import type { CompanyMembers } from "./company-members-service";

@@ -5,7 +5,7 @@ import { type Context, Hono } from "hono";
 import { csrf } from "hono/csrf";
 import { HTTPException } from "hono/http-exception";
 import { validator } from "hono/validator";
-import type { CompanyId } from "@/db/ids";
+import type { CompanyId } from "@/db/company-id";
 import { reportError } from "@/src/lib/report-error";
 import { CompanyTeamList } from "@/src/services/company-team-list";
 import type { RequestSession } from "@/src/services/request-session";

@@ -1,9 +1,9 @@
 import { eq, sql } from "drizzle-orm";
 import type { NodePgQueryResultHKT } from "drizzle-orm/node-postgres";
 import type { PgColumn, PgDatabase } from "drizzle-orm/pg-core";
+import type { CompanyId } from "./company-id";
 import type * as schema from "./drizzle/schema";
 import { COMPANY_ID_SETTING } from "./drizzle/schema";
-import type { CompanyId } from "./ids";
 
 // company_id を持つテーブルの scoping 条件の唯一の入口 (SSOT)。
 // 設計詳細: docs/adr/0002-company-data-scoping.md (D4)。

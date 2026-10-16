@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { CompanyId } from "@/db/ids";
 import { writeInCompanyScope } from "../company-scope";
+import { fixtureCompanyId } from "./db/seed";
 import { withRollback } from "./db/test-db";
+
+const COMPANY_SCOPE = fixtureCompanyId("scope");
 
 describe("writeInCompanyScope", () => {
   it("本体が promise を返す前に投げても、DB の失敗にせず同じ値で reject する", () =>
@@ -10,7 +12,7 @@ describe("writeInCompanyScope", () => {
       const defect = new Error("bug");
 
       await expect(
-        writeInCompanyScope(tx, CompanyId.make("cmp_scope"), () => {
+        writeInCompanyScope(tx, COMPANY_SCOPE, () => {
           throw defect;
         }),
       ).rejects.toBe(defect);

@@ -7,9 +7,10 @@ import { afterEach, expect, it, vi } from "vitest";
 import { db } from "@/db/drizzle/client";
 // biome-ignore lint/style/noRestrictedImports: 定期処理が要求ごとの Pool の中で動くことを確かめる
 import { currentPool } from "@/db/drizzle/pool";
-import { CompanyId, TeamId } from "@/db/ids";
+import { TeamId } from "@/db/ids";
 import { purgeDeparted } from "@/src/lib/purge-departed";
 import { reportError } from "@/src/lib/report-error";
+import { COMPANY_A, fixtureCompanyId } from "@/src/services/__tests__/db/seed";
 import { emptyTeamListStore } from "@/src/services/__tests__/request";
 import { sqliteStorage } from "@/src/services/__tests__/sqlite-storage";
 import type { Env } from "../app";
@@ -18,6 +19,8 @@ import worker, {
   handler,
   sentryOptions,
 } from "../worker";
+
+const COMPANY_X = fixtureCompanyId("x");
 
 vi.mock("@/src/lib/purge-departed", () => ({ purgeDeparted: vi.fn() }));
 
@@ -128,7 +131,7 @@ it("定期処理の照合は taimei-auth の Service Binding へ送る", async (
   await handler.scheduled({}, envWithBinding(binding), collectingContext().ctx);
   const [{ checkMemberships }] = vi.mocked(purgeDeparted).mock.calls[0];
 
-  await checkMemberships({ companyId: "cmp_a", userIds: ["u_1"] }).catch(
+  await checkMemberships({ companyId: COMPANY_A, userIds: ["u_1"] }).catch(
     () => undefined,
   );
 
@@ -278,10 +281,10 @@ it("定期処理が purgeDeparted に渡す teamListOf は、その事業所の�
   const [{ teamListOf }] = vi.mocked(purgeDeparted).mock.calls[0];
 
   await Effect.runPromise(
-    teamListOf(CompanyId.make("cmp_x")).replace({ version: 2, teams: [] }),
+    teamListOf(COMPANY_X).replace({ version: 2, teams: [] }),
   );
 
-  expect(getByName).toHaveBeenCalledExactlyOnceWith("cmp_x");
+  expect(getByName).toHaveBeenCalledExactlyOnceWith(COMPANY_X);
   expect(replace).toHaveBeenCalledExactlyOnceWith("v1", {
     version: 2,
     teams: [],
