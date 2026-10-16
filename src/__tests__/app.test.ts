@@ -222,6 +222,16 @@ describe("/api の session", () => {
     expect(consoleError).not.toHaveBeenCalled();
   });
 
+  it("session の事業所 id が SDK の事業所 id の形に合わないと 500 で、1 回報告する (401 にするとログインし直しても同じ session で 401 が繰り返す)", async () => {
+    const response = await get(
+      "/api/teams",
+      signedIn({ companyId: COMPANY_APP_A.slice(0, -1) }),
+    );
+
+    expect(response.status).toBe(500);
+    expect(consoleError).toHaveBeenCalledOnce();
+  });
+
   it("taimei-auth で session を確かめられない (UNSPECIFIED) と 401 で、1 回報告する", async () => {
     const response = await get("/api/teams", sessionUncheckable());
 
