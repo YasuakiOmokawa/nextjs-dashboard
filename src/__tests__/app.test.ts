@@ -1,5 +1,12 @@
 import { readFileSync } from "node:fs";
-import { buildAuthLoginUrl } from "@taimei-code/auth-client";
+import {
+  buildAuthLoginUrl,
+  type ListMembersResult,
+  type Member,
+  Result,
+  type SessionData,
+  type VerifyResult,
+} from "@taimei-code/auth-client";
 import { asc, eq } from "drizzle-orm";
 import { type Schema, SchemaAST } from "effect";
 import { HttpApi } from "effect/http-api";
@@ -32,7 +39,8 @@ import {
   OperationFailure,
   SpaApi,
 } from "@/src/spa-contract";
-import { app, type Env } from "../app";
+import { createApp, type Env } from "../app";
+import type { AuthGuard } from "../auth";
 
 vi.mock("@/db/drizzle/client", async () => ({
   db: (await import("@/src/services/__tests__/db/test-db")).dbInRollback,
@@ -40,97 +48,105 @@ vi.mock("@/db/drizzle/client", async () => ({
 
 const ORIGIN = "http://app.example";
 const AUTH_URL = "https://auth.example";
-const COOKIE = { Cookie: "better-auth.session_token=tok" };
+const COOKIE = { Cookie: "cookie-the-fake-guard-does-not-read" };
 
-type SessionOptions = {
-  companyId?: string;
-  role?: "ROLE_OWNER" | "ROLE_ADMIN" | "ROLE_MEMBER";
+type SessionOptions = Partial<Pick<SessionData, "companyId" | "role">> & {
   createdAt?: string;
-  members?: readonly Record<string, string>[];
 };
 
-const sessionOk = ({
-  companyId = "cmp_app_a",
-  role,
+const sessionData = ({
   createdAt = "2026-10-10T00:00:00.000Z",
-  members = [],
-}: SessionOptions = {}) =>
-  Response.json({
-    ok: {
-      user: {
-        id: "u_1",
-        name: "山田 花子",
-        email: "hanako@example.com",
-        emailVerified: true,
-        createdAt,
-        updatedAt: createdAt,
-        defaultCompanyId: companyId || undefined,
-      },
-      session: { id: "s_1", expiresAt: "2099-01-01T00:00:00.000Z" },
-      currentRole: role,
-      members,
-    },
-  });
+  ...options
+}: SessionOptions = {}): SessionData => ({
+  user: {
+    id: "u_1",
+    name: "山田 花子",
+    email: "hanako@example.com",
+    emailVerified: true,
+    createdAt,
+    updatedAt: createdAt,
+  },
+  session: { id: "s_1", expiresAt: "2099-01-01T00:00:00.000Z", kind: "user" },
+  companyId: "cmp_app_a",
+  ...options,
+});
 
-const sessionError = () =>
-  Response.json({ error: { reason: "RESULT_SESSION_NOT_FOUND" } });
+const failure = (reason: Result) => ({ ok: false, reason }) as const;
 
-let binding: ReturnType<typeof vi.fn<typeof fetch>>;
+const guardOf = (
+  session: VerifyResult,
+  members: ListMembersResult = session.ok
+    ? { ok: true, data: { companyId: session.data.companyId, members: [] } }
+    : session,
+): AuthGuard => ({
+  getSession: async () => session,
+  listMembers: async () => members,
+});
+
+const signedIn = (options: SessionOptions = {}) =>
+  guardOf({ ok: true, data: sessionData(options) });
+
+const signedInAs = (role: SessionData["role"]) => signedIn({ role });
+
+const signedOut = () => guardOf(failure(Result.SESSION_NOT_FOUND));
+
+const sessionUncheckable = () => guardOf(failure(Result.UNSPECIFIED));
+
+const signedInWithMembers = (
+  members: readonly Member[],
+  session: SessionOptions = {},
+) => {
+  const data = sessionData({ role: "MEMBER", ...session });
+  return guardOf(
+    { ok: true, data },
+    { ok: true, data: { companyId: data.companyId, members } },
+  );
+};
+
+const signedInWithMemberListFailure = (
+  reason: Result,
+  session: SessionOptions = {},
+) => guardOf({ ok: true, data: sessionData(session) }, failure(reason));
+
 let cacheNames: string[];
 let cacheStores: Map<string, TeamListStore>;
-const envWithBinding = (fetch: typeof binding): Env => {
-  binding = fetch;
-  return {
-    AUTH: { fetch: binding },
-    AUTH_URL,
-    HYPERDRIVE: { connectionString: "unused" },
-    CF_VERSION_METADATA: { id: "v1" },
-    COMPANY_TEAM_LIST: {
-      getByName: (name) => {
-        cacheNames.push(name);
-        const store = cacheStores.get(name) ?? emptyTeamListStore();
-        cacheStores.set(name, store);
-        return store;
-      },
+const baseEnv = (): Env => ({
+  AUTH: { fetch: vi.fn<typeof fetch>() },
+  AUTH_URL,
+  HYPERDRIVE: { connectionString: "unused" },
+  CF_VERSION_METADATA: { id: "v1" },
+  COMPANY_TEAM_LIST: {
+    getByName: (name) => {
+      cacheNames.push(name);
+      const store = cacheStores.get(name) ?? emptyTeamListStore();
+      cacheStores.set(name, store);
+      return store;
     },
-  };
-};
+  },
+});
 
-const envWith = (response: () => Response | Promise<Response>) =>
-  envWithBinding(vi.fn<typeof fetch>(async () => response()));
+const requestApp = (
+  url: string,
+  init: RequestInit,
+  guard: AuthGuard,
+  env: Env = baseEnv(),
+) => createApp(() => guard).request(url, init, env);
 
-const envWithRole = (role: NonNullable<SessionOptions["role"]>) =>
-  envWith(() => sessionOk({ role }));
-
-const envWithMembers = (
-  members: readonly Record<string, string>[],
-  session: Omit<SessionOptions, "members"> = {},
-) => envWith(() => sessionOk({ role: "ROLE_MEMBER", ...session, members }));
-
-const envWithoutGetSession = (
-  list: () => Response,
-  session: Omit<SessionOptions, "members"> = {},
-) =>
-  envWithBinding(
-    vi.fn<typeof fetch>(async (input) => {
-      const rpc = String(input);
-      if (rpc.endsWith("/GetSession"))
-        return Response.json({ code: "unimplemented" }, { status: 404 });
-      return rpc.endsWith("/VerifySession") ? sessionOk(session) : list();
-    }),
-  );
-
-const get = (path: string, env: Env, headers: HeadersInit = COOKIE) =>
-  app.request(`${ORIGIN}${path}`, { headers }, env);
+const get = (
+  path: string,
+  guard: AuthGuard,
+  headers: HeadersInit = COOKIE,
+  env?: Env,
+) => requestApp(`${ORIGIN}${path}`, { headers }, guard, env);
 
 const sendSameOriginRequest = (
   method: "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
-  env: Env,
+  guard: AuthGuard,
   body?: string,
   contentType = "application/json",
 ) =>
-  app.request(
+  requestApp(
     `${ORIGIN}${path}`,
     {
       method,
@@ -141,13 +157,13 @@ const sendSameOriginRequest = (
       },
       body,
     },
-    env,
+    guard,
   );
 
 const EVERY_PATH = "/*";
 const routes = [
   ...new Map(
-    app.routes.map(({ method, path }) => [
+    createApp(signedOut).routes.map(({ method, path }) => [
       `${method} ${path}`,
       { method, path },
     ]),
@@ -185,27 +201,23 @@ describe("/api の session", () => {
   it("事業所の無い session は 401", async () => {
     const response = await get(
       "/api/teams",
-      envWith(() => sessionOk({ companyId: "" })),
+      signedIn({ companyId: undefined }),
     );
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ _tag: "Unauthenticated" });
   });
 
-  it("taimei-auth が session の失敗を返すと 401", async () => {
-    const response = await get("/api/teams", envWith(sessionError));
+  it("taimei-auth が session の失敗を返すと 401 で、報告しない", async () => {
+    const response = await get("/api/teams", signedOut());
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ _tag: "Unauthenticated" });
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
-  it("taimei-auth に届かないと 401 で、1 回報告する", async () => {
-    const response = await get(
-      "/api/teams",
-      envWith(() => {
-        throw new Error("connection refused");
-      }),
-    );
+  it("taimei-auth で session を確かめられない (UNSPECIFIED) と 401 で、1 回報告する", async () => {
+    const response = await get("/api/teams", sessionUncheckable());
 
     expect(response.status).toBe(401);
     expect(consoleError).toHaveBeenCalledExactlyOnceWith(
@@ -215,6 +227,22 @@ describe("/api の session", () => {
     );
     expect(consoleError.mock.calls[0][0]).toBeInstanceOf(Error);
   });
+
+  it("要求ごとに guard を 1 回だけ作り、env と要求の Cookie を渡す", async () => {
+    const env = baseEnv();
+    const guardOfRequest = vi.fn(
+      (_env: Env, _cookieHeader: string | undefined) => signedInWithMembers([]),
+    );
+
+    const response = await createApp(guardOfRequest).request(
+      `${ORIGIN}/api/members`,
+      { headers: COOKIE },
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(guardOfRequest).toHaveBeenCalledExactlyOnceWith(env, COOKIE.Cookie);
+  });
 });
 
 describe("session と Worker の version の印", () => {
@@ -222,7 +250,7 @@ describe("session と Worker の version の印", () => {
     "%s の応答に、事業所と user の id と Worker の version を x-taimei-session で付ける",
     (path) =>
       withRollbackDb(async () => {
-        const response = await get(path, envWithRole("ROLE_OWNER"));
+        const response = await get(path, signedInAs("OWNER"));
 
         expect(response.status).toBe(200);
         expect(response.headers.get("x-taimei-session")).toBe(
@@ -233,7 +261,7 @@ describe("session と Worker の version の印", () => {
 
   it("要求の印が今の session と違う (別のタブで事業所を切り替えた) と、書き込まずに 409 を返し、今の印を付ける", () =>
     withRollbackDb(async (tx) => {
-      const response = await app.request(
+      const response = await requestApp(
         `${ORIGIN}/api/teams`,
         {
           method: "POST",
@@ -245,7 +273,7 @@ describe("session と Worker の version の印", () => {
           },
           body: JSON.stringify({ name: "開発" }),
         },
-        envWithRole("ROLE_OWNER"),
+        signedInAs("OWNER"),
       );
 
       expect(response.status).toBe(409);
@@ -255,7 +283,7 @@ describe("session と Worker の version の印", () => {
 
   it("要求の印が deploy の前の Worker の version なら (deploy の前に開いたタブ)、書き込まずに 409 を返し、今の印を付ける", () =>
     withRollbackDb(async (tx) => {
-      const response = await app.request(
+      const response = await requestApp(
         `${ORIGIN}/api/teams`,
         {
           method: "POST",
@@ -267,7 +295,7 @@ describe("session と Worker の version の印", () => {
           },
           body: JSON.stringify({ name: "開発" }),
         },
-        envWithRole("ROLE_OWNER"),
+        signedInAs("OWNER"),
       );
 
       expect(response.status).toBe(409);
@@ -277,7 +305,7 @@ describe("session と Worker の version の印", () => {
 
   it("要求の印が今の session と同じなら、そのまま処理する", () =>
     withRollbackDb(async () => {
-      const response = await get("/api/me", envWithRole("ROLE_OWNER"), {
+      const response = await get("/api/me", signedInAs("OWNER"), {
         ...COOKIE,
         "x-taimei-session": "cmp_app_a u_1 v1",
       });
@@ -329,10 +357,10 @@ describe("全ての route の認証", () => {
     async (key) => {
       const [method, path] = key.split(" ");
 
-      const response = await app.request(
+      const response = await requestApp(
         `${ORIGIN}${path}`,
         { method },
-        envWith(sessionError),
+        signedOut(),
       );
 
       expect(response.status).not.toBe(401);
@@ -340,20 +368,17 @@ describe("全ての route の認証", () => {
   );
 
   it.each(nonPublicRoutes)(
-    "$method $path は cookie 無しで 401",
+    "$method $path は session が無ければ 401",
     async (route) => {
-      const env = envWith(sessionOk);
-
-      const response = await app.request(
+      const response = await requestApp(
         `${ORIGIN}${pathWithParamsFilled(route.path)}`,
         { method: requestMethod(route.method), headers: { Origin: ORIGIN } },
-        env,
+        signedOut(),
       );
 
       expect(response.status).toBe(401);
       expect(await response.json()).toEqual({ _tag: "Unauthenticated" });
       expect(response.headers.get("x-taimei-session")).toBeNull();
-      expect(binding).not.toHaveBeenCalled();
     },
   );
 });
@@ -435,7 +460,7 @@ describe("契約の endpoint", () => {
   });
 
   it("cookie 付きでも契約に無い /api の path は 404", async () => {
-    const response = await get("/api/unknown", envWith(sessionOk));
+    const response = await get("/api/unknown", signedIn());
 
     expect(response.status).toBe(404);
   });
@@ -447,10 +472,10 @@ describe("契約の endpoint", () => {
       return new Promise(() => {}) as never;
     });
 
-    const pending = app.request(
+    const pending = requestApp(
       `${ORIGIN}/api/teams`,
       { headers: COOKIE, signal: abort.signal },
-      envWithRole("ROLE_OWNER"),
+      signedInAs("OWNER"),
     );
     await Promise.resolve(pending).catch(() => undefined);
 
@@ -515,7 +540,7 @@ describe("GET /api/teams", () => {
       await seedAssignment(tx, "cmp_app_a", a, "u_other");
       await seedTeam(tx, "cmp_app_b", "B のチーム");
 
-      const response = await get("/api/teams", envWithRole("ROLE_OWNER"));
+      const response = await get("/api/teams", signedInAs("OWNER"));
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({
@@ -532,7 +557,7 @@ describe("GET /api/teams", () => {
       }),
     );
 
-    const response = await get("/api/teams", envWithRole("ROLE_OWNER"));
+    const response = await get("/api/teams", signedInAs("OWNER"));
 
     expect(response.status).toBe(500);
     expect(await response.text()).toBe("");
@@ -552,7 +577,7 @@ describe("チーム一覧の DO", () => {
     withRollbackDb(async (tx) => {
       await seedAssignedTeam(tx);
 
-      await get("/api/teams", envWithRole("ROLE_OWNER"));
+      await get("/api/teams", signedInAs("OWNER"));
 
       expect(cacheNames.length).toBeGreaterThan(0);
       expect(new Set(cacheNames)).toEqual(new Set(["cmp_app_a"]));
@@ -561,12 +586,12 @@ describe("チーム一覧の DO", () => {
   it("星取表・自分の情報・メンバー一覧は DO を呼ばない", () =>
     withRollbackDb(async (tx) => {
       const { teamId } = await seedAssignedTeam(tx);
-      const env = envWith(sessionOk);
+      const guard = signedIn();
 
       const statuses = [
-        (await get(`/api/teams/${teamId}`, env)).status,
-        (await get("/api/me", env)).status,
-        (await get("/api/members", env)).status,
+        (await get(`/api/teams/${teamId}`, guard)).status,
+        (await get("/api/me", guard)).status,
+        (await get("/api/members", guard)).status,
       ];
 
       expect(statuses).toEqual([200, 200, 200]);
@@ -576,17 +601,17 @@ describe("チーム一覧の DO", () => {
   it("一覧を DO に置いた後にレベルを保存しても、次の一覧は DB を読まない", () =>
     withRollbackDb(async (tx) => {
       const { teamId, skillId } = await seedAssignedTeam(tx);
-      const env = envWithRole("ROLE_MEMBER");
-      await get("/api/teams", env);
+      const guard = signedInAs("MEMBER");
+      await get("/api/teams", guard);
       const saved = await sendSameOriginRequest(
         "PUT",
         `/api/teams/${teamId}/my-levels`,
-        env,
+        guard,
         JSON.stringify({ levels: [{ skillId, level: 3, wantsToLearn: true }] }),
       );
       const db = spyOnDb();
 
-      const response = await get("/api/teams", env);
+      const response = await get("/api/teams", guard);
 
       expect(saved.status).toBe(200);
       expect(await listedNames(response)).toEqual(["開発"]);
@@ -595,17 +620,17 @@ describe("チーム一覧の DO", () => {
 
   it("一覧を DO に置いた後に管理者がチームを作ると、次の一覧は DB を読まずに新しいチームを含む", () =>
     withRollbackDb(async () => {
-      const env = envWithRole("ROLE_OWNER");
-      await get("/api/teams", env);
+      const guard = signedInAs("OWNER");
+      await get("/api/teams", guard);
       const created = await sendSameOriginRequest(
         "POST",
         "/api/teams",
-        env,
+        guard,
         JSON.stringify({ name: "新しいチーム" }),
       );
       const db = spyOnDb();
 
-      const response = await get("/api/teams", env);
+      const response = await get("/api/teams", guard);
 
       expect(created.status).toBe(200);
       expect(await listedNames(response)).toContain("新しいチーム");
@@ -615,18 +640,18 @@ describe("チーム一覧の DO", () => {
   it("一覧を DO に置いた後に割り当てを外すと、外されたメンバーの次の一覧にそのチームは無い", () =>
     withRollbackDb(async (tx) => {
       const { teamId } = await seedAssignedTeam(tx);
-      const memberEnv = envWithRole("ROLE_MEMBER");
-      const managerEnv = envWithRole("ROLE_OWNER");
-      expect(await listedNames(await get("/api/teams", memberEnv))).toEqual([
+      const member = signedInAs("MEMBER");
+      const manager = signedInAs("OWNER");
+      expect(await listedNames(await get("/api/teams", member))).toEqual([
         "開発",
       ]);
 
       const unassigned = await sendSameOriginRequest(
         "DELETE",
         `/api/teams/${teamId}/assignments/u_1`,
-        managerEnv,
+        manager,
       );
-      const response = await get("/api/teams", memberEnv);
+      const response = await get("/api/teams", member);
 
       expect(unassigned.status).toBe(200);
       expect(await listedNames(response)).toEqual([]);
@@ -636,13 +661,12 @@ describe("チーム一覧の DO", () => {
 describe("route の defect", () => {
   afterEach(() => sendErrorReportsTo(() => {}));
 
-  it("本体の defect は 500 で本文を返さず、defect を 1 回報告する", async () => {
+  it("DB の戻り値の rows を読む所の TypeError (Effect の失敗ではない本体の defect) は 500 で本文を返さず、defect を 1 回報告する", async () => {
     const send = vi.fn();
     sendErrorReportsTo(send);
-    // 戻り値の rows を読む所で TypeError になり、Effect の失敗ではなく defect になる
     vi.spyOn(dbInRollback, "execute").mockResolvedValue(undefined as never);
 
-    const response = await get("/api/teams", envWithRole("ROLE_OWNER"));
+    const response = await get("/api/teams", signedInAs("OWNER"));
 
     expect(response.status).toBe(500);
     expect(await response.text()).toBe("");
@@ -678,22 +702,22 @@ describe("GET /api/teams/:teamId", () => {
 
       const response = await get(
         `/api/teams/${teamId}`,
-        envWithMembers(
+        signedInWithMembers(
           [
             {
               userId: "u_1",
               name: "山田 花子",
               email: "hanako@example.com",
-              role: "ROLE_MEMBER",
+              role: "MEMBER",
             },
             {
               userId: "u_2",
               name: " ",
               email: "taro@example.com",
-              role: "ROLE_ADMIN",
+              role: "ADMIN",
             },
           ],
-          { role: "ROLE_MEMBER" },
+          { role: "MEMBER" },
         ),
       );
 
@@ -718,17 +742,20 @@ describe("GET /api/teams/:teamId", () => {
   it("deploy で Worker の version が変わると、前の version が置いた値を使わず DB から読む", () =>
     withRollbackDb(async (tx) => {
       const id = await seedTeam(tx, "cmp_app_a", "前の名前");
-      const before = envWithRole("ROLE_OWNER");
-      const after: Env = {
-        ...envWithRole("ROLE_OWNER"),
-        CF_VERSION_METADATA: { id: "v2" },
-      };
-      await get("/api/teams", before);
+      const owner = signedInAs("OWNER");
+      const before = baseEnv();
+      const after: Env = { ...baseEnv(), CF_VERSION_METADATA: { id: "v2" } };
+      const storeBefore = vi.spyOn(before.COMPANY_TEAM_LIST, "getByName");
+      const storeAfter = vi.spyOn(after.COMPANY_TEAM_LIST, "getByName");
+      await get("/api/teams", owner, COOKIE, before);
       await tx.update(teams).set({ name: "後の名前" }).where(eq(teams.id, id));
       const db = spyOnDb();
 
-      const response = await get("/api/teams", after);
+      const response = await get("/api/teams", owner, COOKIE, after);
 
+      expect(storeAfter.mock.results[0].value).toBe(
+        storeBefore.mock.results[0].value,
+      );
       expect(db.execute).toHaveBeenCalled();
       expect(await response.json()).toEqual({
         teams: [{ id, name: "後の名前" }],
@@ -739,7 +766,7 @@ describe("GET /api/teams/:teamId", () => {
     withRollbackDb(async (tx) => {
       const other = await seedTeam(tx, "cmp_app_b", "他社");
 
-      const response = await get(`/api/teams/${other}`, envWith(sessionOk));
+      const response = await get(`/api/teams/${other}`, signedIn());
 
       expect(response.status).toBe(404);
       expect(await response.json()).toEqual({
@@ -749,15 +776,13 @@ describe("GET /api/teams/:teamId", () => {
       expect(consoleError).not.toHaveBeenCalled();
     }));
 
-  it("GetSession を持たない auth ホストでメンバー一覧が取れなくてもチームを返し、一覧は null にして 1 回報告する", () =>
+  it("メンバー一覧が取れなくてもチームを返し、一覧は null にして 1 回報告する", () =>
     withRollbackDb(async (tx) => {
       const { teamId } = await seedTeamPage(tx);
 
       const response = await get(
         `/api/teams/${teamId}`,
-        envWithoutGetSession(() =>
-          Response.json({ error: { reason: "RESULT_UNSPECIFIED" } }),
-        ),
+        signedInWithMemberListFailure(Result.UNSPECIFIED),
       );
 
       expect(response.status).toBe(200);
@@ -772,13 +797,13 @@ describe("GET /api/teams/:teamId", () => {
       );
     }));
 
-  it("GetSession を持たない auth ホストでメンバー一覧の RPC が session の失敗を返すと 401 で、報告しない", () =>
+  it("メンバー一覧が session の失敗を返すと 401 で、報告しない", () =>
     withRollbackDb(async (tx) => {
       const { teamId } = await seedTeamPage(tx);
 
       const response = await get(
         `/api/teams/${teamId}`,
-        envWithoutGetSession(sessionError),
+        signedInWithMemberListFailure(Result.SESSION_NOT_FOUND),
       );
 
       expect(response.status).toBe(401);
@@ -789,7 +814,7 @@ describe("GET /api/teams/:teamId", () => {
     withRollbackDb(async () => {
       const db = spyOnDb();
 
-      const response = await get("/api/teams/not-a-uuid", envWith(sessionOk));
+      const response = await get("/api/teams/not-a-uuid", signedIn());
 
       expect(response.status).toBe(404);
       expect(db.execute).not.toHaveBeenCalled();
@@ -812,13 +837,13 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
   const putMyLevels = (
     teamId: string,
     body: string,
-    env: Env,
+    guard: AuthGuard,
     contentType = "application/json",
   ) =>
     sendSameOriginRequest(
       "PUT",
       `/api/teams/${teamId}/my-levels`,
-      env,
+      guard,
       body,
       contentType,
     );
@@ -840,7 +865,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
       const response = await putMyLevels(
         teamId,
         levelsBody([{ skillId, level: 3, wantsToLearn: true }]),
-        envWithRole("ROLE_MEMBER"),
+        signedInAs("MEMBER"),
       );
 
       expect(response.status).toBe(200);
@@ -873,7 +898,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
       const response = await putMyLevels(
         teamId,
         levelsBody([{ skillId, level: 3, wantsToLearn: true, userId: "u_2" }]),
-        envWithRole("ROLE_MEMBER"),
+        signedInAs("MEMBER"),
       );
 
       expect(response.status).toBe(200);
@@ -891,7 +916,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
       const response = await putMyLevels(
         teamId,
         levelsBody([{ skillId, level: 2, wantsToLearn: false }]),
-        envWithRole("ROLE_ADMIN"),
+        signedInAs("ADMIN"),
       );
 
       expect(response.status).toBe(403);
@@ -919,7 +944,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
           { skillId, level: 2, wantsToLearn: false },
           { skillId: otherSkillId, level: 2, wantsToLearn: false },
         ]),
-        envWithRole("ROLE_MEMBER"),
+        signedInAs("MEMBER"),
       );
 
       expect(response.status).toBe(404);
@@ -941,7 +966,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
           { skillId, level: 2, wantsToLearn: false },
           { skillId: otherSkillId, level: 4, wantsToLearn: false },
         ]),
-        envWithRole("ROLE_MEMBER"),
+        signedInAs("MEMBER"),
       );
 
       expect(response.status).toBe(422);
@@ -973,7 +998,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
       const response = await putMyLevels(
         otherTeamId,
         levelsBody([{ skillId: otherSkillId, level: 3, wantsToLearn: true }]),
-        envWithRole("ROLE_MEMBER"),
+        signedInAs("MEMBER"),
       );
 
       expect(response.status).toBe(404);
@@ -1000,7 +1025,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
       const response = await putMyLevels(
         teamId,
         levelsBody([{ skillId, level, wantsToLearn: false }]),
-        envWithRole("ROLE_MEMBER"),
+        signedInAs("MEMBER"),
         contentType,
       );
 
@@ -1027,7 +1052,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
             wantsToLearn: false,
           })),
         ),
-        envWithRole("ROLE_MEMBER"),
+        signedInAs("MEMBER"),
       );
 
       expect(response.status).toBe(status);
@@ -1040,11 +1065,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
     withRollbackDb(async (tx) => {
       const { teamId } = await seedAssignedTeam(tx);
 
-      const response = await putMyLevels(
-        teamId,
-        "{",
-        envWithRole("ROLE_MEMBER"),
-      );
+      const response = await putMyLevels(teamId, "{", signedInAs("MEMBER"));
 
       expect(response.status).toBe(400);
       expect(await levelRows(tx)).toEqual([]);
@@ -1059,7 +1080,7 @@ const teamRows = (tx: TestDb) =>
     .orderBy(asc(teams.name));
 
 describe("POST /api/teams", () => {
-  it.each(["ROLE_OWNER", "ROLE_ADMIN"] as const)(
+  it.each(["OWNER", "ADMIN"] as const)(
     "%s は名前の前後の空白を除いてチームを作り、事業所スコープの transaction の中で書いて、200 の { id } を返す",
     (role) =>
       withRollbackDb(async (tx) => {
@@ -1068,7 +1089,7 @@ describe("POST /api/teams", () => {
         const response = await sendSameOriginRequest(
           "POST",
           "/api/teams",
-          envWithRole(role),
+          signedInAs(role),
           JSON.stringify({ name: "  開発  " }),
         );
 
@@ -1084,24 +1105,12 @@ describe("POST /api/teams", () => {
   );
 
   it.each([
-    ["メンバー", 403, "NotManager", "ROLE_MEMBER", { name: "営業" }],
-    ["空白だけの名前", 422, "InvalidName", "ROLE_ADMIN", { name: "   " }],
-    [
-      "51 文字の名前",
-      422,
-      "InvalidName",
-      "ROLE_ADMIN",
-      { name: "あ".repeat(51) },
-    ],
-    [
-      "同じ事業所にある名前",
-      409,
-      "DuplicateName",
-      "ROLE_ADMIN",
-      { name: " 開発 " },
-    ],
-    ["name が数の body", 400, DECODE_FAILURE, "ROLE_ADMIN", { name: 1 }],
-    ["name の無い body", 400, DECODE_FAILURE, "ROLE_ADMIN", {}],
+    ["メンバー", 403, "NotManager", "MEMBER", { name: "営業" }],
+    ["空白だけの名前", 422, "InvalidName", "ADMIN", { name: "   " }],
+    ["51 文字の名前", 422, "InvalidName", "ADMIN", { name: "あ".repeat(51) }],
+    ["同じ事業所にある名前", 409, "DuplicateName", "ADMIN", { name: " 開発 " }],
+    ["name が数の body", 400, DECODE_FAILURE, "ADMIN", { name: 1 }],
+    ["name の無い body", 400, DECODE_FAILURE, "ADMIN", {}],
   ] as const)(
     "%s は %i の %s で、チームを作らない",
     (_, status, tag, role, body) =>
@@ -1111,7 +1120,7 @@ describe("POST /api/teams", () => {
         const response = await sendSameOriginRequest(
           "POST",
           "/api/teams",
-          envWithRole(role),
+          signedInAs(role),
           JSON.stringify(body),
         );
 
@@ -1129,7 +1138,7 @@ describe("POST /api/teams", () => {
       const response = await sendSameOriginRequest(
         "POST",
         "/api/teams",
-        envWithRole("ROLE_ADMIN"),
+        signedInAs("ADMIN"),
         JSON.stringify({ name }),
       );
 
@@ -1147,7 +1156,7 @@ describe("PATCH /api/teams/:teamId", () => {
       const response = await sendSameOriginRequest(
         "PATCH",
         `/api/teams/${teamId}`,
-        envWithRole("ROLE_ADMIN"),
+        signedInAs("ADMIN"),
         JSON.stringify({ name: "  新  " }),
       );
 
@@ -1159,20 +1168,13 @@ describe("PATCH /api/teams/:teamId", () => {
     }));
 
   it.each([
-    ["メンバー", 403, "NotManager", "ROLE_MEMBER", "cmp_app_a", { name: "新" }],
-    [
-      "他社のチーム",
-      404,
-      "TeamNotFound",
-      "ROLE_ADMIN",
-      "cmp_app_b",
-      { name: "新" },
-    ],
+    ["メンバー", 403, "NotManager", "MEMBER", "cmp_app_a", { name: "新" }],
+    ["他社のチーム", 404, "TeamNotFound", "ADMIN", "cmp_app_b", { name: "新" }],
     [
       "空白だけの名前",
       422,
       "InvalidName",
-      "ROLE_ADMIN",
+      "ADMIN",
       "cmp_app_a",
       { name: "   " },
     ],
@@ -1180,7 +1182,7 @@ describe("PATCH /api/teams/:teamId", () => {
       "name が数の body",
       400,
       DECODE_FAILURE,
-      "ROLE_ADMIN",
+      "ADMIN",
       "cmp_app_a",
       { name: 1 },
     ],
@@ -1188,7 +1190,7 @@ describe("PATCH /api/teams/:teamId", () => {
       "同じ事業所の別のチームの名前",
       409,
       "DuplicateName",
-      "ROLE_ADMIN",
+      "ADMIN",
       "cmp_app_a",
       { name: "開発" },
     ],
@@ -1202,7 +1204,7 @@ describe("PATCH /api/teams/:teamId", () => {
         const response = await sendSameOriginRequest(
           "PATCH",
           `/api/teams/${teamId}`,
-          envWithRole(role),
+          signedInAs(role),
           JSON.stringify(body),
         );
 
@@ -1215,8 +1217,8 @@ describe("PATCH /api/teams/:teamId", () => {
 });
 
 describe("DELETE /api/teams/:teamId", () => {
-  const deleteTeam = (teamId: string, env: Env) =>
-    sendSameOriginRequest("DELETE", `/api/teams/${teamId}`, env);
+  const deleteTeam = (teamId: string, guard: AuthGuard) =>
+    sendSameOriginRequest("DELETE", `/api/teams/${teamId}`, guard);
 
   const seedTeamWithSkillAssignmentAndLevel = async (
     tx: TestDb,
@@ -1255,7 +1257,7 @@ describe("DELETE /api/teams/:teamId", () => {
       );
       const kept = await seedTeamWithSkillAssignmentAndLevel(tx, "cmp_app_a");
 
-      const response = await deleteTeam(deleted, envWithRole("ROLE_ADMIN"));
+      const response = await deleteTeam(deleted, signedInAs("ADMIN"));
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({});
@@ -1265,15 +1267,15 @@ describe("DELETE /api/teams/:teamId", () => {
     }));
 
   it.each([
-    ["メンバー", 403, "NotManager", "ROLE_MEMBER", "cmp_app_a"],
-    ["他社のチーム", 404, "TeamNotFound", "ROLE_ADMIN", "cmp_app_b"],
+    ["メンバー", 403, "NotManager", "MEMBER", "cmp_app_a"],
+    ["他社のチーム", 404, "TeamNotFound", "ADMIN", "cmp_app_b"],
   ] as const)(
     "%s は %i の %s で、チームを消さない",
     (_, status, tag, role, companyId) =>
       withRollbackDb(async (tx) => {
         const teamId = await seedTeamWithSkillAssignmentAndLevel(tx, companyId);
 
-        const response = await deleteTeam(teamId, envWithRole(role));
+        const response = await deleteTeam(teamId, signedInAs(role));
 
         expect(response.status).toBe(status);
         expect(await response.json()).toMatchObject({ _tag: tag });
@@ -1293,11 +1295,11 @@ const skillNamesOf = async (tx: TestDb, teamId: TeamId) =>
   ).map((row) => row.name);
 
 describe("POST /api/teams/:teamId/skills", () => {
-  const addSkill = (teamId: string, env: Env, body: unknown) =>
+  const addSkill = (teamId: string, guard: AuthGuard, body: unknown) =>
     sendSameOriginRequest(
       "POST",
       `/api/teams/${teamId}/skills`,
-      env,
+      guard,
       JSON.stringify(body),
     );
 
@@ -1305,7 +1307,7 @@ describe("POST /api/teams/:teamId/skills", () => {
     withRollbackDb(async (tx) => {
       const teamId = await seedTeam(tx, "cmp_app_a", "開発");
 
-      const response = await addSkill(teamId, envWithRole("ROLE_ADMIN"), {
+      const response = await addSkill(teamId, signedInAs("ADMIN"), {
         name: "  設計  ",
       });
 
@@ -1316,19 +1318,12 @@ describe("POST /api/teams/:teamId/skills", () => {
     }));
 
   it.each([
-    [
-      "メンバー",
-      403,
-      "NotManager",
-      "ROLE_MEMBER",
-      "cmp_app_a",
-      { name: "テスト" },
-    ],
+    ["メンバー", 403, "NotManager", "MEMBER", "cmp_app_a", { name: "テスト" }],
     [
       "チームにある名前",
       409,
       "DuplicateName",
-      "ROLE_ADMIN",
+      "ADMIN",
       "cmp_app_a",
       { name: " 設計 " },
     ],
@@ -1336,7 +1331,7 @@ describe("POST /api/teams/:teamId/skills", () => {
       "51 文字の名前",
       422,
       "InvalidName",
-      "ROLE_ADMIN",
+      "ADMIN",
       "cmp_app_a",
       { name: "あ".repeat(51) },
     ],
@@ -1344,11 +1339,11 @@ describe("POST /api/teams/:teamId/skills", () => {
       "他社のチーム",
       404,
       "TeamNotFound",
-      "ROLE_ADMIN",
+      "ADMIN",
       "cmp_app_b",
       { name: "テスト" },
     ],
-    ["name の無い body", 400, DECODE_FAILURE, "ROLE_ADMIN", "cmp_app_a", {}],
+    ["name の無い body", 400, DECODE_FAILURE, "ADMIN", "cmp_app_a", {}],
   ] as const)(
     "%s は %i の %s で、スキルを足さない",
     (_, status, tag, role, companyId, body) =>
@@ -1356,7 +1351,7 @@ describe("POST /api/teams/:teamId/skills", () => {
         const teamId = await seedTeam(tx, companyId, "開発");
         await seedSkill(tx, companyId, teamId, "設計");
 
-        const response = await addSkill(teamId, envWithRole(role), body);
+        const response = await addSkill(teamId, signedInAs(role), body);
 
         expect(response.status).toBe(status);
         expect(await failureBodyOf(response)).toEqual(expectedFailureBody(tag));
@@ -1370,7 +1365,7 @@ describe("POST /api/teams/:teamId/skills", () => {
       const teamId = await seedTeam(tx, "cmp_app_a", "開発");
       const name = "あ".repeat(50);
 
-      const response = await addSkill(teamId, envWithRole("ROLE_ADMIN"), {
+      const response = await addSkill(teamId, signedInAs("ADMIN"), {
         name,
       });
 
@@ -1380,8 +1375,8 @@ describe("POST /api/teams/:teamId/skills", () => {
 });
 
 describe("DELETE /api/skills/:skillId", () => {
-  const removeSkill = (skillId: string, env: Env) =>
-    sendSameOriginRequest("DELETE", `/api/skills/${skillId}`, env);
+  const removeSkill = (skillId: string, guard: AuthGuard) =>
+    sendSameOriginRequest("DELETE", `/api/skills/${skillId}`, guard);
 
   it("管理者はスキルを消し、そのスキルの記入も消え、同じチームの別のスキルは残る", () =>
     withRollbackDb(async (tx) => {
@@ -1394,7 +1389,7 @@ describe("DELETE /api/skills/:skillId", () => {
         userId: "u_1",
       });
 
-      const response = await removeSkill(skillId, envWithRole("ROLE_ADMIN"));
+      const response = await removeSkill(skillId, signedInAs("ADMIN"));
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({});
@@ -1404,8 +1399,8 @@ describe("DELETE /api/skills/:skillId", () => {
     }));
 
   it.each([
-    ["メンバー", 403, "NotManager", "ROLE_MEMBER", "cmp_app_a"],
-    ["他社のスキル", 404, "SkillNotFound", "ROLE_ADMIN", "cmp_app_b"],
+    ["メンバー", 403, "NotManager", "MEMBER", "cmp_app_a"],
+    ["他社のスキル", 404, "SkillNotFound", "ADMIN", "cmp_app_b"],
   ] as const)(
     "%s は %i の %s で、スキルを消さない",
     (_, status, tag, role, companyId) =>
@@ -1413,7 +1408,7 @@ describe("DELETE /api/skills/:skillId", () => {
         const teamId = await seedTeam(tx, companyId, "開発");
         const skillId = await seedSkill(tx, companyId, teamId, "設計");
 
-        const response = await removeSkill(skillId, envWithRole(role));
+        const response = await removeSkill(skillId, signedInAs(role));
 
         expect(response.status).toBe(status);
         expect(await failureBodyOf(response)).toEqual(expectedFailureBody(tag));
@@ -1424,10 +1419,7 @@ describe("DELETE /api/skills/:skillId", () => {
 
   it("UUID でない id は 404 の SkillNotFound", () =>
     withRollbackDb(async () => {
-      const response = await removeSkill(
-        "not-a-uuid",
-        envWithRole("ROLE_ADMIN"),
-      );
+      const response = await removeSkill("not-a-uuid", signedInAs("ADMIN"));
 
       expect(response.status).toBe(404);
       expect(await response.json()).toMatchObject({ _tag: "SkillNotFound" });
@@ -1443,19 +1435,19 @@ const assignedUserIdsOf = async (tx: TestDb, teamId: TeamId) =>
       .orderBy(asc(teamAssignments.userId))
   ).map((row) => row.userId);
 
-const companyMember = (userId: string) => ({
+const companyMember = (userId: string): Member => ({
   userId,
   name: `名前 ${userId}`,
   email: `${userId}@example.com`,
-  role: "ROLE_MEMBER",
+  role: "MEMBER",
 });
 
 describe("PUT /api/teams/:teamId/assignments/:userId", () => {
-  const assign = (teamId: string, userId: string, env: Env) =>
+  const assign = (teamId: string, userId: string, guard: AuthGuard) =>
     sendSameOriginRequest(
       "PUT",
       `/api/teams/${teamId}/assignments/${userId}`,
-      env,
+      guard,
     );
 
   it("管理者は事業所のメンバーを割り当て、200 の {} を返す", () =>
@@ -1465,8 +1457,8 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       const response = await assign(
         teamId,
         "u_2",
-        envWithMembers([companyMember("u_2")], {
-          role: "ROLE_ADMIN",
+        signedInWithMembers([companyMember("u_2")], {
+          role: "ADMIN",
         }),
       );
 
@@ -1484,8 +1476,8 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       const response = await assign(
         teamId,
         "u_2",
-        envWithMembers([companyMember("u_2")], {
-          role: "ROLE_ADMIN",
+        signedInWithMembers([companyMember("u_2")], {
+          role: "ADMIN",
         }),
       );
 
@@ -1498,7 +1490,7 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       "メンバー一覧に居ない人",
       422,
       "NotCompanyMember",
-      "ROLE_ADMIN",
+      "ADMIN",
       "cmp_app_a",
       [companyMember("u_3")],
     ],
@@ -1506,7 +1498,7 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       "メンバー",
       403,
       "NotManager",
-      "ROLE_MEMBER",
+      "MEMBER",
       "cmp_app_a",
       [companyMember("u_2")],
     ],
@@ -1514,7 +1506,7 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       "他社のチーム",
       404,
       "TeamNotFound",
-      "ROLE_ADMIN",
+      "ADMIN",
       "cmp_app_b",
       [companyMember("u_2")],
     ],
@@ -1527,7 +1519,7 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
         const response = await assign(
           teamId,
           "u_2",
-          envWithMembers(members, { role }),
+          signedInWithMembers(members, { role }),
         );
 
         expect(response.status).toBe(status);
@@ -1537,14 +1529,16 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       }),
   );
 
-  it("GetSession を持たない auth ホストでメンバー一覧の RPC が session の失敗を返すと 401 で、割り当てず報告しない", () =>
+  it("メンバー一覧が session の失敗を返すと 401 で、割り当てず報告しない", () =>
     withRollbackDb(async (tx) => {
       const teamId = await seedTeam(tx, "cmp_app_a", "開発");
 
       const response = await assign(
         teamId,
         "u_2",
-        envWithoutGetSession(sessionError, { role: "ROLE_ADMIN" }),
+        signedInWithMemberListFailure(Result.SESSION_NOT_FOUND, {
+          role: "ADMIN",
+        }),
       );
 
       expect(response.status).toBe(401);
@@ -1555,17 +1549,14 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       expect(consoleError).not.toHaveBeenCalled();
     }));
 
-  it("GetSession を持たない auth ホストでメンバー一覧が取れないと 500 で本文を返さず、割り当てず listMembers failed を 1 回報告する", () =>
+  it("メンバー一覧が取れないと 500 で本文を返さず、割り当てず listMembers failed を 1 回報告する", () =>
     withRollbackDb(async (tx) => {
       const teamId = await seedTeam(tx, "cmp_app_a", "開発");
 
       const response = await assign(
         teamId,
         "u_2",
-        envWithoutGetSession(
-          () => Response.json({ error: { reason: "RESULT_UNSPECIFIED" } }),
-          { role: "ROLE_ADMIN" },
-        ),
+        signedInWithMemberListFailure(Result.UNSPECIFIED, { role: "ADMIN" }),
       );
 
       expect(response.status).toBe(500);
@@ -1580,11 +1571,11 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
 });
 
 describe("DELETE /api/teams/:teamId/assignments/:userId", () => {
-  const unassign = (teamId: string, userId: string, env: Env) =>
+  const unassign = (teamId: string, userId: string, guard: AuthGuard) =>
     sendSameOriginRequest(
       "DELETE",
       `/api/teams/${teamId}/assignments/${userId}`,
-      env,
+      guard,
     );
 
   it("管理者は割り当てを外し、その人の記入も消え、同じチームの別の人の割り当ては残る", () =>
@@ -1599,7 +1590,7 @@ describe("DELETE /api/teams/:teamId/assignments/:userId", () => {
           userId,
         });
 
-      const response = await unassign(teamId, "u_2", envWithRole("ROLE_ADMIN"));
+      const response = await unassign(teamId, "u_2", signedInAs("ADMIN"));
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({});
@@ -1609,8 +1600,8 @@ describe("DELETE /api/teams/:teamId/assignments/:userId", () => {
     }));
 
   it.each([
-    ["メンバー", 403, "NotManager", "ROLE_MEMBER", "cmp_app_a"],
-    ["他社のチーム", 404, "TeamNotFound", "ROLE_ADMIN", "cmp_app_b"],
+    ["メンバー", 403, "NotManager", "MEMBER", "cmp_app_a"],
+    ["他社のチーム", 404, "TeamNotFound", "ADMIN", "cmp_app_b"],
   ] as const)(
     "%s は %i の %s で、割り当てを外さない",
     (_, status, tag, role, companyId) =>
@@ -1618,7 +1609,7 @@ describe("DELETE /api/teams/:teamId/assignments/:userId", () => {
         const teamId = await seedTeam(tx, companyId, "開発");
         await seedAssignment(tx, companyId, teamId, "u_2");
 
-        const response = await unassign(teamId, "u_2", envWithRole(role));
+        const response = await unassign(teamId, "u_2", signedInAs(role));
 
         expect(response.status).toBe(status);
         expect(await response.json()).toMatchObject({ _tag: tag });
@@ -1629,18 +1620,15 @@ describe("DELETE /api/teams/:teamId/assignments/:userId", () => {
 });
 
 describe("GET /api/members", () => {
-  const rpcNames = () =>
-    binding.mock.calls.map(([input]) => new URL(String(input)).pathname);
-
   it("名前・メールアドレス・role だけを返す", async () => {
     const response = await get(
       "/api/members",
-      envWithMembers([
+      signedInWithMembers([
         {
           userId: "u_1",
           name: "山田 花子",
           email: "hanako@example.com",
-          role: "ROLE_OWNER",
+          role: "OWNER",
         },
       ]),
     );
@@ -1659,12 +1647,12 @@ describe("GET /api/members", () => {
   ])("%s", async (_, name, shown) => {
     const response = await get(
       "/api/members",
-      envWithMembers([
+      signedInWithMembers([
         {
           userId: "u_2",
           name,
           email: "taro@example.com",
-          role: "ROLE_MEMBER",
+          role: "MEMBER",
         },
       ]),
     );
@@ -1675,12 +1663,12 @@ describe("GET /api/members", () => {
   it("SDK が知らない role の人には role を載せない", async () => {
     const response = await get(
       "/api/members",
-      envWithMembers([
+      signedInWithMembers([
         {
           userId: "u_2",
           name: "山田",
           email: "taro@example.com",
-          role: "ROLE_UNSPECIFIED",
+          role: undefined,
         },
       ]),
     );
@@ -1690,19 +1678,19 @@ describe("GET /api/members", () => {
 
   it.each([
     ["role の無い", undefined],
-    ["MEMBER の", "ROLE_MEMBER"],
+    ["MEMBER の", "MEMBER"],
   ] as const)(
     "%s session にも一覧を返す (taimei-auth は事業所のメンバーなら誰にでも返す)",
     async (_, role) => {
       const response = await get(
         "/api/members",
-        envWithMembers(
+        signedInWithMembers(
           [
             {
               userId: "u_2",
               name: "山田",
               email: "taro@example.com",
-              role: "ROLE_ADMIN",
+              role: "ADMIN",
             },
           ],
           { role },
@@ -1714,40 +1702,25 @@ describe("GET /api/members", () => {
     },
   );
 
-  it("session の確認と一覧の取得で taimei-auth を GetSession の 1 回だけ呼ぶ", async () => {
-    await get("/api/members", envWith(sessionOk));
-
-    expect(rpcNames()).toEqual(["/rpc/auth.v1.AuthService/GetSession"]);
-  });
-
-  it.each([
-    [
-      "一覧の RPC が失敗を返す",
-      () => Response.json({ error: { reason: "RESULT_UNSPECIFIED" } }),
-    ],
-    [
-      "一覧の事業所が session の事業所と違う",
-      () => Response.json({ ok: { companyId: "cmp_app_b", members: [] } }),
-    ],
-  ])(
-    "GetSession を持たない auth ホストで%s と 500 で本文を返さず、1 回報告する",
-    async (_, list) => {
-      const response = await get("/api/members", envWithoutGetSession(list));
-
-      expect(response.status).toBe(500);
-      expect(await response.text()).toBe("");
-      expect(consoleError).toHaveBeenCalledExactlyOnceWith(
-        expect.objectContaining({
-          message: "listMembers failed: UNSPECIFIED",
-        }),
-      );
-    },
-  );
-
-  it("GetSession を持たない auth ホストで一覧の RPC が session の失敗を返すと 401 で、報告しない", async () => {
+  it("一覧が取れないと 500 で本文を返さず、1 回報告する", async () => {
     const response = await get(
       "/api/members",
-      envWithoutGetSession(sessionError),
+      signedInWithMemberListFailure(Result.UNSPECIFIED),
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).toBe("");
+    expect(consoleError).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        message: "listMembers failed: UNSPECIFIED",
+      }),
+    );
+  });
+
+  it("一覧が session の失敗を返すと 401 で、報告しない", async () => {
+    const response = await get(
+      "/api/members",
+      signedInWithMemberListFailure(Result.SESSION_NOT_FOUND),
     );
 
     expect(response.status).toBe(401);
@@ -1758,16 +1731,13 @@ describe("GET /api/members", () => {
 
 describe("GET /api/me", () => {
   it.each([
-    ["ROLE_ADMIN", true],
-    ["ROLE_MEMBER", false],
+    ["ADMIN", true],
+    ["MEMBER", false],
     [undefined, false],
   ] as const)(
     "role %s の canManage は %s で、user id・名前・canManage だけを返す",
     async (role, canManage) => {
-      const response = await get(
-        "/api/me",
-        envWith(() => sessionOk({ role })),
-      );
+      const response = await get("/api/me", signedInAs(role));
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({
@@ -1798,10 +1768,10 @@ describe("CSRF と CORS", () => {
     origin: string,
     { path, method, type }: (typeof stateChangingFormRequests)[number],
   ) =>
-    app.request(
+    requestApp(
       `${ORIGIN}${path}`,
       { method, headers: { Origin: origin, "Content-Type": type }, body: "x" },
-      envWith(sessionOk),
+      signedOut(),
     );
 
   it("列挙は /api と /api の外の path を含む", () => {
@@ -1843,7 +1813,7 @@ describe("CSRF と CORS", () => {
   it.each(endpointPaths)(
     "%s への別の origin からの preflight に Access-Control-Allow-Origin を付けない",
     async (path) => {
-      const response = await app.request(
+      const response = await requestApp(
         `${ORIGIN}${path}`,
         {
           method: "OPTIONS",
@@ -1853,7 +1823,7 @@ describe("CSRF と CORS", () => {
             "Access-Control-Request-Headers": "content-type",
           },
         },
-        envWith(sessionOk),
+        signedIn(),
       );
 
       expect(response.headers.has("Access-Control-Allow-Origin")).toBe(false);
@@ -1861,7 +1831,7 @@ describe("CSRF と CORS", () => {
   );
 
   it("別の origin の GET にも Access-Control-Allow-Origin を付けない", async () => {
-    const response = await get("/api/me", envWith(sessionOk), {
+    const response = await get("/api/me", signedIn(), {
       ...COOKIE,
       Origin: "https://evil.example",
     });
@@ -1873,8 +1843,8 @@ describe("CSRF と CORS", () => {
 
 describe("/auth の着地", () => {
   it("/auth の route の defect は 500 の Internal Server Error で、1 回報告する", async () => {
-    const response = await get("/auth/account", {
-      ...envWith(sessionOk),
+    const response = await get("/auth/account", signedIn(), COOKIE, {
+      ...baseEnv(),
       AUTH_URL: "not a url",
     });
 
@@ -1895,7 +1865,7 @@ describe("/auth の着地", () => {
   };
 
   it("/auth は taimei-auth のログインへ", async () => {
-    const response = await get("/auth", envWith(sessionOk));
+    const response = await get("/auth", signedIn());
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe(login());
@@ -1904,7 +1874,7 @@ describe("/auth の着地", () => {
   it("/auth の callbackUrl はログイン後の着地に渡す", async () => {
     const response = await get(
       "/auth?callbackUrl=/dashboard/teams",
-      envWith(sessionOk),
+      signedIn(),
     );
 
     expect(locationOf(response).searchParams.get("redirect_url")).toBe(
@@ -1917,7 +1887,7 @@ describe("/auth の着地", () => {
     async (callbackUrl) => {
       const response = await get(
         `/auth?callbackUrl=${encodeURIComponent(callbackUrl)}`,
-        envWith(sessionOk),
+        signedIn(),
       );
 
       expect(response.headers.get("Location")).toBe(login());
@@ -1927,7 +1897,7 @@ describe("/auth の着地", () => {
   it("callbackUrl を重ねた /auth は callbackUrl 無しと同じ", async () => {
     const response = await get(
       "/auth?callbackUrl=/a&callbackUrl=/b",
-      envWith(sessionOk),
+      signedIn(),
     );
 
     expect(response.headers.get("Location")).toBe(login());
@@ -1938,15 +1908,28 @@ describe("/auth の着地", () => {
     async (callbackUrl) => {
       const response = await get(
         `/auth/after-signin?callbackUrl=${encodeURIComponent(callbackUrl)}`,
-        envWith(sessionOk),
+        signedIn(),
       );
 
       expect(response.headers.get("Location")).toBe(`${ORIGIN}/dashboard`);
     },
   );
 
+  it.each(["/auth/after-signin", "/auth/after-signup"])(
+    "%s で session を確かめられない (UNSPECIFIED) と、1 回報告する",
+    async (path) => {
+      await get(path, sessionUncheckable());
+
+      expect(consoleError).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          message: "taimei-auth で session を確かめられなかった",
+        }),
+      );
+    },
+  );
+
   it("session の無い after-signin は signin_failed", async () => {
-    const response = await get("/auth/after-signin", envWith(sessionError));
+    const response = await get("/auth/after-signin", signedOut());
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe(
@@ -1957,7 +1940,7 @@ describe("/auth の着地", () => {
   it("事業所の無い after-signin は事業所の登録へ", async () => {
     const response = await get(
       "/auth/after-signin?callbackUrl=/dashboard/teams",
-      envWith(() => sessionOk({ companyId: "" })),
+      signedIn({ companyId: undefined }),
     );
 
     const location = locationOf(response);
@@ -1974,7 +1957,7 @@ describe("/auth の着地", () => {
   it("事業所のある after-signin は callbackUrl へ", async () => {
     const response = await get(
       "/auth/after-signin?callbackUrl=/dashboard/teams",
-      envWith(sessionOk),
+      signedIn(),
     );
 
     expect(response.status).toBe(302);
@@ -1984,7 +1967,7 @@ describe("/auth の着地", () => {
   it("callbackUrl を重ねた after-signin は /dashboard へ", async () => {
     const response = await get(
       "/auth/after-signin?callbackUrl=/a&callbackUrl=/b",
-      envWith(sessionOk),
+      signedIn(),
     );
 
     expect(response.status).toBe(302);
@@ -1992,13 +1975,13 @@ describe("/auth の着地", () => {
   });
 
   it("callbackUrl の無い after-signin は /dashboard へ", async () => {
-    const response = await get("/auth/after-signin", envWith(sessionOk));
+    const response = await get("/auth/after-signin", signedIn());
 
     expect(response.headers.get("Location")).toBe(`${ORIGIN}/dashboard`);
   });
 
   it("session の無い after-signup は signin_failed", async () => {
-    const response = await get("/auth/after-signup", envWith(sessionError));
+    const response = await get("/auth/after-signup", signedOut());
 
     expect(response.headers.get("Location")).toBe(
       `${AUTH_URL}/auth/error?reason=signin_failed`,
@@ -2008,7 +1991,7 @@ describe("/auth の着地", () => {
   it("createdAt が日時でない after-signup は signin_failed", async () => {
     const response = await get(
       "/auth/after-signup",
-      envWith(() => sessionOk({ createdAt: "not a date" })),
+      signedIn({ createdAt: "not a date" }),
     );
 
     expect(response.headers.get("Location")).toBe(
@@ -2023,10 +2006,7 @@ describe("/auth の着地", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.parse(createdAt) + fiveMinutes);
 
-    const response = await get(
-      "/auth/after-signup",
-      envWith(() => sessionOk({ createdAt })),
-    );
+    const response = await get("/auth/after-signup", signedIn({ createdAt }));
 
     expect(response.headers.get("Location")).toBe(
       `${AUTH_URL}/auth/error?reason=signup_already_completed`,
@@ -2037,16 +2017,13 @@ describe("/auth の着地", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.parse(createdAt) + fiveMinutes - 1);
 
-    const response = await get(
-      "/auth/after-signup",
-      envWith(() => sessionOk({ createdAt })),
-    );
+    const response = await get("/auth/after-signup", signedIn({ createdAt }));
 
     expect(response.headers.get("Location")).toBe(`${ORIGIN}/dashboard`);
   });
 
   it("/auth/account は taimei-auth の /account へ", async () => {
-    const response = await get("/auth/account", envWith(sessionOk));
+    const response = await get("/auth/account", signedIn());
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe(`${AUTH_URL}/account`);
@@ -2055,11 +2032,7 @@ describe("/auth の着地", () => {
 
 describe("GET /auth/account/members", () => {
   it("taimei-auth のメンバー画面へ、戻り先を /dashboard にして移す", async () => {
-    const response = await get(
-      "/auth/account/members",
-      envWith(sessionError),
-      {},
-    );
+    const response = await get("/auth/account/members", signedOut(), {});
 
     const location = locationOf(response);
     expect(response.status).toBe(302);

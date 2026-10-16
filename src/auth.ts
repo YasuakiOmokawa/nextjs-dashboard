@@ -1,4 +1,7 @@
-import { createConnectTransport } from "@connectrpc/connect-web";
+import {
+  type ConnectTransportOptions,
+  createConnectTransport,
+} from "@connectrpc/connect-web";
 import {
   buildAuthLoginUrl,
   createAuthClient,
@@ -6,13 +9,11 @@ import {
   createServiceKeyInterceptor,
   extractSessionTokenFromCookieHeader,
   type ListMembersResult,
-  Result,
   type SessionData,
   type VerifyResult,
 } from "@taimei-code/auth-client";
 import { CompanyId } from "@/db/ids";
 import type { CheckMemberships } from "@/src/lib/purge-departed";
-import { reportError } from "@/src/lib/report-error";
 import { CompanyMembers } from "@/src/services/company-members-service";
 import type { CompanyTeamList } from "@/src/services/company-team-list";
 import type { RequestSession } from "@/src/services/request-session";
@@ -27,32 +28,34 @@ export type AuthEnv = {
 const AUTH_RPC_TIMEOUT_MS = 10_000;
 const SERVICE_BINDING_UNUSED_ORIGIN = "https://taimei-auth";
 
-const authClientOf = (env: AuthEnv) => {
-  // 手元と e2e の taimei-auth は Bun のサーバーで、Service Binding が届かない
+export const authTransportOptionsOf = (env: AuthEnv) => {
   const sendToTaimeiAuth: typeof fetch = env.AUTH_SERVICE_URL
     ? (input, init) => fetch(input, init)
     : (input, init) => env.AUTH.fetch(input, init);
-  return createAuthClient({
-    transport: createConnectTransport({
-      baseUrl: `${env.AUTH_SERVICE_URL ?? SERVICE_BINDING_UNUSED_ORIGIN}/rpc`,
-      // connect-web は redirect: "error" を付けるが、workerd の fetch は follow と manual しか受けない
-      fetch: (input, init) =>
-        sendToTaimeiAuth(input, { ...init, redirect: "manual" }),
-      defaultTimeoutMs: AUTH_RPC_TIMEOUT_MS,
-      interceptors: env.AUTH_SERVICE_KEY
-        ? [createServiceKeyInterceptor(env.AUTH_SERVICE_KEY)]
-        : [],
-    }),
-  });
+  return {
+    baseUrl: `${env.AUTH_SERVICE_URL ?? SERVICE_BINDING_UNUSED_ORIGIN}/rpc`,
+    fetch: (input, init) =>
+      sendToTaimeiAuth(input, { ...init, redirect: "manual" }),
+    defaultTimeoutMs: AUTH_RPC_TIMEOUT_MS,
+    interceptors: env.AUTH_SERVICE_KEY
+      ? [createServiceKeyInterceptor(env.AUTH_SERVICE_KEY)]
+      : [],
+  } satisfies ConnectTransportOptions;
 };
+
+const authClientOf = (env: AuthEnv) =>
+  createAuthClient({
+    transport: createConnectTransport(authTransportOptionsOf(env)),
+  });
 
 export const checkMembershipsOf = (env: AuthEnv): CheckMemberships => {
   const { companyService } = authClientOf(env);
   return (request) => companyService.checkMemberships(request);
 };
 
-// ponytail: 引数を見ずに最初の結果を返す。SDK が引数を取る関数を cache で包む版に上がったら引数で引く
-const once = <Args extends readonly unknown[], R>(fn: (...args: Args) => R) => {
+export const once = <Args extends readonly unknown[], R>(
+  fn: (...args: Args) => R,
+) => {
   let called: { readonly value: R } | undefined;
   return (...args: Args) => {
     called ??= { value: fn(...args) };
@@ -60,23 +63,21 @@ const once = <Args extends readonly unknown[], R>(fn: (...args: Args) => R) => {
   };
 };
 
-export const authGuardOf = (env: AuthEnv, cookieHeader: string | undefined) => {
-  const guard = createAuthGuard({
+export type AuthGuard = Pick<
+  ReturnType<typeof createAuthGuard>,
+  "getSession" | "listMembers"
+>;
+
+export const authGuardOf = (
+  env: AuthEnv,
+  cookieHeader: string | undefined,
+): AuthGuard =>
+  createAuthGuard({
     client: authClientOf(env),
     getSessionToken: async () =>
       extractSessionTokenFromCookieHeader(cookieHeader ?? ""),
     cache: once,
   });
-  return {
-    verifySession: async (): Promise<VerifyResult> => {
-      const result = await guard.getSession();
-      if (!result.ok && result.reason === Result.UNSPECIFIED)
-        reportError(new Error("taimei-auth で session を確かめられなかった"));
-      return result;
-    },
-    listMembers: guard.listMembers,
-  };
-};
 
 export const requestSessionOf = (
   { companyId, user, role }: SessionData,

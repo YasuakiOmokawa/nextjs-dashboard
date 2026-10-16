@@ -1,3 +1,4 @@
+import { Result as AuthResult } from "@taimei-code/auth-client";
 import { Result } from "effect";
 import { HttpApi } from "effect/http-api";
 import { type Context, Hono } from "hono";
@@ -18,12 +19,13 @@ import {
 import { type SessionCheck, spaApiResponder } from "@/src/spa-http-api";
 import {
   type AuthEnv,
+  type AuthGuard,
   accountLocation,
   afterSignInLocation,
   afterSignUpLocation,
-  authGuardOf,
   inviteMembersLocation,
   loginLocation,
+  once,
   requestSessionOf,
   sameOriginCallbackPath,
 } from "./auth";
@@ -44,20 +46,27 @@ export const companyTeamListOf = (env: Env, companyId: CompanyId) =>
     env.CF_VERSION_METADATA.id,
   );
 
-const authGuardOfRequest = (c: Context<AppEnv>) =>
-  authGuardOf(c.env, c.req.header("Cookie"));
+type AuthGuardOf = (env: Env, cookieHeader: string | undefined) => AuthGuard;
 
-// 事業所の無い人も undefined (401) にする。taimei-auth のログインの入口が事業所の登録へ送る
-const verifiedSessionOf = async (c: Context<AppEnv>) => {
-  const guard = authGuardOfRequest(c);
-  const verified = await guard.verifySession();
+const reportingUncheckableSession = (guard: AuthGuard): AuthGuard => ({
+  ...guard,
+  getSession: once(async () => {
+    const result = await guard.getSession();
+    if (!result.ok && result.reason === AuthResult.UNSPECIFIED)
+      reportError(new Error("taimei-auth で session を確かめられなかった"));
+    return result;
+  }),
+});
+
+const verifiedSessionOf = async (env: Env, guard: AuthGuard) => {
+  const verified = await guard.getSession();
   const session = verified.ok
     ? requestSessionOf(verified.data, guard.listMembers, (companyId) =>
-        companyTeamListOf(c.env, companyId),
+        companyTeamListOf(env, companyId),
       )
     : undefined;
   if (!session) return undefined;
-  const mark = `${session.companyId} ${session.userId} ${c.env.CF_VERSION_METADATA.id}`;
+  const mark = `${session.companyId} ${session.userId} ${env.CF_VERSION_METADATA.id}`;
   return { session, mark };
 };
 
@@ -81,60 +90,65 @@ const callbackPathValidator = validator("query", (query, c) => ({
   ),
 }));
 
-export const app = new Hono<AppEnv>()
-  .onError((error, c) => {
-    if (error instanceof HTTPException) return error.getResponse();
-    reportError(error);
-    return c.text("Internal Server Error", 500);
-  })
-  .use(csrf())
-  .get("/auth", callbackPathValidator, (c) =>
-    c.redirect(
-      loginLocation(
-        c.env.AUTH_URL,
-        originOf(c.req.url),
-        c.req.valid("query").callbackPath,
-      ),
-    ),
-  )
-  .get("/auth/after-signin", callbackPathValidator, async (c) =>
-    c.redirect(
-      afterSignInLocation(
-        await authGuardOfRequest(c).verifySession(),
-        c.env.AUTH_URL,
-        originOf(c.req.url),
-        c.req.valid("query").callbackPath,
-      ),
-    ),
-  )
-  .get("/auth/after-signup", async (c) =>
-    c.redirect(
-      afterSignUpLocation(
-        await authGuardOfRequest(c).verifySession(),
-        c.env.AUTH_URL,
-        originOf(c.req.url),
-        Date.now(),
-      ),
-    ),
-  )
-  .get("/auth/account", (c) => c.redirect(accountLocation(c.env.AUTH_URL)))
-  .get("/auth/account/members", (c) =>
-    c.redirect(inviteMembersLocation(c.env.AUTH_URL, originOf(c.req.url))),
-  );
-
 const respondSpaApi = spaApiResponder();
 
-HttpApi.reflect(SpaApi, {
-  onGroup: () => {},
-  onEndpoint: ({ endpoint }) => {
-    app.on(endpoint.method, endpoint.path, async (c) => {
-      const verified = await verifiedSessionOf(c);
-      const response = await respondSpaApi(
-        c.req.raw,
-        sessionCheckOf(c, verified),
-      );
-      if (verified) response.headers.set(SESSION_HEADER, verified.mark);
-      return response;
-    });
-  },
-});
+export const createApp = (authGuardOf: AuthGuardOf) => {
+  const guardOfRequest = (c: Context<AppEnv>) =>
+    reportingUncheckableSession(authGuardOf(c.env, c.req.header("Cookie")));
+  const app = new Hono<AppEnv>()
+    .onError((error, c) => {
+      if (error instanceof HTTPException) return error.getResponse();
+      reportError(error);
+      return c.text("Internal Server Error", 500);
+    })
+    .use(csrf())
+    .get("/auth", callbackPathValidator, (c) =>
+      c.redirect(
+        loginLocation(
+          c.env.AUTH_URL,
+          originOf(c.req.url),
+          c.req.valid("query").callbackPath,
+        ),
+      ),
+    )
+    .get("/auth/after-signin", callbackPathValidator, async (c) =>
+      c.redirect(
+        afterSignInLocation(
+          await guardOfRequest(c).getSession(),
+          c.env.AUTH_URL,
+          originOf(c.req.url),
+          c.req.valid("query").callbackPath,
+        ),
+      ),
+    )
+    .get("/auth/after-signup", async (c) =>
+      c.redirect(
+        afterSignUpLocation(
+          await guardOfRequest(c).getSession(),
+          c.env.AUTH_URL,
+          originOf(c.req.url),
+          Date.now(),
+        ),
+      ),
+    )
+    .get("/auth/account", (c) => c.redirect(accountLocation(c.env.AUTH_URL)))
+    .get("/auth/account/members", (c) =>
+      c.redirect(inviteMembersLocation(c.env.AUTH_URL, originOf(c.req.url))),
+    );
+
+  HttpApi.reflect(SpaApi, {
+    onGroup: () => {},
+    onEndpoint: ({ endpoint }) => {
+      app.on(endpoint.method, endpoint.path, async (c) => {
+        const verified = await verifiedSessionOf(c.env, guardOfRequest(c));
+        const response = await respondSpaApi(
+          c.req.raw,
+          sessionCheckOf(c, verified),
+        );
+        if (verified) response.headers.set(SESSION_HEADER, verified.mark);
+        return response;
+      });
+    },
+  });
+  return app;
+};
