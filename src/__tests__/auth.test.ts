@@ -9,6 +9,7 @@ import {
   authTransportOptionsOf,
   once,
 } from "../auth";
+import { TAIMEI_AUTH_RPC_PATH } from "../taimei-auth-contract";
 
 vi.mock("@taimei-code/auth-client", async (importOriginal) => {
   const sdk = await importOriginal<typeof import("@taimei-code/auth-client")>();
@@ -38,17 +39,17 @@ afterEach(() => {
 });
 
 describe("authTransportOptionsOf", () => {
-  it("AUTH_SERVICE_URL が無ければ、送り先は Service Binding が URL を使わない origin の /rpc", () => {
+  it("AUTH_SERVICE_URL が無ければ、送り先は Service Binding が URL を使わない origin の taimei-auth の RPC の path", () => {
     expect(authTransportOptionsOf(bindingEnv().env).baseUrl).toBe(
-      "https://taimei-auth/rpc",
+      `https://taimei-auth${TAIMEI_AUTH_RPC_PATH}`,
     );
   });
 
-  it("AUTH_SERVICE_URL があれば、送り先はその URL の /rpc", () => {
+  it("AUTH_SERVICE_URL があれば、送り先はその URL の taimei-auth の RPC の path", () => {
     const { env } = bindingEnv({ AUTH_SERVICE_URL: "http://auth.local:3100" });
 
     expect(authTransportOptionsOf(env).baseUrl).toBe(
-      "http://auth.local:3100/rpc",
+      `http://auth.local:3100${TAIMEI_AUTH_RPC_PATH}`,
     );
   });
 

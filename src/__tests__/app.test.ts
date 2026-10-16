@@ -39,6 +39,13 @@ import {
   OperationFailure,
   SpaApi,
 } from "@/src/spa-contract";
+import {
+  buildAccountUrl,
+  buildAuthErrorUrl,
+  buildCompanySignupUrl,
+  buildInviteMembersUrl,
+  MAGIC_LINK_LIFETIME_MS,
+} from "@/src/taimei-auth-contract";
 import { createApp, type Env } from "../app";
 import type { AuthGuard } from "../auth";
 
@@ -182,9 +189,6 @@ const failureBodyOf = async (response: Response) => {
 
 const expectedFailureBody = (tag: string) =>
   tag === DECODE_FAILURE ? undefined : expect.objectContaining({ _tag: tag });
-
-const locationOf = (response: Response) =>
-  new URL(response.headers.get("Location") ?? "");
 
 let consoleError: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
@@ -1877,9 +1881,7 @@ describe("/auth の着地", () => {
       signedIn(),
     );
 
-    expect(locationOf(response).searchParams.get("redirect_url")).toBe(
-      `${ORIGIN}/auth/after-signin?callbackUrl=%2Fdashboard%2Fteams`,
-    );
+    expect(response.headers.get("Location")).toBe(login("/dashboard/teams"));
   });
 
   it.each(["https://evil.example/x", "//evil.example/x"])(
@@ -1933,7 +1935,7 @@ describe("/auth の着地", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe(
-      `${AUTH_URL}/auth/error?reason=signin_failed`,
+      buildAuthErrorUrl(AUTH_URL, "signin_failed"),
     );
   });
 
@@ -1943,14 +1945,13 @@ describe("/auth の着地", () => {
       signedIn({ companyId: undefined }),
     );
 
-    const location = locationOf(response);
     expect(response.status).toBe(302);
-    expect(location.origin + location.pathname).toBe(
-      `${AUTH_URL}/auth/signup/company`,
-    );
-    expect(location.searchParams.get("service_name")).toBe("taimei");
-    expect(location.searchParams.get("redirect_url")).toBe(
-      `${ORIGIN}/dashboard/teams`,
+    expect(response.headers.get("Location")).toBe(
+      buildCompanySignupUrl({
+        authBaseUrl: AUTH_URL,
+        service: "taimei",
+        returnTo: `${ORIGIN}/dashboard/teams`,
+      }),
     );
   });
 
@@ -1984,7 +1985,7 @@ describe("/auth の着地", () => {
     const response = await get("/auth/after-signup", signedOut());
 
     expect(response.headers.get("Location")).toBe(
-      `${AUTH_URL}/auth/error?reason=signin_failed`,
+      buildAuthErrorUrl(AUTH_URL, "signin_failed"),
     );
   });
 
@@ -1995,27 +1996,26 @@ describe("/auth の着地", () => {
     );
 
     expect(response.headers.get("Location")).toBe(
-      `${AUTH_URL}/auth/error?reason=signin_failed`,
+      buildAuthErrorUrl(AUTH_URL, "signin_failed"),
     );
   });
 
   const createdAt = "2026-10-10T00:00:00.000Z";
-  const fiveMinutes = 5 * 60 * 1000;
 
-  it("ちょうど 5 分前に作られた user の after-signup は signup_already_completed", async () => {
+  it("Magic Link の有効期限ちょうど前に作られた user の after-signup は signup_already_completed", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(Date.parse(createdAt) + fiveMinutes);
+    vi.setSystemTime(Date.parse(createdAt) + MAGIC_LINK_LIFETIME_MS);
 
     const response = await get("/auth/after-signup", signedIn({ createdAt }));
 
     expect(response.headers.get("Location")).toBe(
-      `${AUTH_URL}/auth/error?reason=signup_already_completed`,
+      buildAuthErrorUrl(AUTH_URL, "signup_already_completed"),
     );
   });
 
-  it("5 分前より 1 ms 新しい user の after-signup は /dashboard へ", async () => {
+  it("Magic Link の有効期限より 1 ms 新しい user の after-signup は /dashboard へ", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(Date.parse(createdAt) + fiveMinutes - 1);
+    vi.setSystemTime(Date.parse(createdAt) + MAGIC_LINK_LIFETIME_MS - 1);
 
     const response = await get("/auth/after-signup", signedIn({ createdAt }));
 
@@ -2026,22 +2026,21 @@ describe("/auth の着地", () => {
     const response = await get("/auth/account", signedIn());
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe(`${AUTH_URL}/account`);
+    expect(response.headers.get("Location")).toBe(buildAccountUrl(AUTH_URL));
   });
 });
 
 describe("GET /auth/account/members", () => {
-  it("taimei-auth のメンバー画面へ、戻り先を /dashboard にして移す", async () => {
+  it("taimei-auth のメンバー画面へ、戻り先を /dashboard の絶対 URL にして移す (招待を受けると現在の事業所が招待先になり、/dashboard がその事業所の画面になる)", async () => {
     const response = await get("/auth/account/members", signedOut(), {});
 
-    const location = locationOf(response);
     expect(response.status).toBe(302);
-    expect(location.origin + location.pathname).toBe(
-      `${AUTH_URL}/account/members`,
-    );
-    expect(location.searchParams.get("service_name")).toBe("taimei");
-    expect(location.searchParams.get("redirect_url")).toBe(
-      `${ORIGIN}/dashboard`,
+    expect(response.headers.get("Location")).toBe(
+      buildInviteMembersUrl({
+        authBaseUrl: AUTH_URL,
+        service: "taimei",
+        returnTo: `${ORIGIN}/dashboard`,
+      }),
     );
   });
 });
