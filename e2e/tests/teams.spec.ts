@@ -16,15 +16,13 @@ import {
 } from "../db/app-client";
 import { authDb } from "../db/auth-client";
 import { user } from "../db/auth-schema";
+import { uniqueCompanyId } from "./utils/company-id";
 import {
   AUTH_BASE_URL,
   createTestUser,
   provisionCompanyForUser,
   signInWithMagicLink,
 } from "./utils/signIn";
-
-const uniqueCompanyId = (prefix: string) =>
-  `cmp_${prefix}${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
 
 const userIdOf = async (email: string) => {
   const [row] = await authDb

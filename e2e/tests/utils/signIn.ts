@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm";
 
 import { authDb } from "../../db/auth-client";
 import { company, membership, user, verification } from "../../db/auth-schema";
+import { uniqueCompanyId } from "./company-id";
 
 export const APP_BASE_URL =
   process.env.APP_BASE_URL ?? "http://app.taimei-code.local:3001";
@@ -31,11 +32,10 @@ export async function createTestUser(
   return email;
 }
 
-// session の companyId source は user.last_used_company_id (ADR-009)。
 export async function provisionCompanyForUser(
   userId: string,
   {
-    companyId = `cmp_e2e${userId.replace(/-/g, "").slice(0, 22)}`,
+    companyId = uniqueCompanyId("e2e"),
     role = "OWNER",
   }: MembershipOptions = {},
 ): Promise<string> {

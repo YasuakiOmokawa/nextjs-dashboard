@@ -48,7 +48,7 @@ serve() {
   local id email company
   id=$(uuidgen | tr '[:upper:]' '[:lower:]')
   email="qa-${id:0:8}@example.com"
-  company="cmp_qa${id:0:8}"
+  company=$(cd "$ROOT" && bun -e 'import { uniqueCompanyId } from "./e2e/tests/utils/company-id"; console.log(uniqueCompanyId("qa"))')
   docker exec "$PG" psql -qU postgres -d auth \
     -c "INSERT INTO \"user\" (id, name, email, email_verified) VALUES ('$id', 'QA 管理者', '$email', false)" \
     -c "INSERT INTO company (id, name, org_code) VALUES ('$company', 'QA 事業所', 'CORPORATE')" \
