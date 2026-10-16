@@ -2,7 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import { Effect, Exit, Result } from "effect";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { teams } from "@/db/drizzle/schema";
-import { CompanyId, TeamId } from "@/db/ids";
+import { TeamId } from "@/db/ids";
 import { sendErrorReportsTo } from "@/src/lib/report-error";
 import {
   CompanyTeamList,
@@ -17,6 +17,7 @@ import {
   type TeamListSnapshot,
   TeamListStore,
 } from "../team-list-store";
+import { fixtureCompanyId } from "./db/seed";
 import {
   functionValue,
   type TestDb,
@@ -297,7 +298,7 @@ describe("decodeTeamListSnapshot", () => {
 });
 
 describe("writeTeamList", () => {
-  const companyId = CompanyId.make("cmp_write");
+  const companyId = fixtureCompanyId("write");
   const stubbedTeamList = () => {
     const stub = teamListStubOf();
     return { stub, teamListOf: companyTeamListBackedBy(stub) };

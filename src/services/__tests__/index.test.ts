@@ -1,8 +1,8 @@
 import { eq, sql } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CompanyId } from "@/db/company-id";
 import { teamAssignments, teams } from "@/db/drizzle/schema";
-import { CompanyId } from "@/db/ids";
 import { NotManager, TeamNotFound } from "@/src/spa-contract";
 import {
   runServiceWithoutDb,
@@ -20,7 +20,12 @@ import type { RequestSession } from "../request-session";
 import { TeamManagement } from "../team-management";
 import { TeamReads } from "../team-reads";
 import { TeamService } from "../team-service";
-import { seedAssignment, seedSkill, seedTeam } from "./db/seed";
+import {
+  fixtureCompanyId,
+  seedAssignment,
+  seedSkill,
+  seedTeam,
+} from "./db/seed";
 import {
   currentCompanySetting,
   dbInRollback,
@@ -38,6 +43,8 @@ import {
   teamListStubOf,
 } from "./request";
 
+const COMPANY_OTHER = fixtureCompanyId("other");
+
 vi.mock("@/db/drizzle/client", async () => ({
   db: (await import("./db/test-db")).dbInRollback,
 }));
@@ -48,7 +55,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-const companyId = CompanyId.make("cmp_from_session");
+const companyId = fixtureCompanyId("from_session");
 const sessionMembers = [
   { userId: "u_1", name: "山田 花子", email: "hanako@example.com" },
 ];
@@ -77,7 +84,7 @@ describe("runServiceWithoutDb", () => {
       CompanyContext.use(({ companyId }) => Effect.succeed(companyId)),
     );
 
-    expect(Result.getOrThrow(result)).toBe("cmp_from_session");
+    expect(Result.getOrThrow(result)).toBe(companyId);
   });
 
   it("session の user id と role を AuthorizationContext として本体に渡す", async () => {
@@ -144,7 +151,7 @@ describe("runTeamReads", () => {
     withRollbackDb(async (tx) => {
       await tx.insert(teams).values([
         { companyId, name: "自社のチーム" },
-        { companyId: CompanyId.make("cmp_other"), name: "他社のチーム" },
+        { companyId: COMPANY_OTHER, name: "他社のチーム" },
       ]);
       const transaction = vi.spyOn(dbInRollback, "transaction");
       const execute = vi.spyOn(dbInRollback, "execute");
@@ -204,7 +211,7 @@ describe("runTeamService", () => {
         CompanyContext.use(({ companyId }) => Effect.succeed(companyId)),
       );
 
-      expect(Result.getOrThrow(result)).toBe("cmp_from_session");
+      expect(Result.getOrThrow(result)).toBe(companyId);
     }));
 
   it("session の user id と role を AuthorizationContext として本体に渡す", () =>
@@ -225,7 +232,7 @@ describe("runTeamService", () => {
         Db.use((scoped) => Effect.promise(() => currentCompanySetting(scoped))),
       );
 
-      expect(Result.getOrThrow(result)).toBe("cmp_from_session");
+      expect(Result.getOrThrow(result)).toBe(companyId);
     }));
 
   it("本体の TeamService は、本体の Db と同じ transaction で読む", () =>

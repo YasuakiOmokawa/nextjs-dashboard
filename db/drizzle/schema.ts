@@ -17,9 +17,9 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { LEVELS, NAME_MAX_LENGTH } from "../column-values";
-import type { CompanyId, SkillId, TeamId } from "../ids";
+import type { CompanyId } from "../company-id";
+import type { SkillId, TeamId } from "../ids";
 
-// taimei-auth の company.id (cmp_<nanoid24>) への論理参照。cross-DB のため FK は張らない (docs/adr/0002-company-data-scoping.md)。
 const companyId = () =>
   varchar("company_id", { length: 32 }).notNull().$type<CompanyId>();
 export const COMPANY_ID_SETTING = "app.company_id";

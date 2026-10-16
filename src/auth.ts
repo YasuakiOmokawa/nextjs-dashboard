@@ -3,28 +3,26 @@ import {
   createConnectTransport,
 } from "@connectrpc/connect-web";
 import {
+  AUTH_RPC_PATH,
+  buildAccountUrl,
+  buildAuthErrorUrl,
   buildAuthLoginUrl,
+  buildCompanySignupUrl,
+  buildMembersUrl,
   createAuthClient,
   createAuthGuard,
   createServiceKeyInterceptor,
   extractSessionTokenFromCookieHeader,
   type ListMembersResult,
+  MAGIC_LINK_EXPIRES_IN_SECONDS,
   type SessionData,
   type VerifyResult,
 } from "@taimei-code/auth-client";
-import { CompanyId } from "@/db/ids";
+import { CompanyId } from "@/db/company-id";
 import type { CheckMemberships } from "@/src/lib/purge-departed";
 import { CompanyMembers } from "@/src/services/company-members-service";
 import type { CompanyTeamList } from "@/src/services/company-team-list";
 import type { RequestSession } from "@/src/services/request-session";
-import {
-  buildAccountUrl,
-  buildAuthErrorUrl,
-  buildCompanySignupUrl,
-  buildInviteMembersUrl,
-  MAGIC_LINK_LIFETIME_MS,
-  TAIMEI_AUTH_RPC_PATH,
-} from "@/src/taimei-auth-contract";
 
 export type AuthEnv = {
   readonly AUTH: { fetch: typeof fetch };
@@ -41,7 +39,7 @@ export const authTransportOptionsOf = (env: AuthEnv) => {
     ? (input, init) => fetch(input, init)
     : (input, init) => env.AUTH.fetch(input, init);
   return {
-    baseUrl: `${env.AUTH_SERVICE_URL ?? SERVICE_BINDING_UNUSED_ORIGIN}${TAIMEI_AUTH_RPC_PATH}`,
+    baseUrl: `${env.AUTH_SERVICE_URL ?? SERVICE_BINDING_UNUSED_ORIGIN}${AUTH_RPC_PATH}`,
     fetch: (input, init) =>
       sendToTaimeiAuth(input, { ...init, redirect: "manual" }),
     defaultTimeoutMs: AUTH_RPC_TIMEOUT_MS,
@@ -108,13 +106,15 @@ const DEFAULT_LANDING_PATH = "/dashboard";
 
 const SERVICE_NAME = "taimei";
 
+const signInFailedLocation = (authUrl: string) =>
+  buildAuthErrorUrl({ authBaseUrl: authUrl, reason: "signin_failed" });
+
 export const sameOriginCallbackPath = (
   callbackUrl: string | undefined,
   origin: string,
 ) => {
   if (!callbackUrl || !URL.canParse(callbackUrl, origin)) return undefined;
   const url = new URL(callbackUrl, origin);
-  // `/.//evil.example` は正規化で `//evil.example` になり、返した path を URL として読み直すと別の origin を指す
   const isProtocolRelative = url.pathname.startsWith("//");
   return url.origin === origin && !isProtocolRelative
     ? url.pathname + url.search
@@ -137,7 +137,7 @@ export const loginLocation = (
 };
 
 export const inviteMembersLocation = (authUrl: string, origin: string) =>
-  buildInviteMembersUrl({
+  buildMembersUrl({
     authBaseUrl: authUrl,
     service: SERVICE_NAME,
     returnTo: new URL(DEFAULT_LANDING_PATH, origin).toString(),
@@ -149,7 +149,7 @@ export const afterSignInLocation = (
   origin: string,
   callbackPath = DEFAULT_LANDING_PATH,
 ) => {
-  if (!result.ok) return buildAuthErrorUrl(authUrl, "signin_failed");
+  if (!result.ok) return signInFailedLocation(authUrl);
   const landing = new URL(callbackPath, origin).toString();
   if (!result.data.companyId)
     return buildCompanySignupUrl({
@@ -160,7 +160,7 @@ export const afterSignInLocation = (
   return landing;
 };
 
-const NEW_USER_WINDOW_MS = MAGIC_LINK_LIFETIME_MS;
+const NEW_USER_WINDOW_MS = MAGIC_LINK_EXPIRES_IN_SECONDS * 1000;
 
 export const afterSignUpLocation = (
   result: VerifyResult,
@@ -168,13 +168,16 @@ export const afterSignUpLocation = (
   origin: string,
   now: number,
 ) => {
-  if (!result.ok) return buildAuthErrorUrl(authUrl, "signin_failed");
+  if (!result.ok) return signInFailedLocation(authUrl);
   const createdAt = Date.parse(result.data.user.createdAt);
-  if (Number.isNaN(createdAt))
-    return buildAuthErrorUrl(authUrl, "signin_failed");
+  if (Number.isNaN(createdAt)) return signInFailedLocation(authUrl);
   if (now - createdAt >= NEW_USER_WINDOW_MS)
-    return buildAuthErrorUrl(authUrl, "signup_already_completed");
+    return buildAuthErrorUrl({
+      authBaseUrl: authUrl,
+      reason: "signup_already_completed",
+    });
   return new URL(DEFAULT_LANDING_PATH, origin).toString();
 };
 
-export const accountLocation = buildAccountUrl;
+export const accountLocation = (authUrl: string) =>
+  buildAccountUrl({ authBaseUrl: authUrl });

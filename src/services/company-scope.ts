@@ -1,5 +1,5 @@
 import { Result } from "effect";
-import type { CompanyId } from "@/db/ids";
+import type { CompanyId } from "@/db/company-id";
 import { withCompanyScope } from "@/db/scoped";
 import type { Db } from "./db-service";
 import { type DbFailure, failureOfDbError } from "./failures";

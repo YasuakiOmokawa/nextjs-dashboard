@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { expect, it } from "vitest";
 import { Unauthenticated } from "@/src/spa-contract";
 import { CompanyMembers } from "../company-members-service";
+import { COMPANY_A } from "./db/seed";
 
 const members = [
   { userId: "u_1", name: "A", email: "a@example.com", role: "OWNER" as const },
@@ -11,7 +12,7 @@ const members = [
 it("SDK の一覧が取れればメンバーを返す", async () => {
   const { list } = CompanyMembers.fromListMembers(async () => ({
     ok: true,
-    data: { companyId: "cmp_a", members },
+    data: { companyId: COMPANY_A, members },
   }));
 
   expect(await Effect.runPromise(list)).toEqual(members);

@@ -9,6 +9,8 @@ import { CompanyTeamList } from "../company-team-list";
 import { ReadDb } from "../db-service";
 import { TeamReads } from "../team-reads";
 import {
+  COMPANY_A,
+  COMPANY_B,
   createdAtMinute,
   seedAssignment,
   seedLevel,
@@ -69,25 +71,25 @@ afterEach(() => {
 describe("getTeam", () => {
   it("管理者には名前・作成の古い順のスキル・割り当てた user id・そのチームの記録を返す", () =>
     withRollback(async (tx) => {
-      const id = await seedTeam(tx, "cmp_a", "開発");
+      const id = await seedTeam(tx, COMPANY_A, "開発");
       const second = await seedSkill(
         tx,
-        "cmp_a",
+        COMPANY_A,
         id,
         "テスト",
         createdAtMinute(2),
       );
       const first = await seedSkill(
         tx,
-        "cmp_a",
+        COMPANY_A,
         id,
         "設計",
         createdAtMinute(1),
       );
-      await seedAssignment(tx, "cmp_a", id, "u_2");
-      await seedAssignment(tx, "cmp_a", id, "u_1");
+      await seedAssignment(tx, COMPANY_A, id, "u_2");
+      await seedAssignment(tx, COMPANY_A, id, "u_1");
       await seedLevel(tx, {
-        companyId: "cmp_a",
+        companyId: COMPANY_A,
         teamId: id,
         skillId: first,
         userId: "u_1",
@@ -116,9 +118,9 @@ describe("getTeam", () => {
     ["role の無い人", NO_ROLE],
   ])("%s には割り当てられたチームだけが見つかる", (_, actor) =>
     withRollback(async (tx) => {
-      const assigned = await seedTeam(tx, "cmp_a", "X");
-      const unassigned = await seedTeam(tx, "cmp_a", "Y");
-      await seedAssignment(tx, "cmp_a", assigned, "u_m");
+      const assigned = await seedTeam(tx, COMPANY_A, "X");
+      const unassigned = await seedTeam(tx, COMPANY_A, "Y");
+      await seedAssignment(tx, COMPANY_A, assigned, "u_m");
       const read = readAs(tx, actor);
 
       expect(Result.getOrThrow(await read((r) => r.getTeam(assigned))).id).toBe(
@@ -132,7 +134,7 @@ describe("getTeam", () => {
 
   it("大文字で書いた UUID でも、DB の関数と同じくそのチームが見つかる", () =>
     withRollback(async (tx) => {
-      const id = await seedTeam(tx, "cmp_a", "開発");
+      const id = await seedTeam(tx, COMPANY_A, "開発");
 
       const result = await readAs(
         tx,
@@ -144,7 +146,7 @@ describe("getTeam", () => {
 
   it("他社のチームは見つからない", () =>
     withRollback(async (tx) => {
-      const id = await seedTeam(tx, "cmp_b", "他社");
+      const id = await seedTeam(tx, COMPANY_B, "他社");
 
       const result = await readAs(tx, ADMIN)((r) => r.getTeam(id));
 
@@ -153,8 +155,8 @@ describe("getTeam", () => {
 
   it("他社のチームへの割り当ては、自社の事業所で開いても見えない", () =>
     withRollback(async (tx) => {
-      const other = await seedTeam(tx, "cmp_b", "他社");
-      await seedAssignment(tx, "cmp_b", other, "u_m");
+      const other = await seedTeam(tx, COMPANY_B, "他社");
+      await seedAssignment(tx, COMPANY_B, other, "u_m");
 
       const result = await readAs(tx, MEMBER)((r) => r.getTeam(other));
 
@@ -163,7 +165,7 @@ describe("getTeam", () => {
 
   it("UUID でない id は文を流さずに見つからない", () =>
     withRollback(async (tx) => {
-      const id = await seedTeam(tx, "cmp_a", "開発");
+      const id = await seedTeam(tx, COMPANY_A, "開発");
       const execute = vi.spyOn(tx, "execute");
 
       const invalid = await readAs(tx, ADMIN)((r) => r.getTeam("not-a-uuid"));
@@ -177,30 +179,30 @@ describe("getTeam", () => {
 
   it("記録はそのチームの行だけで、同じ事業所のほかのチームと他社の行を含まない", () =>
     withRollback(async (tx) => {
-      const x = await seedTeam(tx, "cmp_a", "X");
-      const y = await seedTeam(tx, "cmp_a", "Y");
-      const other = await seedTeam(tx, "cmp_b", "X");
-      const xSkill = await seedSkill(tx, "cmp_a", x, "設計");
-      const ySkill = await seedSkill(tx, "cmp_a", y, "設計");
-      const otherSkill = await seedSkill(tx, "cmp_b", other, "設計");
-      await seedAssignment(tx, "cmp_a", x, "u_1");
-      await seedAssignment(tx, "cmp_a", y, "u_1");
-      await seedAssignment(tx, "cmp_b", other, "u_1");
+      const x = await seedTeam(tx, COMPANY_A, "X");
+      const y = await seedTeam(tx, COMPANY_A, "Y");
+      const other = await seedTeam(tx, COMPANY_B, "X");
+      const xSkill = await seedSkill(tx, COMPANY_A, x, "設計");
+      const ySkill = await seedSkill(tx, COMPANY_A, y, "設計");
+      const otherSkill = await seedSkill(tx, COMPANY_B, other, "設計");
+      await seedAssignment(tx, COMPANY_A, x, "u_1");
+      await seedAssignment(tx, COMPANY_A, y, "u_1");
+      await seedAssignment(tx, COMPANY_B, other, "u_1");
       await seedLevel(tx, {
-        companyId: "cmp_a",
+        companyId: COMPANY_A,
         teamId: x,
         skillId: xSkill,
         userId: "u_1",
         level: 2,
       });
       await seedLevel(tx, {
-        companyId: "cmp_a",
+        companyId: COMPANY_A,
         teamId: y,
         skillId: ySkill,
         userId: "u_1",
       });
       await seedLevel(tx, {
-        companyId: "cmp_b",
+        companyId: COMPANY_B,
         teamId: other,
         skillId: otherSkill,
         userId: "u_1",
@@ -217,9 +219,9 @@ describe("getTeam", () => {
 describe("listTeams", () => {
   it("管理者には自社の全チームを作成の古い順で返し、他社のチームを返さない", () =>
     withRollback(async (tx) => {
-      const later = await seedTeam(tx, "cmp_a", "後", createdAtMinute(2));
-      const earlier = await seedTeam(tx, "cmp_a", "先", createdAtMinute(1));
-      await seedTeam(tx, "cmp_b", "他社", createdAtMinute(0));
+      const later = await seedTeam(tx, COMPANY_A, "後", createdAtMinute(2));
+      const earlier = await seedTeam(tx, COMPANY_A, "先", createdAtMinute(1));
+      await seedTeam(tx, COMPANY_B, "他社", createdAtMinute(0));
 
       const result = await readAs(tx, ADMIN)((r) => r.listTeams);
 
@@ -234,11 +236,11 @@ describe("listTeams", () => {
     ["role の無い人", NO_ROLE],
   ])("%s には割り当てられたチームだけを返す", (_, actor) =>
     withRollback(async (tx) => {
-      const x = await seedTeam(tx, "cmp_a", "X", createdAtMinute(1));
-      const y = await seedTeam(tx, "cmp_a", "Y", createdAtMinute(2));
-      await seedTeam(tx, "cmp_a", "Z");
-      await seedAssignment(tx, "cmp_a", x, "u_m");
-      await seedAssignment(tx, "cmp_a", y, "u_m");
+      const x = await seedTeam(tx, COMPANY_A, "X", createdAtMinute(1));
+      const y = await seedTeam(tx, COMPANY_A, "Y", createdAtMinute(2));
+      await seedTeam(tx, COMPANY_A, "Z");
+      await seedAssignment(tx, COMPANY_A, x, "u_m");
+      await seedAssignment(tx, COMPANY_A, y, "u_m");
 
       const result = await readAs(tx, actor)((r) => r.listTeams);
 
@@ -248,9 +250,9 @@ describe("listTeams", () => {
 
   it("どのチームにも割り当てられていない MEMBER には何も返さない", () =>
     withRollback(async (tx) => {
-      await seedTeam(tx, "cmp_a", "X");
-      const other = await seedTeam(tx, "cmp_b", "他社");
-      await seedAssignment(tx, "cmp_b", other, "u_m");
+      await seedTeam(tx, COMPANY_A, "X");
+      const other = await seedTeam(tx, COMPANY_B, "他社");
+      await seedAssignment(tx, COMPANY_B, other, "u_m");
 
       const forMember = await readAs(tx, MEMBER)((r) => r.listTeams);
       const forAdmin = await readAs(tx, ADMIN)((r) => r.listTeams);
@@ -328,14 +330,14 @@ describe("DO の一覧を通した値と星取表は、見える範囲が関数�
     ["どのチームにも割り当てていないメンバー", UNASSIGNED],
   ])("%s", (_, actor) =>
     withRollback(async (tx) => {
-      const assigned = await seedTeam(tx, "cmp_a", "X", createdAtMinute(1));
-      const unassigned = await seedTeam(tx, "cmp_a", "Y", createdAtMinute(2));
-      const other = await seedTeam(tx, "cmp_b", "他社");
-      const skill = await seedSkill(tx, "cmp_a", assigned, "設計");
-      await seedAssignment(tx, "cmp_a", assigned, "u_m");
-      await seedAssignment(tx, "cmp_b", other, "u_m");
+      const assigned = await seedTeam(tx, COMPANY_A, "X", createdAtMinute(1));
+      const unassigned = await seedTeam(tx, COMPANY_A, "Y", createdAtMinute(2));
+      const other = await seedTeam(tx, COMPANY_B, "他社");
+      const skill = await seedSkill(tx, COMPANY_A, assigned, "設計");
+      await seedAssignment(tx, COMPANY_A, assigned, "u_m");
+      await seedAssignment(tx, COMPANY_B, other, "u_m");
       await seedLevel(tx, {
-        companyId: "cmp_a",
+        companyId: COMPANY_A,
         teamId: assigned,
         skillId: skill,
         userId: "u_m",
@@ -382,7 +384,7 @@ describe("事業所の DO の一覧", () => {
 
   it("getTeam は DO を読み書きせず、team_matrix を読む", () =>
     withRollback(async (tx) => {
-      const id = await seedTeam(tx, "cmp_a", "開発");
+      const id = await seedTeam(tx, COMPANY_A, "開発");
       const teamList = teamListStubOf();
 
       const result = await readAs(tx, ADMIN, teamList)((r) => r.getTeam(id));
@@ -397,7 +399,7 @@ describe("事業所の DO の一覧", () => {
 
   it("DO に一覧がある時の listTeams は DB を読まない", () =>
     withRollback(async (tx) => {
-      const id = await seedTeam(tx, "cmp_a", "開発");
+      const id = await seedTeam(tx, COMPANY_A, "開発");
       const read = readAs(tx, ADMIN, teamListStubOf());
       await read((r) => r.listTeams);
       const execute = vi.spyOn(tx, "execute");
@@ -410,7 +412,7 @@ describe("事業所の DO の一覧", () => {
 
   it("DO が空の時の listTeams は company_team_list の 1 文で読み、その値で DO に置く", () =>
     withRollback(async (tx) => {
-      await seedTeam(tx, "cmp_a", "開発");
+      await seedTeam(tx, COMPANY_A, "開発");
       const teamList = teamListStubOf();
       const execute = vi.spyOn(tx, "execute");
 
@@ -422,13 +424,13 @@ describe("事業所の DO の一覧", () => {
       );
       expect(teamList.replace).toHaveBeenCalledExactlyOnceWith(
         "v1",
-        await functionValue(tx, sql`company_team_list('cmp_a')`),
+        await functionValue(tx, sql`company_team_list(${COMPANY_A})`),
       );
     }));
 
   it("DO を読めない時は DB の値で答え、1 回報告し、DO に置きに行かない", () =>
     withRollback(async (tx) => {
-      const id = await seedTeam(tx, "cmp_a", "開発");
+      const id = await seedTeam(tx, COMPANY_A, "開発");
       const teamList = teamListStubOf();
       teamList.read.mockImplementation(() => {
         throw new Error("DO に届かない");
@@ -443,7 +445,7 @@ describe("事業所の DO の一覧", () => {
 
   it("DO に置けない時も DB の値で答え、1 回報告する", () =>
     withRollback(async (tx) => {
-      const id = await seedTeam(tx, "cmp_a", "開発");
+      const id = await seedTeam(tx, COMPANY_A, "開発");
       const teamList = teamListStubOf();
       teamList.replace.mockImplementation(() => {
         throw new Error("DO に届かない");

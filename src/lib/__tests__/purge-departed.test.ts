@@ -1,12 +1,13 @@
 import { count, eq, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import type { CompanyId } from "@/db/company-id";
 import {
   memberSkills,
   skills,
   teamAssignments,
   teams,
 } from "@/db/drizzle/schema";
-import { CompanyId } from "@/db/ids";
+import { fixtureCompanyId } from "@/src/services/__tests__/db/seed";
 import {
   functionValue,
   type TestDb,
@@ -23,13 +24,20 @@ import {
 import { type CheckMemberships, purgeDeparted } from "../purge-departed";
 import { sendErrorReportsTo } from "../report-error";
 
+const COMPANY_ACTIVE = fixtureCompanyId("active");
+const COMPANY_ALSO_GONE = fixtureCompanyId("also_gone");
+const COMPANY_GONE = fixtureCompanyId("gone");
+const COMPANY_NEW = fixtureCompanyId("new");
+const COMPANY_OTHER = fixtureCompanyId("other");
+const COMPANY_UNCHANGED = fixtureCompanyId("unchanged");
+const COMPANY_UNREACHABLE = fixtureCompanyId("unreachable");
+
 const seedTeam = async (
   tx: TestDb,
-  unbrandedCompanyId: string,
+  companyId: CompanyId,
   userIds: readonly string[],
   assignedAt = new Date("2026-10-01T00:00:00Z"),
 ) => {
-  const companyId = CompanyId.make(unbrandedCompanyId);
   const [team] = await tx
     .insert(teams)
     .values({ companyId, name: `${companyId} のチーム` })
@@ -54,7 +62,7 @@ const seedTeam = async (
   return team;
 };
 
-const rowsOf = async (tx: TestDb, companyId: string) => {
+const rowsOf = async (tx: TestDb, companyId: CompanyId) => {
   const counts: Record<string, number> = {};
   for (const [name, table] of Object.entries({
     teams,
@@ -65,18 +73,18 @@ const rowsOf = async (tx: TestDb, companyId: string) => {
     const [{ value }] = await tx
       .select({ value: count() })
       .from(table)
-      .where(eq(table.companyId, CompanyId.make(companyId)));
+      .where(eq(table.companyId, companyId));
     counts[name] = value;
   }
   return counts;
 };
 
-const assignedUserIds = async (tx: TestDb, companyId: string) =>
+const assignedUserIds = async (tx: TestDb, companyId: CompanyId) =>
   (
     await tx
       .select({ userId: teamAssignments.userId })
       .from(teamAssignments)
-      .where(eq(teamAssignments.companyId, CompanyId.make(companyId)))
+      .where(eq(teamAssignments.companyId, companyId))
   )
     .map((row) => row.userId)
     .sort();
@@ -120,8 +128,8 @@ const answering =
 describe("purgeDeparted", () => {
   it("ACTIVE でない事業所は、チーム・スキル・割り当て・評価がすべて消える", () =>
     withRollback(async (tx) => {
-      await seedTeam(tx, "cmp_gone", ["u_1"]);
-      expect(await rowsOf(tx, "cmp_gone")).toEqual({
+      await seedTeam(tx, COMPANY_GONE, ["u_1"]);
+      expect(await rowsOf(tx, COMPANY_GONE)).toEqual({
         teams: 1,
         skills: 1,
         teamAssignments: 1,
@@ -132,12 +140,12 @@ describe("purgeDeparted", () => {
         db: tx,
         teamListOf,
         checkMemberships: answering({
-          cmp_gone: { companyActive: false, memberUserIds: [] },
+          [COMPANY_GONE]: { companyActive: false, memberUserIds: [] },
         }),
         startedAt,
       });
 
-      expect(await rowsOf(tx, "cmp_gone")).toEqual({
+      expect(await rowsOf(tx, COMPANY_GONE)).toEqual({
         teams: 0,
         skills: 0,
         teamAssignments: 0,
@@ -147,19 +155,19 @@ describe("purgeDeparted", () => {
 
   it("ACTIVE な事業所では、所属しない人の割り当てと評価だけが消え、所属する人の行は残る", () =>
     withRollback(async (tx) => {
-      await seedTeam(tx, "cmp_active", ["u_stays", "u_left"]);
+      await seedTeam(tx, COMPANY_ACTIVE, ["u_stays", "u_left"]);
       const before = await tx.select().from(memberSkills);
 
       const report = await purgeDeparted({
         db: tx,
         teamListOf,
         checkMemberships: answering({
-          cmp_active: { companyActive: true, memberUserIds: ["u_stays"] },
+          [COMPANY_ACTIVE]: { companyActive: true, memberUserIds: ["u_stays"] },
         }),
         startedAt,
       });
 
-      expect(await assignedUserIds(tx, "cmp_active")).toEqual(["u_stays"]);
+      expect(await assignedUserIds(tx, COMPANY_ACTIVE)).toEqual(["u_stays"]);
       expect(await tx.select().from(memberSkills)).toEqual(
         before.filter((row) => row.userId === "u_stays"),
       );
@@ -169,60 +177,60 @@ describe("purgeDeparted", () => {
   it("照合を始めた後に作った割り当ては、所属の答えに無くても消えない", () =>
     withRollback(async (tx) => {
       const afterStart = new Date(startedAt.getTime() + 1000);
-      await seedTeam(tx, "cmp_new", ["u_new"], afterStart);
+      await seedTeam(tx, COMPANY_NEW, ["u_new"], afterStart);
 
       await purgeDeparted({
         db: tx,
         teamListOf,
         checkMemberships: answering({
-          cmp_new: { companyActive: true, memberUserIds: [] },
+          [COMPANY_NEW]: { companyActive: true, memberUserIds: [] },
         }),
         startedAt,
       });
 
-      expect(await assignedUserIds(tx, "cmp_new")).toEqual(["u_new"]);
+      expect(await assignedUserIds(tx, COMPANY_NEW)).toEqual(["u_new"]);
     }));
 
   it("ある事業所の照合が失敗すると、その事業所は残して飛ばし、ほかの事業所は消す", () =>
     withRollback(async (tx) => {
-      await seedTeam(tx, "cmp_unreachable", ["u_1"]);
-      await seedTeam(tx, "cmp_gone", ["u_2"]);
+      await seedTeam(tx, COMPANY_UNREACHABLE, ["u_1"]);
+      await seedTeam(tx, COMPANY_GONE, ["u_2"]);
 
       const report = await purgeDeparted({
         db: tx,
         teamListOf,
         checkMemberships: answering({
-          cmp_unreachable: new Error("taimei-auth unavailable"),
-          cmp_gone: { companyActive: false, memberUserIds: [] },
+          [COMPANY_UNREACHABLE]: new Error("taimei-auth unavailable"),
+          [COMPANY_GONE]: { companyActive: false, memberUserIds: [] },
         }),
         startedAt,
       });
 
       expect(report).toEqual({
-        deletedCompanyIds: ["cmp_gone"],
+        deletedCompanyIds: [COMPANY_GONE],
         removedAssignments: 0,
-        skippedCompanyIds: ["cmp_unreachable"],
+        skippedCompanyIds: [COMPANY_UNREACHABLE],
       });
-      expect(await assignedUserIds(tx, "cmp_unreachable")).toEqual(["u_1"]);
-      expect((await rowsOf(tx, "cmp_gone")).teams).toBe(0);
+      expect(await assignedUserIds(tx, COMPANY_UNREACHABLE)).toEqual(["u_1"]);
+      expect((await rowsOf(tx, COMPANY_GONE)).teams).toBe(0);
     }));
 
   it("照合の失敗は、事業所の id を message に、原因を cause にした Error で 1 回報告する", () =>
     withRollback(async (tx) => {
       const send = captureReports();
       const cause = new Error("taimei-auth unavailable");
-      await seedTeam(tx, "cmp_unreachable", ["u_1"]);
+      await seedTeam(tx, COMPANY_UNREACHABLE, ["u_1"]);
 
       await purgeDeparted({
         db: tx,
         teamListOf,
-        checkMemberships: answering({ cmp_unreachable: cause }),
+        checkMemberships: answering({ [COMPANY_UNREACHABLE]: cause }),
         startedAt,
       });
 
       expect(send).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({
-          message: expect.stringContaining("cmp_unreachable"),
+          message: expect.stringContaining(COMPANY_UNREACHABLE),
           cause,
         }),
       );
@@ -230,30 +238,30 @@ describe("purgeDeparted", () => {
 
   it("ある事業所を消しても、ほかの事業所の行は変わらない", () =>
     withRollback(async (tx) => {
-      await seedTeam(tx, "cmp_gone", ["u_1"]);
-      await seedTeam(tx, "cmp_other", ["u_2"]);
-      const before = await rowsOf(tx, "cmp_other");
+      await seedTeam(tx, COMPANY_GONE, ["u_1"]);
+      await seedTeam(tx, COMPANY_OTHER, ["u_2"]);
+      const before = await rowsOf(tx, COMPANY_OTHER);
 
       await purgeDeparted({
         db: tx,
         teamListOf,
         checkMemberships: answering({
-          cmp_gone: { companyActive: false, memberUserIds: [] },
-          cmp_other: { companyActive: true, memberUserIds: ["u_2"] },
+          [COMPANY_GONE]: { companyActive: false, memberUserIds: [] },
+          [COMPANY_OTHER]: { companyActive: true, memberUserIds: ["u_2"] },
         }),
         startedAt,
       });
 
-      expect(await rowsOf(tx, "cmp_other")).toEqual(before);
+      expect(await rowsOf(tx, COMPANY_OTHER)).toEqual(before);
     }));
 
   it("同じ答えで 2 回流すと、2 回目は何も消さない", () =>
     withRollback(async (tx) => {
-      await seedTeam(tx, "cmp_gone", ["u_1"]);
-      await seedTeam(tx, "cmp_active", ["u_stays", "u_left"]);
+      await seedTeam(tx, COMPANY_GONE, ["u_1"]);
+      await seedTeam(tx, COMPANY_ACTIVE, ["u_stays", "u_left"]);
       const checkMemberships = answering({
-        cmp_gone: { companyActive: false, memberUserIds: [] },
-        cmp_active: { companyActive: true, memberUserIds: ["u_stays"] },
+        [COMPANY_GONE]: { companyActive: false, memberUserIds: [] },
+        [COMPANY_ACTIVE]: { companyActive: true, memberUserIds: ["u_stays"] },
       });
 
       const first = await purgeDeparted({
@@ -270,7 +278,7 @@ describe("purgeDeparted", () => {
       });
 
       expect(first).toEqual({
-        deletedCompanyIds: ["cmp_gone"],
+        deletedCompanyIds: [COMPANY_GONE],
         removedAssignments: 1,
         skippedCompanyIds: [],
       });
@@ -285,46 +293,51 @@ describe("purgeDeparted", () => {
 describe("purgeDeparted が一覧を変えた事業所の DO の一覧", () => {
   it("ACTIVE でない事業所のチームを消した後に、増やした版の空の一覧で書き直す", () =>
     withRollback(async (tx) => {
-      await seedTeam(tx, "cmp_gone", ["u_1"]);
-      const before = await teamListVersion(tx, "cmp_gone");
+      await seedTeam(tx, COMPANY_GONE, ["u_1"]);
+      const before = await teamListVersion(tx, COMPANY_GONE);
 
       await purgeDeparted({
         db: tx,
         teamListOf,
         checkMemberships: answering({
-          cmp_gone: { companyActive: false, memberUserIds: [] },
+          [COMPANY_GONE]: { companyActive: false, memberUserIds: [] },
         }),
         startedAt,
       });
 
-      expect(teamListOf).toHaveBeenCalledExactlyOnceWith("cmp_gone");
-      expect(replacedSnapshots("cmp_gone")).toEqual([
+      expect(teamListOf).toHaveBeenCalledExactlyOnceWith(COMPANY_GONE);
+      expect(replacedSnapshots(COMPANY_GONE)).toEqual([
         { version: before + 1, teams: [] },
       ]);
     }));
 
   it("所属しない人の割り当てを外した事業所は、増やした版の外した後の一覧で書き直し、外す人のいない事業所は書き直さない", () =>
     withRollback(async (tx) => {
-      await seedTeam(tx, "cmp_active", ["u_stays", "u_left"]);
-      await seedTeam(tx, "cmp_unchanged", ["u_stays"]);
-      const before = await teamListVersion(tx, "cmp_active");
-      const unchangedBefore = await teamListVersion(tx, "cmp_unchanged");
+      await seedTeam(tx, COMPANY_ACTIVE, ["u_stays", "u_left"]);
+      await seedTeam(tx, COMPANY_UNCHANGED, ["u_stays"]);
+      const before = await teamListVersion(tx, COMPANY_ACTIVE);
+      const unchangedBefore = await teamListVersion(tx, COMPANY_UNCHANGED);
 
       await purgeDeparted({
         db: tx,
         teamListOf,
         checkMemberships: answering({
-          cmp_active: { companyActive: true, memberUserIds: ["u_stays"] },
-          cmp_unchanged: { companyActive: true, memberUserIds: ["u_stays"] },
+          [COMPANY_ACTIVE]: { companyActive: true, memberUserIds: ["u_stays"] },
+          [COMPANY_UNCHANGED]: {
+            companyActive: true,
+            memberUserIds: ["u_stays"],
+          },
         }),
         startedAt,
       });
 
-      expect(replacedSnapshots("cmp_active")).toMatchObject([
+      expect(replacedSnapshots(COMPANY_ACTIVE)).toMatchObject([
         { version: before + 1, teams: [{ assignedUserIds: ["u_stays"] }] },
       ]);
-      expect(await teamListVersion(tx, "cmp_unchanged")).toBe(unchangedBefore);
-      expect(readReplaceClearCountsOf("cmp_unchanged")).toEqual([0, 0, 0]);
+      expect(await teamListVersion(tx, COMPANY_UNCHANGED)).toBe(
+        unchangedBefore,
+      );
+      expect(readReplaceClearCountsOf(COMPANY_UNCHANGED)).toEqual([0, 0, 0]);
     }));
 
   it("照合に失敗して飛ばした事業所の一覧は書き直さない", () =>
@@ -333,32 +346,32 @@ describe("purgeDeparted が一覧を変えた事業所の DO の一覧", () => {
       onTestFinished(() => {
         vi.restoreAllMocks();
       });
-      await seedTeam(tx, "cmp_unreachable", ["u_1"]);
-      await seedTeam(tx, "cmp_gone", ["u_2"]);
-      const before = await teamListVersion(tx, "cmp_unreachable");
+      await seedTeam(tx, COMPANY_UNREACHABLE, ["u_1"]);
+      await seedTeam(tx, COMPANY_GONE, ["u_2"]);
+      const before = await teamListVersion(tx, COMPANY_UNREACHABLE);
 
       const report = await purgeDeparted({
         db: tx,
         teamListOf,
         checkMemberships: answering({
-          cmp_unreachable: new Error("taimei-auth unavailable"),
-          cmp_gone: { companyActive: false, memberUserIds: [] },
+          [COMPANY_UNREACHABLE]: new Error("taimei-auth unavailable"),
+          [COMPANY_GONE]: { companyActive: false, memberUserIds: [] },
         }),
         startedAt,
       });
 
-      expect(report.skippedCompanyIds).toEqual(["cmp_unreachable"]);
-      expect(readReplaceClearCountsOf("cmp_unreachable")).toEqual([0, 0, 0]);
-      expect(await teamListVersion(tx, "cmp_unreachable")).toBe(before);
-      expect(replacedSnapshots("cmp_gone")).toHaveLength(1);
+      expect(report.skippedCompanyIds).toEqual([COMPANY_UNREACHABLE]);
+      expect(readReplaceClearCountsOf(COMPANY_UNREACHABLE)).toEqual([0, 0, 0]);
+      expect(await teamListVersion(tx, COMPANY_UNREACHABLE)).toBe(before);
+      expect(replacedSnapshots(COMPANY_GONE)).toHaveLength(1);
     }));
 
   it("一覧を書き直せなくても 1 回報告し、次の事業所を続ける", () =>
     withRollback(async (tx) => {
       const send = captureReports();
-      await seedTeam(tx, "cmp_gone", ["u_1"]);
-      await seedTeam(tx, "cmp_also_gone", ["u_2"]);
-      teamListStubFor("cmp_gone").replace.mockRejectedValue(
+      await seedTeam(tx, COMPANY_GONE, ["u_1"]);
+      await seedTeam(tx, COMPANY_ALSO_GONE, ["u_2"]);
+      teamListStubFor(COMPANY_GONE).replace.mockRejectedValue(
         new Error("DO に届かない"),
       );
 
@@ -366,39 +379,38 @@ describe("purgeDeparted が一覧を変えた事業所の DO の一覧", () => {
         db: tx,
         teamListOf,
         checkMemberships: answering({
-          cmp_gone: { companyActive: false, memberUserIds: [] },
-          cmp_also_gone: { companyActive: false, memberUserIds: [] },
+          [COMPANY_GONE]: { companyActive: false, memberUserIds: [] },
+          [COMPANY_ALSO_GONE]: { companyActive: false, memberUserIds: [] },
         }),
         startedAt,
       });
 
       expect(send).toHaveBeenCalledOnce();
-      expect(readReplaceClearCountsOf("cmp_gone")).toEqual([0, 2, 1]);
-      expect(report.deletedCompanyIds.sort()).toEqual([
-        "cmp_also_gone",
-        "cmp_gone",
-      ]);
-      expect(replacedSnapshots("cmp_also_gone")).toHaveLength(1);
+      expect(readReplaceClearCountsOf(COMPANY_GONE)).toEqual([0, 2, 1]);
+      expect([...report.deletedCompanyIds].sort()).toEqual(
+        [COMPANY_ALSO_GONE, COMPANY_GONE].sort(),
+      );
+      expect(replacedSnapshots(COMPANY_ALSO_GONE)).toHaveLength(1);
     }));
 
   it("去った人がいても、照合の開始の後に作った割り当てだけで消した行が 0 なら、版を増やして書き直す", () =>
     withRollback(async (tx) => {
       const afterStart = new Date(startedAt.getTime() + 1000);
-      await seedTeam(tx, "cmp_new", ["u_new"], afterStart);
-      const before = await teamListVersion(tx, "cmp_new");
+      await seedTeam(tx, COMPANY_NEW, ["u_new"], afterStart);
+      const before = await teamListVersion(tx, COMPANY_NEW);
 
       const report = await purgeDeparted({
         db: tx,
         teamListOf,
         checkMemberships: answering({
-          cmp_new: { companyActive: true, memberUserIds: [] },
+          [COMPANY_NEW]: { companyActive: true, memberUserIds: [] },
         }),
         startedAt,
       });
 
       expect(report.removedAssignments).toBe(0);
-      expect(await teamListVersion(tx, "cmp_new")).toBe(before + 1);
-      expect(replacedSnapshots("cmp_new")).toHaveLength(1);
+      expect(await teamListVersion(tx, COMPANY_NEW)).toBe(before + 1);
+      expect(replacedSnapshots(COMPANY_NEW)).toHaveLength(1);
     }));
 
   const failingTransactionCall = (tx: TestDb, failingCall: number) => {
@@ -414,8 +426,8 @@ describe("purgeDeparted が一覧を変えた事業所の DO の一覧", () => {
   it("ある事業所の書き込みが commit したか分からないと、その DO の一覧を消して飛ばし、1 回報告して次の事業所を続ける", () =>
     withRollback(async (tx) => {
       const send = captureReports();
-      await seedTeam(tx, "cmp_gone", ["u_1"]);
-      await seedTeam(tx, "cmp_also_gone", ["u_2"]);
+      await seedTeam(tx, COMPANY_GONE, ["u_1"]);
+      await seedTeam(tx, COMPANY_ALSO_GONE, ["u_2"]);
       // 1 社目の割り当ての読み取りが 1 本目、1 社目の書き込みが 2 本目
       failingTransactionCall(tx, 2);
 
@@ -423,8 +435,8 @@ describe("purgeDeparted が一覧を変えた事業所の DO の一覧", () => {
         db: tx,
         teamListOf,
         checkMemberships: answering({
-          cmp_gone: { companyActive: false, memberUserIds: [] },
-          cmp_also_gone: { companyActive: false, memberUserIds: [] },
+          [COMPANY_GONE]: { companyActive: false, memberUserIds: [] },
+          [COMPANY_ALSO_GONE]: { companyActive: false, memberUserIds: [] },
         }),
         startedAt,
       });
@@ -443,16 +455,16 @@ describe("purgeDeparted が一覧を変えた事業所の DO の一覧", () => {
   it("ある事業所の処理が投げても、1 回報告して飛ばし、次の事業所を続ける", () =>
     withRollback(async (tx) => {
       const send = captureReports();
-      await seedTeam(tx, "cmp_gone", ["u_1"]);
-      await seedTeam(tx, "cmp_also_gone", ["u_2"]);
+      await seedTeam(tx, COMPANY_GONE, ["u_1"]);
+      await seedTeam(tx, COMPANY_ALSO_GONE, ["u_2"]);
       failingTransactionCall(tx, 1);
 
       const report = await purgeDeparted({
         db: tx,
         teamListOf,
         checkMemberships: answering({
-          cmp_gone: { companyActive: false, memberUserIds: [] },
-          cmp_also_gone: { companyActive: false, memberUserIds: [] },
+          [COMPANY_GONE]: { companyActive: false, memberUserIds: [] },
+          [COMPANY_ALSO_GONE]: { companyActive: false, memberUserIds: [] },
         }),
         startedAt,
       });

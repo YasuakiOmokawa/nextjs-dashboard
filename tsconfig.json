@@ -29,6 +29,18 @@
         ],
         "overrides": [
           {
+            "include": ["**/__tests__/**/*.ts"],
+            "options": {
+              "allowedUnstableApis": [
+                "effect/http-api",
+                "effect/http",
+                "effect/reactivity",
+                "@effect/atom-react",
+                "effect/Arbitrary"
+              ]
+            }
+          },
+          {
             // @ts-expect-error で型エラーを確かめる行に、tsc の型エラーと重ねて出る
             "include": ["**/*.test.ts"],
             "options": {

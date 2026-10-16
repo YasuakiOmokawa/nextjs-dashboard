@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { Context, Effect, Result, Schema } from "effect";
-import type { CompanyId } from "@/db/ids";
+import type { CompanyId } from "@/db/company-id";
 import { reportError } from "@/src/lib/report-error";
 import { writeInCompanyScope } from "./company-scope";
 import type { Db } from "./db-service";

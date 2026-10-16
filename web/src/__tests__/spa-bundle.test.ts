@@ -10,7 +10,7 @@ const CONTRACT_MODULES = [
   "db/column-values.ts",
 ].map((file) => path.join(repoRoot, file));
 const SERVER_ONLY_PACKAGE_PATH =
-  /\/node_modules\/(pg|pg-[^/]+|drizzle-orm|@sentry\/[^/]+)\//;
+  /\/node_modules\/(pg|pg-[^/]+|drizzle-orm|@sentry\/[^/]+|@taimei-code\/auth-client|@connectrpc\/[^/]+|@bufbuild\/[^/]+)\//;
 const SECRET_NAMES = [
   "AUTH_SERVICE_KEY",
   "AUTH_SERVICE_URL",
@@ -35,7 +35,7 @@ const buildSpa = async () => {
   return [result].flat().flatMap((o) => o.output);
 };
 
-it("SPA の成果物に web の外の module は契約だけで、サーバーの module と秘密の名前が無い", async () => {
+it("SPA の成果物に web の外の module は契約だけで、サーバーの module と taimei-auth の SDK と秘密の名前が無い", async () => {
   const output = await buildSpa();
   const moduleIds = output.flatMap((o) =>
     o.type === "chunk" ? Object.keys(o.modules) : [],

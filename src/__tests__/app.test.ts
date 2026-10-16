@@ -1,7 +1,12 @@
 import { readFileSync } from "node:fs";
 import {
+  buildAccountUrl,
+  buildAuthErrorUrl,
   buildAuthLoginUrl,
+  buildCompanySignupUrl,
+  buildMembersUrl,
   type ListMembersResult,
+  MAGIC_LINK_EXPIRES_IN_SECONDS,
   type Member,
   Result,
   type SessionData,
@@ -11,6 +16,7 @@ import { asc, eq } from "drizzle-orm";
 import { type Schema, SchemaAST } from "effect";
 import { HttpApi } from "effect/http-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CompanyId } from "@/db/company-id";
 import {
   memberSkills,
   skills,
@@ -20,6 +26,7 @@ import {
 import type { TeamId } from "@/db/ids";
 import { sendErrorReportsTo } from "@/src/lib/report-error";
 import {
+  fixtureCompanyId,
   seedAssignment,
   seedLevel,
   seedSkill,
@@ -39,16 +46,11 @@ import {
   OperationFailure,
   SpaApi,
 } from "@/src/spa-contract";
-import {
-  buildAccountUrl,
-  buildAuthErrorUrl,
-  buildCompanySignupUrl,
-  buildInviteMembersUrl,
-  MAGIC_LINK_LIFETIME_MS,
-} from "@/src/taimei-auth-contract";
 import { createApp, type Env } from "../app";
 import type { AuthGuard } from "../auth";
 
+const COMPANY_APP_A = fixtureCompanyId("app_a");
+const COMPANY_APP_B = fixtureCompanyId("app_b");
 vi.mock("@/db/drizzle/client", async () => ({
   db: (await import("@/src/services/__tests__/db/test-db")).dbInRollback,
 }));
@@ -74,7 +76,7 @@ const sessionData = ({
     updatedAt: createdAt,
   },
   session: { id: "s_1", expiresAt: "2099-01-01T00:00:00.000Z", kind: "user" },
-  companyId: "cmp_app_a",
+  companyId: COMPANY_APP_A,
   ...options,
 });
 
@@ -258,7 +260,7 @@ describe("session と Worker の version の印", () => {
 
         expect(response.status).toBe(200);
         expect(response.headers.get("x-taimei-session")).toBe(
-          "cmp_app_a u_1 v1",
+          `${COMPANY_APP_A} u_1 v1`,
         );
       }),
   );
@@ -273,7 +275,7 @@ describe("session と Worker の version の印", () => {
             ...COOKIE,
             Origin: ORIGIN,
             "Content-Type": "application/json",
-            "x-taimei-session": "cmp_app_b u_1 v1",
+            "x-taimei-session": `${COMPANY_APP_B} u_1 v1`,
           },
           body: JSON.stringify({ name: "開発" }),
         },
@@ -281,7 +283,9 @@ describe("session と Worker の version の印", () => {
       );
 
       expect(response.status).toBe(409);
-      expect(response.headers.get("x-taimei-session")).toBe("cmp_app_a u_1 v1");
+      expect(response.headers.get("x-taimei-session")).toBe(
+        `${COMPANY_APP_A} u_1 v1`,
+      );
       expect(await teamRows(tx)).toEqual([]);
     }));
 
@@ -295,7 +299,7 @@ describe("session と Worker の version の印", () => {
             ...COOKIE,
             Origin: ORIGIN,
             "Content-Type": "application/json",
-            "x-taimei-session": "cmp_app_a u_1 v0",
+            "x-taimei-session": `${COMPANY_APP_A} u_1 v0`,
           },
           body: JSON.stringify({ name: "開発" }),
         },
@@ -303,7 +307,9 @@ describe("session と Worker の version の印", () => {
       );
 
       expect(response.status).toBe(409);
-      expect(response.headers.get("x-taimei-session")).toBe("cmp_app_a u_1 v1");
+      expect(response.headers.get("x-taimei-session")).toBe(
+        `${COMPANY_APP_A} u_1 v1`,
+      );
       expect(await teamRows(tx)).toEqual([]);
     }));
 
@@ -311,7 +317,7 @@ describe("session と Worker の version の印", () => {
     withRollbackDb(async () => {
       const response = await get("/api/me", signedInAs("OWNER"), {
         ...COOKIE,
-        "x-taimei-session": "cmp_app_a u_1 v1",
+        "x-taimei-session": `${COMPANY_APP_A} u_1 v1`,
       });
 
       expect(response.status).toBe(200);
@@ -540,9 +546,9 @@ describe("GET /api/teams", () => {
   it("session の事業所のチームだけを、契約の schema に無い割り当ての user id を落として id と name で、transaction を開かず 1 文で返す", () =>
     withRollbackDb(async (tx) => {
       const db = spyOnDb();
-      const a = await seedTeam(tx, "cmp_app_a", "A のチーム");
-      await seedAssignment(tx, "cmp_app_a", a, "u_other");
-      await seedTeam(tx, "cmp_app_b", "B のチーム");
+      const a = await seedTeam(tx, COMPANY_APP_A, "A のチーム");
+      await seedAssignment(tx, COMPANY_APP_A, a, "u_other");
+      await seedTeam(tx, COMPANY_APP_B, "B のチーム");
 
       const response = await get("/api/teams", signedInAs("OWNER"));
 
@@ -584,7 +590,7 @@ describe("チーム一覧の DO", () => {
       await get("/api/teams", signedInAs("OWNER"));
 
       expect(cacheNames.length).toBeGreaterThan(0);
-      expect(new Set(cacheNames)).toEqual(new Set(["cmp_app_a"]));
+      expect(new Set(cacheNames)).toEqual(new Set([COMPANY_APP_A]));
     }));
 
   it("星取表・自分の情報・メンバー一覧は DO を呼ばない", () =>
@@ -680,9 +686,9 @@ describe("route の defect", () => {
 });
 
 const seedAssignedTeam = async (tx: TestDb) => {
-  const teamId = await seedTeam(tx, "cmp_app_a", "開発");
-  const skillId = await seedSkill(tx, "cmp_app_a", teamId, "設計");
-  await seedAssignment(tx, "cmp_app_a", teamId, "u_1");
+  const teamId = await seedTeam(tx, COMPANY_APP_A, "開発");
+  const skillId = await seedSkill(tx, COMPANY_APP_A, teamId, "設計");
+  await seedAssignment(tx, COMPANY_APP_A, teamId, "u_1");
   return { teamId, skillId };
 };
 
@@ -690,7 +696,7 @@ describe("GET /api/teams/:teamId", () => {
   const seedTeamPage = async (tx: TestDb) => {
     const { teamId, skillId } = await seedAssignedTeam(tx);
     await seedLevel(tx, {
-      companyId: "cmp_app_a",
+      companyId: COMPANY_APP_A,
       teamId,
       skillId,
       userId: "u_1",
@@ -745,7 +751,7 @@ describe("GET /api/teams/:teamId", () => {
 
   it("deploy で Worker の version が変わると、前の version が置いた値を使わず DB から読む", () =>
     withRollbackDb(async (tx) => {
-      const id = await seedTeam(tx, "cmp_app_a", "前の名前");
+      const id = await seedTeam(tx, COMPANY_APP_A, "前の名前");
       const owner = signedInAs("OWNER");
       const before = baseEnv();
       const after: Env = { ...baseEnv(), CF_VERSION_METADATA: { id: "v2" } };
@@ -768,7 +774,7 @@ describe("GET /api/teams/:teamId", () => {
 
   it("他社のチームは 404", () =>
     withRollbackDb(async (tx) => {
-      const other = await seedTeam(tx, "cmp_app_b", "他社");
+      const other = await seedTeam(tx, COMPANY_APP_B, "他社");
 
       const response = await get(`/api/teams/${other}`, signedIn());
 
@@ -876,7 +882,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
       expect(await response.json()).toEqual({});
       expect(await levelRows(tx)).toEqual([
         {
-          companyId: "cmp_app_a",
+          companyId: COMPANY_APP_A,
           skillId,
           userId: "u_1",
           level: 3,
@@ -890,9 +896,9 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
   it("body に同僚の user id を足しても、書くのは送った人の行だけで、同僚の行は変わらない", () =>
     withRollbackDb(async (tx) => {
       const { teamId, skillId } = await seedAssignedTeam(tx);
-      await seedAssignment(tx, "cmp_app_a", teamId, "u_2");
+      await seedAssignment(tx, COMPANY_APP_A, teamId, "u_2");
       await seedLevel(tx, {
-        companyId: "cmp_app_a",
+        companyId: COMPANY_APP_A,
         teamId,
         skillId,
         userId: "u_2",
@@ -914,8 +920,8 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
 
   it("割り当てられていない管理者は 403 で、行を書かない", () =>
     withRollbackDb(async (tx) => {
-      const teamId = await seedTeam(tx, "cmp_app_a", "開発");
-      const skillId = await seedSkill(tx, "cmp_app_a", teamId, "設計");
+      const teamId = await seedTeam(tx, COMPANY_APP_A, "開発");
+      const skillId = await seedSkill(tx, COMPANY_APP_A, teamId, "設計");
 
       const response = await putMyLevels(
         teamId,
@@ -934,10 +940,10 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
   it("別のチームのスキルを含めると 404 で、どの行も書かない", () =>
     withRollbackDb(async (tx) => {
       const { teamId, skillId } = await seedAssignedTeam(tx);
-      const otherTeamId = await seedTeam(tx, "cmp_app_a", "営業");
+      const otherTeamId = await seedTeam(tx, COMPANY_APP_A, "営業");
       const otherSkillId = await seedSkill(
         tx,
-        "cmp_app_a",
+        COMPANY_APP_A,
         otherTeamId,
         "提案",
       );
@@ -962,7 +968,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
   it("範囲外のレベル (4) を含めると 422 で、どの行も書かない", () =>
     withRollbackDb(async (tx) => {
       const { teamId, skillId } = await seedAssignedTeam(tx);
-      const otherSkillId = await seedSkill(tx, "cmp_app_a", teamId, "テスト");
+      const otherSkillId = await seedSkill(tx, COMPANY_APP_A, teamId, "テスト");
 
       const response = await putMyLevels(
         teamId,
@@ -983,16 +989,16 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
 
   it("他社のチームは 404 で、他社の行は変わらない", () =>
     withRollbackDb(async (tx) => {
-      const otherTeamId = await seedTeam(tx, "cmp_app_b", "他社");
+      const otherTeamId = await seedTeam(tx, COMPANY_APP_B, "他社");
       const otherSkillId = await seedSkill(
         tx,
-        "cmp_app_b",
+        COMPANY_APP_B,
         otherTeamId,
         "設計",
       );
-      await seedAssignment(tx, "cmp_app_b", otherTeamId, "u_1");
+      await seedAssignment(tx, COMPANY_APP_B, otherTeamId, "u_1");
       await seedLevel(tx, {
-        companyId: "cmp_app_b",
+        companyId: COMPANY_APP_B,
         teamId: otherTeamId,
         skillId: otherSkillId,
         userId: "u_1",
@@ -1008,7 +1014,7 @@ describe("PUT /api/teams/:teamId/my-levels", () => {
       expect(response.status).toBe(404);
       expect(await response.json()).toMatchObject({ _tag: "TeamNotFound" });
       expect(await levelRows(tx)).toMatchObject([
-        { companyId: "cmp_app_b", level: 1, wantsToLearn: false },
+        { companyId: COMPANY_APP_B, level: 1, wantsToLearn: false },
       ]);
       expect(consoleError).not.toHaveBeenCalled();
     }));
@@ -1101,7 +1107,7 @@ describe("POST /api/teams", () => {
         const body = await response.json();
         expect(body).toEqual({ id: expect.any(String) });
         expect(await teamRows(tx)).toEqual([
-          { id: body.id, companyId: "cmp_app_a", name: "開発" },
+          { id: body.id, companyId: COMPANY_APP_A, name: "開発" },
         ]);
         expect(db.transaction).toHaveBeenCalledOnce();
         expect(consoleError).not.toHaveBeenCalled();
@@ -1119,7 +1125,7 @@ describe("POST /api/teams", () => {
     "%s は %i の %s で、チームを作らない",
     (_, status, tag, role, body) =>
       withRollbackDb(async (tx) => {
-        await seedTeam(tx, "cmp_app_a", "開発");
+        await seedTeam(tx, COMPANY_APP_A, "開発");
 
         const response = await sendSameOriginRequest(
           "POST",
@@ -1154,7 +1160,7 @@ describe("POST /api/teams", () => {
 describe("PATCH /api/teams/:teamId", () => {
   it("管理者は名前の前後の空白を除いて名前を変え、事業所スコープの transaction の中で書いて、200 の {} を返す", () =>
     withRollbackDb(async (tx) => {
-      const teamId = await seedTeam(tx, "cmp_app_a", "旧");
+      const teamId = await seedTeam(tx, COMPANY_APP_A, "旧");
       const db = spyOnDb();
 
       const response = await sendSameOriginRequest(
@@ -1172,14 +1178,21 @@ describe("PATCH /api/teams/:teamId", () => {
     }));
 
   it.each([
-    ["メンバー", 403, "NotManager", "MEMBER", "cmp_app_a", { name: "新" }],
-    ["他社のチーム", 404, "TeamNotFound", "ADMIN", "cmp_app_b", { name: "新" }],
+    ["メンバー", 403, "NotManager", "MEMBER", COMPANY_APP_A, { name: "新" }],
+    [
+      "他社のチーム",
+      404,
+      "TeamNotFound",
+      "ADMIN",
+      COMPANY_APP_B,
+      { name: "新" },
+    ],
     [
       "空白だけの名前",
       422,
       "InvalidName",
       "ADMIN",
-      "cmp_app_a",
+      COMPANY_APP_A,
       { name: "   " },
     ],
     [
@@ -1187,7 +1200,7 @@ describe("PATCH /api/teams/:teamId", () => {
       400,
       DECODE_FAILURE,
       "ADMIN",
-      "cmp_app_a",
+      COMPANY_APP_A,
       { name: 1 },
     ],
     [
@@ -1195,14 +1208,14 @@ describe("PATCH /api/teams/:teamId", () => {
       409,
       "DuplicateName",
       "ADMIN",
-      "cmp_app_a",
+      COMPANY_APP_A,
       { name: "開発" },
     ],
   ] as const)(
     "%s は %i の %s で、名前を変えない",
     (_, status, tag, role, companyId, body) =>
       withRollbackDb(async (tx) => {
-        await seedTeam(tx, "cmp_app_a", "開発");
+        await seedTeam(tx, COMPANY_APP_A, "開発");
         const teamId = await seedTeam(tx, companyId, "旧");
 
         const response = await sendSameOriginRequest(
@@ -1226,7 +1239,7 @@ describe("DELETE /api/teams/:teamId", () => {
 
   const seedTeamWithSkillAssignmentAndLevel = async (
     tx: TestDb,
-    companyId: string,
+    companyId: CompanyId,
   ) => {
     const teamId = await seedTeam(
       tx,
@@ -1257,9 +1270,9 @@ describe("DELETE /api/teams/:teamId", () => {
     withRollbackDb(async (tx) => {
       const deleted = await seedTeamWithSkillAssignmentAndLevel(
         tx,
-        "cmp_app_a",
+        COMPANY_APP_A,
       );
-      const kept = await seedTeamWithSkillAssignmentAndLevel(tx, "cmp_app_a");
+      const kept = await seedTeamWithSkillAssignmentAndLevel(tx, COMPANY_APP_A);
 
       const response = await deleteTeam(deleted, signedInAs("ADMIN"));
 
@@ -1271,8 +1284,8 @@ describe("DELETE /api/teams/:teamId", () => {
     }));
 
   it.each([
-    ["メンバー", 403, "NotManager", "MEMBER", "cmp_app_a"],
-    ["他社のチーム", 404, "TeamNotFound", "ADMIN", "cmp_app_b"],
+    ["メンバー", 403, "NotManager", "MEMBER", COMPANY_APP_A],
+    ["他社のチーム", 404, "TeamNotFound", "ADMIN", COMPANY_APP_B],
   ] as const)(
     "%s は %i の %s で、チームを消さない",
     (_, status, tag, role, companyId) =>
@@ -1309,7 +1322,7 @@ describe("POST /api/teams/:teamId/skills", () => {
 
   it("管理者は名前の前後の空白を除いてスキルを足し、200 の {} を返す", () =>
     withRollbackDb(async (tx) => {
-      const teamId = await seedTeam(tx, "cmp_app_a", "開発");
+      const teamId = await seedTeam(tx, COMPANY_APP_A, "開発");
 
       const response = await addSkill(teamId, signedInAs("ADMIN"), {
         name: "  設計  ",
@@ -1322,13 +1335,20 @@ describe("POST /api/teams/:teamId/skills", () => {
     }));
 
   it.each([
-    ["メンバー", 403, "NotManager", "MEMBER", "cmp_app_a", { name: "テスト" }],
+    [
+      "メンバー",
+      403,
+      "NotManager",
+      "MEMBER",
+      COMPANY_APP_A,
+      { name: "テスト" },
+    ],
     [
       "チームにある名前",
       409,
       "DuplicateName",
       "ADMIN",
-      "cmp_app_a",
+      COMPANY_APP_A,
       { name: " 設計 " },
     ],
     [
@@ -1336,7 +1356,7 @@ describe("POST /api/teams/:teamId/skills", () => {
       422,
       "InvalidName",
       "ADMIN",
-      "cmp_app_a",
+      COMPANY_APP_A,
       { name: "あ".repeat(51) },
     ],
     [
@@ -1344,10 +1364,10 @@ describe("POST /api/teams/:teamId/skills", () => {
       404,
       "TeamNotFound",
       "ADMIN",
-      "cmp_app_b",
+      COMPANY_APP_B,
       { name: "テスト" },
     ],
-    ["name の無い body", 400, DECODE_FAILURE, "ADMIN", "cmp_app_a", {}],
+    ["name の無い body", 400, DECODE_FAILURE, "ADMIN", COMPANY_APP_A, {}],
   ] as const)(
     "%s は %i の %s で、スキルを足さない",
     (_, status, tag, role, companyId, body) =>
@@ -1366,7 +1386,7 @@ describe("POST /api/teams/:teamId/skills", () => {
 
   it("50 文字の名前は足せる", () =>
     withRollbackDb(async (tx) => {
-      const teamId = await seedTeam(tx, "cmp_app_a", "開発");
+      const teamId = await seedTeam(tx, COMPANY_APP_A, "開発");
       const name = "あ".repeat(50);
 
       const response = await addSkill(teamId, signedInAs("ADMIN"), {
@@ -1385,9 +1405,9 @@ describe("DELETE /api/skills/:skillId", () => {
   it("管理者はスキルを消し、そのスキルの記入も消え、同じチームの別のスキルは残る", () =>
     withRollbackDb(async (tx) => {
       const { teamId, skillId } = await seedAssignedTeam(tx);
-      await seedSkill(tx, "cmp_app_a", teamId, "実装");
+      await seedSkill(tx, COMPANY_APP_A, teamId, "実装");
       await seedLevel(tx, {
-        companyId: "cmp_app_a",
+        companyId: COMPANY_APP_A,
         teamId,
         skillId,
         userId: "u_1",
@@ -1403,8 +1423,8 @@ describe("DELETE /api/skills/:skillId", () => {
     }));
 
   it.each([
-    ["メンバー", 403, "NotManager", "MEMBER", "cmp_app_a"],
-    ["他社のスキル", 404, "SkillNotFound", "ADMIN", "cmp_app_b"],
+    ["メンバー", 403, "NotManager", "MEMBER", COMPANY_APP_A],
+    ["他社のスキル", 404, "SkillNotFound", "ADMIN", COMPANY_APP_B],
   ] as const)(
     "%s は %i の %s で、スキルを消さない",
     (_, status, tag, role, companyId) =>
@@ -1456,7 +1476,7 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
 
   it("管理者は事業所のメンバーを割り当て、200 の {} を返す", () =>
     withRollbackDb(async (tx) => {
-      const teamId = await seedTeam(tx, "cmp_app_a", "開発");
+      const teamId = await seedTeam(tx, COMPANY_APP_A, "開発");
 
       const response = await assign(
         teamId,
@@ -1474,8 +1494,8 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
 
   it("割り当て済みの人をもう一度割り当てても 200 で、割り当ては 1 つのまま", () =>
     withRollbackDb(async (tx) => {
-      const teamId = await seedTeam(tx, "cmp_app_a", "開発");
-      await seedAssignment(tx, "cmp_app_a", teamId, "u_2");
+      const teamId = await seedTeam(tx, COMPANY_APP_A, "開発");
+      await seedAssignment(tx, COMPANY_APP_A, teamId, "u_2");
 
       const response = await assign(
         teamId,
@@ -1495,7 +1515,7 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       422,
       "NotCompanyMember",
       "ADMIN",
-      "cmp_app_a",
+      COMPANY_APP_A,
       [companyMember("u_3")],
     ],
     [
@@ -1503,7 +1523,7 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       403,
       "NotManager",
       "MEMBER",
-      "cmp_app_a",
+      COMPANY_APP_A,
       [companyMember("u_2")],
     ],
     [
@@ -1511,7 +1531,7 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
       404,
       "TeamNotFound",
       "ADMIN",
-      "cmp_app_b",
+      COMPANY_APP_B,
       [companyMember("u_2")],
     ],
   ] as const)(
@@ -1535,7 +1555,7 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
 
   it("メンバー一覧が session の失敗を返すと 401 で、割り当てず報告しない", () =>
     withRollbackDb(async (tx) => {
-      const teamId = await seedTeam(tx, "cmp_app_a", "開発");
+      const teamId = await seedTeam(tx, COMPANY_APP_A, "開発");
 
       const response = await assign(
         teamId,
@@ -1555,7 +1575,7 @@ describe("PUT /api/teams/:teamId/assignments/:userId", () => {
 
   it("メンバー一覧が取れないと 500 で本文を返さず、割り当てず listMembers failed を 1 回報告する", () =>
     withRollbackDb(async (tx) => {
-      const teamId = await seedTeam(tx, "cmp_app_a", "開発");
+      const teamId = await seedTeam(tx, COMPANY_APP_A, "開発");
 
       const response = await assign(
         teamId,
@@ -1585,10 +1605,10 @@ describe("DELETE /api/teams/:teamId/assignments/:userId", () => {
   it("管理者は割り当てを外し、その人の記入も消え、同じチームの別の人の割り当ては残る", () =>
     withRollbackDb(async (tx) => {
       const { teamId, skillId } = await seedAssignedTeam(tx);
-      await seedAssignment(tx, "cmp_app_a", teamId, "u_2");
+      await seedAssignment(tx, COMPANY_APP_A, teamId, "u_2");
       for (const userId of ["u_1", "u_2"])
         await seedLevel(tx, {
-          companyId: "cmp_app_a",
+          companyId: COMPANY_APP_A,
           teamId,
           skillId,
           userId,
@@ -1604,8 +1624,8 @@ describe("DELETE /api/teams/:teamId/assignments/:userId", () => {
     }));
 
   it.each([
-    ["メンバー", 403, "NotManager", "MEMBER", "cmp_app_a"],
-    ["他社のチーム", 404, "TeamNotFound", "ADMIN", "cmp_app_b"],
+    ["メンバー", 403, "NotManager", "MEMBER", COMPANY_APP_A],
+    ["他社のチーム", 404, "TeamNotFound", "ADMIN", COMPANY_APP_B],
   ] as const)(
     "%s は %i の %s で、割り当てを外さない",
     (_, status, tag, role, companyId) =>
@@ -1935,7 +1955,7 @@ describe("/auth の着地", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe(
-      buildAuthErrorUrl(AUTH_URL, "signin_failed"),
+      buildAuthErrorUrl({ authBaseUrl: AUTH_URL, reason: "signin_failed" }),
     );
   });
 
@@ -1985,7 +2005,7 @@ describe("/auth の着地", () => {
     const response = await get("/auth/after-signup", signedOut());
 
     expect(response.headers.get("Location")).toBe(
-      buildAuthErrorUrl(AUTH_URL, "signin_failed"),
+      buildAuthErrorUrl({ authBaseUrl: AUTH_URL, reason: "signin_failed" }),
     );
   });
 
@@ -1996,7 +2016,7 @@ describe("/auth の着地", () => {
     );
 
     expect(response.headers.get("Location")).toBe(
-      buildAuthErrorUrl(AUTH_URL, "signin_failed"),
+      buildAuthErrorUrl({ authBaseUrl: AUTH_URL, reason: "signin_failed" }),
     );
   });
 
@@ -2004,18 +2024,25 @@ describe("/auth の着地", () => {
 
   it("Magic Link の有効期限ちょうど前に作られた user の after-signup は signup_already_completed", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(Date.parse(createdAt) + MAGIC_LINK_LIFETIME_MS);
+    vi.setSystemTime(
+      Date.parse(createdAt) + MAGIC_LINK_EXPIRES_IN_SECONDS * 1000,
+    );
 
     const response = await get("/auth/after-signup", signedIn({ createdAt }));
 
     expect(response.headers.get("Location")).toBe(
-      buildAuthErrorUrl(AUTH_URL, "signup_already_completed"),
+      buildAuthErrorUrl({
+        authBaseUrl: AUTH_URL,
+        reason: "signup_already_completed",
+      }),
     );
   });
 
   it("Magic Link の有効期限より 1 ms 新しい user の after-signup は /dashboard へ", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(Date.parse(createdAt) + MAGIC_LINK_LIFETIME_MS - 1);
+    vi.setSystemTime(
+      Date.parse(createdAt) + MAGIC_LINK_EXPIRES_IN_SECONDS * 1000 - 1,
+    );
 
     const response = await get("/auth/after-signup", signedIn({ createdAt }));
 
@@ -2026,7 +2053,9 @@ describe("/auth の着地", () => {
     const response = await get("/auth/account", signedIn());
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe(buildAccountUrl(AUTH_URL));
+    expect(response.headers.get("Location")).toBe(
+      buildAccountUrl({ authBaseUrl: AUTH_URL }),
+    );
   });
 });
 
@@ -2036,7 +2065,7 @@ describe("GET /auth/account/members", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe(
-      buildInviteMembersUrl({
+      buildMembersUrl({
         authBaseUrl: AUTH_URL,
         service: "taimei",
         returnTo: `${ORIGIN}/dashboard`,

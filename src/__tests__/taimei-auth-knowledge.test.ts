@@ -23,14 +23,12 @@ describe("auth を偽にする試験", () => {
   );
 });
 
-const TAIMEI_AUTH_CONTRACT = "src/taimei-auth-contract.ts";
+const TAIMEI_AUTH_HOST_TERMS =
+  /service_name|redirect_url|reason=|\/auth\/error|\/auth\/signup\/|AUTH_URL\}\/|"\/account|5 \* 60|300_000|\/rpc\b|cmp_/;
 
-const TAIMEI_AUTH_CONTRACT_TERMS =
-  /service_name|redirect_url|reason=|\/auth\/error|\/auth\/signup\/|AUTH_URL\}\/|"\/account|5 \* 60|300_000|\/rpc\b/;
-
-const srcFiles = execFileSync(
+const sourceFiles = execFileSync(
   "git",
-  ["ls-files", "--cached", "--others", "--exclude-standard", "src"],
+  ["ls-files", "--cached", "--others", "--exclude-standard", "src", "db"],
   { encoding: "utf8" },
 )
   .trim()
@@ -39,13 +37,12 @@ const srcFiles = execFileSync(
     (path) =>
       /\.tsx?$/.test(path) &&
       existsSync(path) &&
-      path !== TAIMEI_AUTH_CONTRACT &&
       path !== "src/__tests__/taimei-auth-knowledge.test.ts",
   );
 
-it.each(srcFiles)(
-  `%s は、taimei-auth の画面の URL・Magic Link の有効期限・RPC の path を書かず ${TAIMEI_AUTH_CONTRACT} から読む (taimei-auth が変えた時に直すのをその 1 file にする)`,
+it.each(sourceFiles)(
+  "%s は、taimei-auth の画面の URL・Magic Link の有効期限・RPC の path・事業所 id の形を書かず SDK から読む (taimei-auth が変えた時に SDK の版上げだけで済ませる)",
   (path) => {
-    expect(linesMatching(path, TAIMEI_AUTH_CONTRACT_TERMS)).toEqual([]);
+    expect(linesMatching(path, TAIMEI_AUTH_HOST_TERMS)).toEqual([]);
   },
 );

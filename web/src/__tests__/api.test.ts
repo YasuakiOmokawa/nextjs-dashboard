@@ -366,8 +366,8 @@ describe("API の共通の fetch", () => {
       "fetch",
       vi
         .fn<typeof globalThis.fetch>()
-        .mockResolvedValueOnce(meResponse("u_1", "cmp_a u_1"))
-        .mockResolvedValueOnce(meResponse("u_1", "cmp_b u_1")),
+        .mockResolvedValueOnce(meResponse("u_1", "company_a u_1"))
+        .mockResolvedValueOnce(meResponse("u_1", "company_b u_1")),
     );
 
     void (await readMeTwice(api)).second;
@@ -378,7 +378,7 @@ describe("API の共通の fetch", () => {
   it("最初に受けた session の印を、その後の要求に付けて送る", async () => {
     const api = await importApiWithNewModuleState();
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
-      meResponse("u_1", "cmp_a u_1"),
+      meResponse("u_1", "company_a u_1"),
     );
     vi.stubGlobal("fetch", fetch);
 
@@ -387,14 +387,14 @@ describe("API の共通の fetch", () => {
     const sentMarks = fetch.mock.calls.map(([, init]) =>
       new Headers(init?.headers).get("x-taimei-session"),
     );
-    expect(sentMarks).toEqual([null, "cmp_a u_1"]);
+    expect(sentMarks).toEqual([null, "company_a u_1"]);
   });
 
   it("session の値が同じなら、再読み込みしない", async () => {
     const api = await importApiWithNewModuleState();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => meResponse("u_1", "cmp_a u_1")),
+      vi.fn(async () => meResponse("u_1", "company_a u_1")),
     );
 
     await (await readMeTwice(api)).second;

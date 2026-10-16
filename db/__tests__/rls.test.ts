@@ -1,25 +1,23 @@
 import { count, eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
+import { COMPANY_A, COMPANY_B } from "@/src/services/__tests__/db/seed";
 import {
   switchToRoleWithoutRlsBypass,
   type TestDb,
   withRollback,
 } from "@/src/services/__tests__/db/test-db";
+import { CompanyId } from "../company-id";
 import {
   memberSkills,
   skills,
   teamAssignments,
   teams,
 } from "../drizzle/schema";
-import { CompanyId } from "../ids";
 import { withCompanyScope } from "../scoped";
 
 const scopedTables = { teams, skills, teamAssignments, memberSkills };
 
-const COMPANY_A = CompanyId.make("cmp_a");
-
-const seedCompany = async (tx: TestDb, unbrandedCompanyId: string) => {
-  const companyId = CompanyId.make(unbrandedCompanyId);
+const seedCompany = async (tx: TestDb, companyId: CompanyId) => {
   const [team] = await tx
     .insert(teams)
     .values({ companyId, name: `${companyId} のチーム` })
@@ -94,8 +92,8 @@ it("company_id を持つ表はすべて company_isolation の policy を持つ",
 describe("RLS (BYPASSRLS の無い role)", () => {
   it("app.company_id が無いと、4 つの表のどの行も見えない", () =>
     withRollback(async (tx) => {
-      await seedCompany(tx, "cmp_a");
-      await seedCompany(tx, "cmp_b");
+      await seedCompany(tx, COMPANY_A);
+      await seedCompany(tx, COMPANY_B);
       expect(await countRows(tx)).toEqual({
         teams: 2,
         skills: 2,
@@ -110,8 +108,8 @@ describe("RLS (BYPASSRLS の無い role)", () => {
 
   it("withCompanyScope の中では、4 つの表でその事業所の行だけが見える", () =>
     withRollback(async (tx) => {
-      await seedCompany(tx, "cmp_a");
-      await seedCompany(tx, "cmp_b");
+      await seedCompany(tx, COMPANY_A);
+      await seedCompany(tx, COMPANY_B);
       await switchToRoleWithoutRlsBypass(tx);
 
       const seen = await withCompanyScope(tx, COMPANY_A, async (scoped) => ({
@@ -123,7 +121,7 @@ describe("RLS (BYPASSRLS の無い role)", () => {
 
       expect(seen).toEqual({
         rows: oneRowPerTable,
-        companies: [{ companyId: "cmp_a" }],
+        companies: [{ companyId: COMPANY_A }],
       });
     }));
 
@@ -132,9 +130,10 @@ describe("RLS (BYPASSRLS の無い role)", () => {
       await switchToRoleWithoutRlsBypass(tx);
 
       const insertOtherCompany = withCompanyScope(tx, COMPANY_A, (scoped) =>
-        scoped
-          .insert(teams)
-          .values({ companyId: CompanyId.make("cmp_b"), name: "他社のチーム" }),
+        scoped.insert(teams).values({
+          companyId: COMPANY_B,
+          name: "他社のチーム",
+        }),
       );
 
       await expect(insertOtherCompany).rejects.toMatchObject({
@@ -144,7 +143,7 @@ describe("RLS (BYPASSRLS の無い role)", () => {
 
   it("withCompanyScope の中から、他社の行は UPDATE も DELETE もできない", () =>
     withRollback(async (tx) => {
-      const other = await seedCompany(tx, "cmp_b");
+      const other = await seedCompany(tx, COMPANY_B);
       await switchToRoleWithoutRlsBypass(tx);
 
       const changed = await withCompanyScope(tx, COMPANY_A, async (scoped) => ({
@@ -166,7 +165,7 @@ describe("RLS (BYPASSRLS の無い role)", () => {
 
   it("withCompanyScope の中から自社のチームを消すと、スキル・割り当て・評価も消える", () =>
     withRollback(async (tx) => {
-      const own = await seedCompany(tx, "cmp_a");
+      const own = await seedCompany(tx, COMPANY_A);
       expect(await countRows(tx)).toEqual(oneRowPerTable);
       await switchToRoleWithoutRlsBypass(tx);
 
@@ -181,15 +180,17 @@ describe("RLS (BYPASSRLS の無い role)", () => {
 
   it("company_ids_with_teams() は、どの事業所も設定しないまま全事業所の id を返す", () =>
     withRollback(async (tx) => {
-      await seedCompany(tx, "cmp_a");
-      await seedCompany(tx, "cmp_b");
+      await seedCompany(tx, COMPANY_A);
+      await seedCompany(tx, COMPANY_B);
       await switchToRoleWithoutRlsBypass(tx);
       expect(await countRows(tx)).toEqual(noRowsPerTable);
 
       const { rows } = await tx.execute<{ company_id: string }>(
-        sql`select company_id from company_ids_with_teams() as company_id order by 1`,
+        sql`select company_id from company_ids_with_teams() as company_id`,
       );
 
-      expect(rows.map((row) => row.company_id)).toEqual(["cmp_a", "cmp_b"]);
+      expect(rows.map((row) => row.company_id).sort()).toEqual(
+        [COMPANY_A, COMPANY_B].sort(),
+      );
     }));
 });

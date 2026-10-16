@@ -1,7 +1,7 @@
 import { and, inArray, lte, sql } from "drizzle-orm";
 import { Result } from "effect";
+import { CompanyId } from "@/db/company-id";
 import { teamAssignments, teams } from "@/db/drizzle/schema";
-import { CompanyId } from "@/db/ids";
 import { companyFilter, withCompanyScope } from "@/db/scoped";
 import {
   type CompanyTeamList,
