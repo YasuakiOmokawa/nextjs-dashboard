@@ -14,7 +14,7 @@ Neon の既定の role (project の作成時の owner と、console・CLI・API 
 
 - `teams`・`skills`・`team_assignments`・`member_skills` で RLS を有効にし、policy `company_isolation` を `company_id = current_setting('app.company_id', true)` で USING と WITH CHECK に置く (`drizzle/0009_enable_rls.sql`)。設定の無い接続では、どの行も一致しない
 - 書き込みの実行口 (`src/services/index.ts` の `runTeamService`・`runTeamManagement`) が 1 request の本体を transaction で包み、先頭で `set_config('app.company_id', <session の事業所>, true)` を流す (`db/scoped.ts` の `withCompanyScope`)。第 3 引数の true で値は transaction の中だけに効き、pool の接続に残らない。transaction を開けない時は reject せず `DbUnavailable` の失敗を返す
-- 画面の読み取りは transaction を開かず、DB の関数を呼ぶ 1 つの SQL 文で読む (`runTeamReads`、Workers 移行 #582)。関数が事業所を設定する仕組みと、関数の書き方は `db/CLAUDE.md`
+- 画面の読み取りは transaction を開かず、DB の関数を呼ぶ 1 つの SQL 文で読む (`runTeamReads`、Workers 移行 #582)。関数が事業所を設定する形は `db/__tests__/team-functions.test.ts` が見る
 - 書き込みの Service (`TeamService`・`TeamManagement`) は、その実行口が request ごとに transaction の `Db` で作る。transaction を開かない実行口の本体が `Db` を要求すると型エラーになる (`src/services/__tests__/index.test.ts`)
 - FORCE ROW LEVEL SECURITY は付けない。table owner (migration の role) は policy を通らず、migration と、FK の CASCADE が今までどおり動く
 - アプリ (Vercel の `DATABASE_URL`) は、SQL で作った BYPASSRLS の無い role `taimei_app` で接続する。migration (GitHub の secret の `DATABASE_URL`) は owner のまま
