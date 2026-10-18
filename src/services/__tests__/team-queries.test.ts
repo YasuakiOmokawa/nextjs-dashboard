@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { DatabaseError } from "pg";
 import { describe, expect, it } from "vitest";
 import {
@@ -16,6 +17,7 @@ import {
 } from "@/src/spa-contract";
 import { failureOfDbError } from "../failures";
 import { failureOfWrite, RLS_POLICY_VIOLATION } from "../team-queries";
+import { withRollback } from "./db/test-db";
 
 // drizzle は pg のエラーを cause に包む
 const writeError = (fields: {
@@ -75,6 +77,26 @@ describe("違反の名前で引く表", () => {
     },
   );
 });
+
+it("DB の名前付きの unique と FK は、FK の参照先の unique を除いて、どれも違反の名前で引く表にある (制約を足したら team-queries.ts の表に足す)", () =>
+  withRollback(async (tx) => {
+    const { rows } = await tx.execute<{ name: string; code: string }>(
+      sql`select conname as "name", case contype when 'u' then '23505' else '23503' end as "code" from pg_constraint where connamespace = 'public'::regnamespace and contype in ('u', 'f') and conname not in ('teams_id_company_id_unique', 'skills_id_team_id_company_id_unique') order by conname`,
+    );
+
+    expect(rows.length).toBeGreaterThan(0);
+    expect(
+      rows
+        .filter(({ name, code }) => {
+          const cause = writeError({ code, constraint: name });
+          return (
+            JSON.stringify(failureOfWrite(cause, [name as any], subject)) ===
+            JSON.stringify(failureOfDbError(cause))
+          );
+        })
+        .map(({ name }) => name),
+    ).toEqual([]);
+  }));
 
 describe("表で引けない違反は、予期しない失敗にする", () => {
   it.each([

@@ -35,5 +35,7 @@ async function waitForDb(maxRetries = 10, delayMs = 1000) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
-  throw new Error("Test database not available");
+  throw new Error(
+    "Test database not available: docker compose up -d test_db --wait で起こす",
+  );
 }
