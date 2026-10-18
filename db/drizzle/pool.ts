@@ -4,6 +4,7 @@ import { Pool, type PoolConfig } from "pg";
 // pg の Pool は idle の接続が切れると 'error' を emit し、listener が無いと uncaught exception で process が終了する
 const newPool = (config: PoolConfig) =>
   new Pool(config).on("error", (error) =>
+    // biome-ignore lint/plugin: 切れた idle の接続は Pool が作り直すので、失敗として報告しない
     console.error("pg の idle の接続が切れた", error),
   );
 

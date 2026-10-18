@@ -1,9 +1,9 @@
-// biome-ignore lint/style/noRestrictedImports: Sentry の SDK を使うのは Worker の入口だけ (src/lib/CLAUDE.md)
+// biome-ignore lint/style/noRestrictedImports: Sentry の SDK を使うのは Worker の入口だけ
 import * as Sentry from "@sentry/cloudflare";
 import { Effect } from "effect";
 import type { ExecutionContext } from "hono";
 import { db } from "@/db/drizzle/client";
-// biome-ignore lint/style/noRestrictedImports: 要求ごとの Pool を開くのは Worker の入口だけ (db/CLAUDE.md)
+// biome-ignore lint/style/noRestrictedImports: 要求ごとの Pool を開くのは Worker の入口だけ
 import { runWithRequestPool } from "@/db/drizzle/pool";
 import { purgeDeparted } from "@/src/lib/purge-departed";
 import { sendErrorReportsTo } from "@/src/lib/report-error";

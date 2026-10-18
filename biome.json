@@ -1,6 +1,10 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
-  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
   "files": {
     "ignoreUnknown": true,
     "includes": [
@@ -35,13 +39,17 @@
       "cssModules": true,
       "tailwindDirectives": true
     },
-    "linter": { "enabled": true }
+    "linter": {
+      "enabled": true
+    }
   },
   "linter": {
     "enabled": true,
     "rules": {
       "preset": "none",
-      "complexity": { "noUselessTypeConstraint": "error" },
+      "complexity": {
+        "noUselessTypeConstraint": "error"
+      },
       "correctness": {
         "noUnusedVariables": {
           "level": "warn",
@@ -61,7 +69,7 @@
             "patterns": [
               {
                 "group": ["**/drizzle/pool", "./pool"],
-                "message": "db/drizzle/pool は Worker の入口と db/drizzle/client.ts だけが使う (db/CLAUDE.md)"
+                "message": "要求ごとの Pool を開く db/drizzle/pool は Worker の入口 (src/worker.ts) と db/drizzle/client.ts だけが使う。query は db/drizzle/client.ts の db で書く"
               },
               {
                 "group": ["effect/http"],
@@ -74,11 +82,11 @@
                   "effect/reactivity",
                   "effect/reactivity/*"
                 ],
-                "message": "画面は web/src/api.ts の atom を useLoadedValue・useLoadFailure で読み、更新を useApiMutation で流す。Atom を直に使えるのは web/src/api.ts と、registry を組む web/src/router.tsx だけ (web/src/CLAUDE.md)"
+                "message": "画面は web/src/api.ts の atom を useLoadedValue・useLoadFailure で読み、更新を useApiMutation で流す。Atom を直に使えるのは web/src/api.ts と、registry を組む web/src/router.tsx だけ"
               },
               {
                 "group": ["@sentry/*"],
-                "message": "Sentry の SDK は Worker の入口 (src/worker.ts) だけが使う。報告は src/lib/report-error.ts の reportError (src/lib/CLAUDE.md)"
+                "message": "Sentry の SDK は Worker の入口 (src/worker.ts) だけが使う。報告は src/lib/report-error.ts の reportError"
               }
             ]
           }
@@ -119,7 +127,9 @@
       "includes": ["*.ts", "*.tsx", "*.mts", "*.cts"],
       "linter": {
         "rules": {
-          "complexity": { "noArguments": "error" },
+          "complexity": {
+            "noArguments": "error"
+          },
           "correctness": {
             "noConstAssign": "off",
             "noGlobalObjectCalls": "off",
@@ -130,7 +140,9 @@
             "noUnreachable": "off",
             "noUnreachableSuper": "off"
           },
-          "style": { "useConst": "error" },
+          "style": {
+            "useConst": "error"
+          },
           "suspicious": {
             "noClassAssign": "off",
             "noDuplicateClassMembers": "off",
@@ -150,6 +162,22 @@
   ],
   "assist": {
     "enabled": true,
-    "actions": { "source": { "organizeImports": "on" } }
-  }
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "plugins": [
+    "./biome-plugins/no-switch.grit",
+    {
+      "path": "./biome-plugins/report-through-report-error.grit",
+      "includes": [
+        "**/src/**",
+        "**/db/**",
+        "!**/__tests__/**",
+        "!**/src/lib/report-error.ts"
+      ]
+    }
+  ]
 }
