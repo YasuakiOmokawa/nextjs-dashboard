@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { COMPANY_ID_PATTERN } from "@taimei-code/auth-client";
 import { sql } from "drizzle-orm";
 import { Schema } from "effect";
@@ -46,3 +47,27 @@ it("company_id の列はどの表も、SDK の事業所 id の形で作った id
       ),
     ).toEqual([]);
   }));
+
+it("テストの外で CompanyId を作るのは、session を確かめる requestSessionOf と DB の行を読む purgeDeparted だけ (ほかの値は session か DB から受け取る)", () => {
+  const constructors = execFileSync(
+    "git",
+    [
+      "grep",
+      "--untracked",
+      "-l",
+      "-E",
+      "CompanyId\\.make|\\(CompanyId\\)",
+      "--",
+      "src",
+      "db",
+      "web/src",
+      ":!**/__tests__/**",
+      ":!*.md",
+    ],
+    { encoding: "utf8" },
+  )
+    .trim()
+    .split("\n");
+
+  expect(constructors).toEqual(["src/auth.ts", "src/lib/purge-departed.ts"]);
+});

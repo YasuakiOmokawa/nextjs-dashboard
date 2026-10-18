@@ -33,11 +33,13 @@ const replaceWithRlsOnlyVersion = async (tx: TestDb, name: string) => {
     sql`select pg_get_functiondef(${name}::regproc) as definition`,
   );
   const definition = rows[0].definition;
-  const filters = definition.match(EXPLICIT_COMPANY_FILTER) ?? [];
+  expect(
+    definition.match(EXPLICIT_COMPANY_FILTER),
+    `${name} の中の事業所の絞り込みは <別名>.company_id = p_company_id で書く`,
+  ).not.toBeNull();
   await tx.execute(
     sql.raw(definition.replace(EXPLICIT_COMPANY_FILTER, "TRUE")),
   );
-  return filters.length;
 };
 
 describe("明示の絞り込みを外しても、RLS だけで他社が見えない", () => {
@@ -45,12 +47,8 @@ describe("明示の絞り込みを外しても、RLS だけで他社が見えな
     withRollback(async (tx) => {
       const own = await seedTeam(tx, COMPANY_A, "A のチーム");
       const other = await seedTeam(tx, COMPANY_B, "B のチーム");
-      expect(
-        await replaceWithRlsOnlyVersion(tx, "team_matrix"),
-      ).toBeGreaterThan(0);
-      expect(
-        await replaceWithRlsOnlyVersion(tx, "team_visible_to"),
-      ).toBeGreaterThan(0);
+      await replaceWithRlsOnlyVersion(tx, "team_matrix");
+      await replaceWithRlsOnlyVersion(tx, "team_visible_to");
       await switchToRoleWithoutRlsBypass(tx);
 
       const matrixOf = async (teamId: string) => {
@@ -68,9 +66,7 @@ describe("明示の絞り込みを外しても、RLS だけで他社が見えな
     withRollback(async (tx) => {
       const own = await seedTeam(tx, COMPANY_A, "A のチーム");
       const other = await seedTeam(tx, COMPANY_B, "B のチーム");
-      expect(
-        await replaceWithRlsOnlyVersion(tx, "company_team_list"),
-      ).toBeGreaterThan(0);
+      await replaceWithRlsOnlyVersion(tx, "company_team_list");
       await switchToRoleWithoutRlsBypass(tx);
 
       for (const call of [
@@ -87,12 +83,8 @@ describe("明示の絞り込みを外しても、RLS だけで他社が見えな
     withRollback(async (tx) => {
       const own = await seedTeam(tx, COMPANY_A, "A のチーム");
       const other = await seedTeam(tx, COMPANY_B, "B のチーム");
-      expect(await replaceWithRlsOnlyVersion(tx, "team_list")).toBeGreaterThan(
-        0,
-      );
-      expect(
-        await replaceWithRlsOnlyVersion(tx, "team_visible_to"),
-      ).toBeGreaterThan(0);
+      await replaceWithRlsOnlyVersion(tx, "team_list");
+      await replaceWithRlsOnlyVersion(tx, "team_visible_to");
       await switchToRoleWithoutRlsBypass(tx);
 
       const { rows } = await tx.execute<{ teams: { id: string }[] }>(
@@ -198,3 +190,27 @@ describe("関数の set_config は、同じ接続の次の文に漏れない", (
     expect(await companySettingAfter(call)).toBeFalsy();
   });
 });
+
+it("事業所のデータを読む SQL の関数は、呼んだ文の中だけに事業所を設定し、呼んだ role の RLS で読む (例外は事業所をまたぐ定期処理の company_ids_with_teams と、呼ぶ側が設定する team_visible_to)", () =>
+  withRollback(async (tx) => {
+    const { rows } = await tx.execute<{
+      name: string;
+      securityDefiner: boolean;
+      definition: string;
+    }>(
+      sql`select proname as "name", prosecdef as "securityDefiner", pg_get_functiondef(oid) as "definition" from pg_proc where pronamespace = 'public'::regnamespace and proname not in ('company_ids_with_teams', 'team_visible_to') order by proname`,
+    );
+
+    expect(rows.length).toBeGreaterThan(0);
+    expect(
+      rows
+        .filter(
+          ({ securityDefiner, definition }) =>
+            securityDefiner ||
+            !definition.includes(
+              "set_config('app.company_id', p_company_id, true)",
+            ),
+        )
+        .map(({ name }) => name),
+    ).toEqual([]);
+  }));

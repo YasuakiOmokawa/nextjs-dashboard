@@ -49,7 +49,7 @@ taimei で今書ける間違いと、移した後に何が止めるか:
 - 7 点のほかに、レベルの記入の楽観的更新 (`web/src/api.ts` の `writeSavedMyLevels` が取り直さずに cache を書き換え、`web/src/dashboard/team-page.tsx` が保存中の値を表に出す) と、失敗の種類で分ける表示 (`team-page.tsx` の 404) の Atom での書き方も、prototype で確かめる。保つことは #605 の受け入れ条件が求める
 - このうち taimei-code/taimei-auth#269 で確かめたのは、loader と `beforeLoad` で atom を読むこと、atom の寿命 (購読が 0 になると registry から外れる) で、2〜7 は確かめていない (taimei-auth は先読みも、`web/index.html` の JS を待たない fetch も使わない)
 - #604 で保てない振る舞いがあれば、データ取得は TanStack Query のまま (#603 の形) にし、この ADR の Atom の部分を改める。API の契約の判断はそのまま残す
-- #604 の結果: 7 点と追加の 2 点は保てた (既存の e2e が spec を変えずに通った)。#605 で確定した。書き方は `web/src/CLAUDE.md`
+- #604 の結果: 7 点と追加の 2 点は保てた (既存の e2e が spec を変えずに通った)。#605 で確定した。書き方は `web/src/api.ts` と、`biome.json` の `noRestrictedImports` の文言
   - registry は `createAppRouter` が作る。`main.tsx` が描画の前に `router.load()` を呼ぶため
   - 古くした印 (`markStale`) は loader (`loadAtom`) だけが読む値として registry の外に持ち、回数で比べる。atom の結果からは「古くしたので取り直している」と「裏の取り直し」を区別できず (Query の `isInvalidated` にあたる区別)、印の前に始まった取得の値を新しい値として受けてしまうため
   - 画面の atom は購読が無くなっても 5 分残す。Query の既定の `gcTime` と同じ
@@ -128,7 +128,7 @@ API を呼ぶのは同じ repo で同時に build して配る SPA だけで、�
 
 - SPA の bundle に effect が入らない。API 層は安定版の Hono に乗り、taimei-auth と同じ構成で運用できる
 - `HttpApi` なら構造で止まった入力の検証と応答の項目の書き忘れが、lint (`biome-plugins/` の規則、#580) で止める形に下がる。lint は書き方の形だけを見るので穴がある。規則と、規則に当たらない書き方は `src/CLAUDE.md`
-- 型のまま保てるもの: path と method、成功の本文の型、宣言していない失敗を返さないこと、事業所のデータに session 無しで触れないこと (Service が `CompanyContext` を要求し、provide できるのは `src/services/index.ts` の実行口だけ。実行口の一覧は `src/services/CLAUDE.md`。ADR-0002)
+- 型のまま保てるもの: path と method、成功の本文の型、宣言していない失敗を返さないこと、事業所のデータに session 無しで触れないこと (Service が `CompanyContext` を要求し、provide できるのは `src/services/index.ts` の実行口だけ。ADR-0002)
 - どちらの方式でも型の外に残るもの: 認証の掛け忘れ (全 route を cookie 無しで叩くと 401 になるテストで止める) と、アプリの外の失敗 (Workers の打ち切り、network、本体の defect)
 - 認証の middleware は、session を見ない公開の route (`/auth*`) の後に全 path へ掛けるので、後から足した route にも掛かる。middleware より前に登録した route には掛からない (#580)
 - 次のどれかが起きたら、`HttpApi` か schema-first の契約を採り直す。決め手は規模 (行数) ではなく、呼び手の数と規則を守らせる相手の多さ

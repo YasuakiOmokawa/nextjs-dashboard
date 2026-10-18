@@ -1,0 +1,9 @@
+language js
+
+`console.$method($args)` where {
+  $method <: or {
+    `error`,
+    `warn`
+  },
+  register_diagnostic(span=$method, message="失敗の報告は src/lib/report-error.ts の reportError を通す (Sentry にも送られる)")
+}

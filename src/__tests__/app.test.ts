@@ -388,7 +388,7 @@ describe("全ての route の認証", () => {
   );
 
   it.each(nonPublicRoutes)(
-    "$method $path は session が無ければ 401",
+    "$method $path は session が無ければ 401 (session を見ない公開の口は PUBLIC_ENDPOINTS に書く)",
     async (route) => {
       const response = await requestApp(
         `${ORIGIN}${pathWithParamsFilled(route.path)}`,
@@ -443,7 +443,7 @@ describe("契約の endpoint", () => {
     );
   });
 
-  it("全ての endpoint に認証の middleware が掛かる", () => {
+  it("全ての endpoint に認証の middleware が掛かる (group は SpaApi の .middleware(Authenticated) より前に .add する)", () => {
     expect(
       endpoints
         .filter(({ middleware }) => !middleware.has(Authenticated))
@@ -537,7 +537,7 @@ describe("Worker に届く path", () => {
     expect(wranglerConfig.preview_urls).toBe(false);
   });
 
-  it("全ての route の path は run_worker_first に当たる", () => {
+  it("全ての route の path は wrangler.jsonc の run_worker_first に当たる (外れた path は Static Assets が index.html を返す)", () => {
     expect(
       routes
         .map((r) => r.path)
