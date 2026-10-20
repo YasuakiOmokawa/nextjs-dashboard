@@ -1,6 +1,6 @@
 # ADR-0003: e2e が使う taimei-auth を commit で固定し、Dependabot で週次に上げる
 
-- **Status**: Accepted
+- **Status**: Superseded by ADR-0009 (2026-10-20)
 - **実装**: submodule `vendor/taimei-auth` を taimei-auth `21ca282` に固定し、`e2e.yml` / `docker-compose.e2e.yml` / `.github/dependabot.yml` を切り替えた。Dependabot の secret への `NPM_TOKEN` の登録 (Consequences の前提条件) は未了
 - **Date**: 2026-09-24 (改訂 2026-10-15)
 - **References**: [taimei-code/taimei-auth#224](https://github.com/taimei-code/taimei-auth/pull/224) (契約違反の実例)、[taimei-code/taimei-auth#225](https://github.com/taimei-code/taimei-auth/pull/225) (契約 test)、taimei-auth の `docs/qa/manual-regression.md` QA-MR-09

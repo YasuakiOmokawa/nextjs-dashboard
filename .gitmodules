@@ -1,3 +1,0 @@
-[submodule "vendor/taimei-auth"]
-	path = vendor/taimei-auth
-	url = https://github.com/taimei-code/taimei-auth.git
