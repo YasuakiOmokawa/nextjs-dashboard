@@ -127,7 +127,6 @@ export const createApp = (authGuardOf: AuthGuardOf) => {
           await guardOfRequest(c).getSession(),
           c.env.AUTH_URL,
           originOf(c.req.url),
-          Date.now(),
         ),
       ),
     )

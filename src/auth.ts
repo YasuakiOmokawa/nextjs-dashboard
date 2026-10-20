@@ -13,8 +13,8 @@ import {
   createAuthGuard,
   createServiceKeyInterceptor,
   extractSessionTokenFromCookieHeader,
+  isJustSignedUp,
   type ListMembersResult,
-  MAGIC_LINK_EXPIRES_IN_SECONDS,
   type SessionData,
   type VerifyResult,
 } from "@taimei-code/auth-client";
@@ -160,18 +160,13 @@ export const afterSignInLocation = (
   return landing;
 };
 
-const NEW_USER_WINDOW_MS = MAGIC_LINK_EXPIRES_IN_SECONDS * 1000;
-
 export const afterSignUpLocation = (
   result: VerifyResult,
   authUrl: string,
   origin: string,
-  now: number,
 ) => {
   if (!result.ok) return signInFailedLocation(authUrl);
-  const createdAt = Date.parse(result.data.user.createdAt);
-  if (Number.isNaN(createdAt)) return signInFailedLocation(authUrl);
-  if (now - createdAt >= NEW_USER_WINDOW_MS)
+  if (!isJustSignedUp(result.data))
     return buildAuthErrorUrl({
       authBaseUrl: authUrl,
       reason: "signup_already_completed",
