@@ -1,0 +1,9 @@
+{
+  "name": "taimei-poc-neon",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-06-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "9da69e56a7a04a45af69f890b5d19637" }]
+}

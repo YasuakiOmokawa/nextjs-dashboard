@@ -1,0 +1,16 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "drizzle-orm": "0.45.2",
+    "effect": "4.0.0",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@neondatabase/serverless": "^1.2.0",
+    "drizzle-kit": "0.31.10",
+    "vitest": "4",
+    "wrangler": "4.100.0"
+  }
+}
