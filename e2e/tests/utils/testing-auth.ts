@@ -9,6 +9,7 @@ const APP_BASE_URL =
   process.env.APP_BASE_URL ?? "http://app.taimei-code.local:3001";
 export const AUTH_BASE_URL =
   process.env.AUTH_BASE_URL ?? "http://auth.taimei-code.local:3100";
+export const AFTER_SIGN_IN_URL = `${APP_BASE_URL}/auth/after-signin`;
 
 export const testing = createTestingClient(AUTH_BASE_URL);
 
@@ -19,7 +20,7 @@ export const createUser = ({
   testing.createSignedInUser({
     name,
     companies,
-    returnTo: `${APP_BASE_URL}/auth/after-signin`,
+    returnTo: AFTER_SIGN_IN_URL,
   });
 
 export const signIn = async (browser: Browser, user: SignedInUser) => {
