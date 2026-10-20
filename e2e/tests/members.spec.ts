@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { createTestUser, signInWithMagicLink } from "./utils/signIn";
+import { createUser, signIn } from "./utils/testing-auth";
 
 const openMembers = async (page: Page) => {
   await page.goto("/dashboard/members");
@@ -14,20 +14,20 @@ const inviteLink = (page: Page) =>
 test("自社のメンバーが出て、別の事業所の人は画面にも API にも出ない", async ({
   browser,
 }) => {
-  const otherCompanyEmail = await createTestUser();
-  const email = await createTestUser();
-  const context = await signInWithMagicLink(browser, email);
+  const otherCompany = await createUser();
+  const me = await createUser({ name: "E2E Test User" });
+  const context = await signIn(browser, me);
   const page = await context.newPage();
 
   await openMembers(page);
 
-  const ownRow = page.getByRole("row").filter({ hasText: email });
+  const ownRow = page.getByRole("row").filter({ hasText: me.email });
   await expect(ownRow).toContainText("E2E Test User");
   await expect(ownRow).toContainText("オーナー");
-  await expect(page.getByText(otherCompanyEmail)).toHaveCount(0);
+  await expect(page.getByText(otherCompany.email)).toHaveCount(0);
   const body = await (await context.request.get("/api/members")).text();
-  expect(body).toContain(email);
-  expect(body).not.toContain(otherCompanyEmail);
+  expect(body).toContain(me.email);
+  expect(body).not.toContain(otherCompany.email);
 
   await context.close();
 });
@@ -35,7 +35,7 @@ test("自社のメンバーが出て、別の事業所の人は画面にも API 
 test("header のメンバーからメンバー画面に移り、招待は taimei-auth を新しいタブで開く", async ({
   browser,
 }) => {
-  const context = await signInWithMagicLink(browser, await createTestUser());
+  const context = await signIn(browser, await createUser());
   const page = await context.newPage();
   await page.goto("/dashboard/teams");
 

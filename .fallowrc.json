@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/fallow/schema.json",
   "entry": ["web/src/main.tsx"],
-  "ignoreDependencies": ["pg", "@effect/tsgo"],
+  "ignoreDependencies": ["pg", "@effect/tsgo", "@taimei-code/auth-client"],
   "boundaries": {
     "zones": [
       {

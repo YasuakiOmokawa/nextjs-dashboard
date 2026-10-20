@@ -6,7 +6,6 @@ import {
   buildCompanySignupUrl,
   buildMembersUrl,
   type ListMembersResult,
-  MAGIC_LINK_EXPIRES_IN_SECONDS,
   type Member,
   Result,
   type SessionData,
@@ -200,7 +199,6 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.useRealTimers();
 });
 
 describe("/api の session", () => {
@@ -2019,26 +2017,17 @@ describe("/auth の着地", () => {
     );
   });
 
-  it("createdAt が日時でない after-signup は signin_failed", async () => {
+  it("作ったばかりの user (isJustSignedUp) の after-signup は /dashboard へ", async () => {
     const response = await get(
       "/auth/after-signup",
-      signedIn({ createdAt: "not a date" }),
+      signedIn({ createdAt: new Date().toISOString() }),
     );
 
-    expect(response.headers.get("Location")).toBe(
-      buildAuthErrorUrl({ authBaseUrl: AUTH_URL, reason: "signin_failed" }),
-    );
+    expect(response.headers.get("Location")).toBe(`${ORIGIN}/dashboard`);
   });
 
-  const createdAt = "2026-10-10T00:00:00.000Z";
-
-  it("Magic Link の有効期限ちょうど前に作られた user の after-signup は signup_already_completed", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(
-      Date.parse(createdAt) + MAGIC_LINK_EXPIRES_IN_SECONDS * 1000,
-    );
-
-    const response = await get("/auth/after-signup", signedIn({ createdAt }));
+  it("作ってから Magic Link の有効期限を過ぎた user (isJustSignedUp でない) の after-signup は signup_already_completed", async () => {
+    const response = await get("/auth/after-signup", signedIn());
 
     expect(response.headers.get("Location")).toBe(
       buildAuthErrorUrl({
@@ -2046,17 +2035,6 @@ describe("/auth の着地", () => {
         reason: "signup_already_completed",
       }),
     );
-  });
-
-  it("Magic Link の有効期限より 1 ms 新しい user の after-signup は /dashboard へ", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(
-      Date.parse(createdAt) + MAGIC_LINK_EXPIRES_IN_SECONDS * 1000 - 1,
-    );
-
-    const response = await get("/auth/after-signup", signedIn({ createdAt }));
-
-    expect(response.headers.get("Location")).toBe(`${ORIGIN}/dashboard`);
   });
 
   it("/auth/account は taimei-auth の /account へ", async () => {

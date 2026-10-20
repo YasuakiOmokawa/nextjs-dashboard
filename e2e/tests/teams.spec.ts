@@ -7,33 +7,34 @@ import {
   type Route,
   test,
 } from "@playwright/test";
-import { eq } from "drizzle-orm";
 import {
   assignMember,
   insertLevel,
   insertSkill,
   insertTeam,
 } from "../db/app-client";
-import { authDb } from "../db/auth-client";
-import { user } from "../db/auth-schema";
-import { uniqueCompanyId } from "./utils/company-id";
-import {
-  AUTH_BASE_URL,
-  createTestUser,
-  provisionCompanyForUser,
-  signInWithMagicLink,
-} from "./utils/signIn";
+import { createUser, signIn, testing } from "./utils/testing-auth";
 
-const userIdOf = async (email: string) => {
-  const [row] = await authDb
-    .select({ id: user.id })
-    .from(user)
-    .where(eq(user.email, email));
-  return row.id;
+const otherCompanyId = async () => (await createUser()).companyIds[0];
+
+const colleagueOf = async (
+  context: BrowserContext,
+  teamId: string,
+  myId: string,
+) => {
+  const response = await context.request.get(`/api/teams/${teamId}`);
+  if (!response.ok())
+    throw new Error(`GET /api/teams/${teamId} が ${response.status()}`);
+  const { members } = await response.json();
+  const colleague: { userId: string; name: string } | undefined = members?.find(
+    (member: { userId: string }) => member.userId !== myId,
+  );
+  if (!colleague)
+    throw new Error(
+      "同じ事業所に自分以外のメンバーがいない (testing API は OWNER 以外の role の事業所に別の OWNER を入れる)",
+    );
+  return colleague;
 };
-
-const setUserName = (userId: string, name: string) =>
-  authDb.update(user).set({ name }).where(eq(user.id, userId));
 
 const matrixRowOf = (page: Page, name: string) =>
   page.getByRole("row").filter({ hasText: name });
@@ -49,27 +50,15 @@ const openTeams = async (page: Page) => {
   ).toBeVisible();
 };
 
-const switchCompany = async (context: BrowserContext, companyId: string) => {
-  const response = await context.request.post(
-    `${AUTH_BASE_URL}/api/account/current-company`,
-    { data: { company_id: companyId }, headers: { Origin: AUTH_BASE_URL } },
-  );
-  expect(response.status()).toBe(200);
-};
-
 test("自社のチームが一覧に出て、他の事業所のチームは画面にも API にも出ない", async ({
   browser,
 }) => {
-  const companyA = uniqueCompanyId("a");
-  const companyB = uniqueCompanyId("b");
+  const me = await createUser();
   const teamA = `A のチーム ${crypto.randomUUID()}`;
   const teamB = `B のチーム ${crypto.randomUUID()}`;
-  const teamAId = await insertTeam(companyA, teamA);
-  const teamBId = await insertTeam(companyB, teamB);
-  const context = await signInWithMagicLink(
-    browser,
-    await createTestUser({ companyId: companyA }),
-  );
+  const teamAId = await insertTeam(me.companyIds[0], teamA);
+  const teamBId = await insertTeam(await otherCompanyId(), teamB);
+  const context = await signIn(browser, me);
   const page = await context.newPage();
 
   await openTeams(page);
@@ -89,20 +78,20 @@ test("自社のチームが一覧に出て、他の事業所のチームは画�
 test("事業所を切り替えると、SPA の中の移動で受けた応答の session の変化で再読み込みし、切り替えた先の事業所のチームだけが出る (ADR-0004 の場面 5)", async ({
   browser,
 }) => {
-  const companyA = uniqueCompanyId("a");
-  const companyB = uniqueCompanyId("b");
+  const me = await createUser({
+    companies: [{ role: "OWNER" }, { role: "OWNER" }],
+  });
+  const [companyA, companyB] = me.companyIds;
   const teamA = `A のチーム ${crypto.randomUUID()}`;
   const teamB = `B のチーム ${crypto.randomUUID()}`;
   await insertTeam(companyA, teamA);
   await insertTeam(companyB, teamB);
-  const email = await createTestUser({ companyId: companyB });
-  await provisionCompanyForUser(await userIdOf(email), { companyId: companyA });
-  const context = await signInWithMagicLink(browser, email);
+  const context = await signIn(browser, me);
   const page = await context.newPage();
   await openTeams(page);
   await expect(teamItem(page, teamA)).toHaveCount(1);
 
-  await switchCompany(context, companyB);
+  await testing.setCurrentCompany({ userId: me.userId, companyId: companyB });
   const reloadedBySessionChange = page.waitForEvent("load");
   await page.getByRole("link", { name: "チーム", exact: true }).click();
   await reloadedBySessionChange;
@@ -116,17 +105,17 @@ test("事業所を切り替えると、SPA の中の移動で受けた応答の 
 test("別のタブで事業所を切り替えた後に古いタブでチームを作っても、切り替えた先の事業所に作らず再読み込みする", async ({
   browser,
 }) => {
-  const companyA = uniqueCompanyId("a");
-  const companyB = uniqueCompanyId("b");
+  const me = await createUser({
+    companies: [{ role: "OWNER" }, { role: "OWNER" }],
+  });
+  const companyB = me.companyIds[1];
   const teamB = `B のチーム ${crypto.randomUUID()}`;
   await insertTeam(companyB, teamB);
-  const email = await createTestUser({ companyId: companyB });
-  await provisionCompanyForUser(await userIdOf(email), { companyId: companyA });
-  const context = await signInWithMagicLink(browser, email);
+  const context = await signIn(browser, me);
   const page = await context.newPage();
   await openTeams(page);
   await expect(teamItem(page, teamB)).toHaveCount(0);
-  await switchCompany(context, companyB);
+  await testing.setCurrentCompany({ userId: me.userId, companyId: companyB });
   const notCreated = `作らないチーム ${crypto.randomUUID()}`;
 
   const reloadedBySessionChange = page.waitForEvent("load");
@@ -145,26 +134,21 @@ test("別のタブで事業所を切り替えた後に古いタブでチーム�
 test("割り当てられたメンバーは一覧からチームを開き、自分と同僚の記入を星取表で見られる", async ({
   browser,
 }) => {
-  const companyId = uniqueCompanyId("m");
   const teamName = `開発 ${crypto.randomUUID()}`;
   const myName = `自分 ${crypto.randomUUID()}`;
-  const colleagueName = `同僚 ${crypto.randomUUID()}`;
-  const myEmail = await createTestUser({ companyId, role: "MEMBER" });
-  const colleagueEmail = await createTestUser({ companyId, role: "ADMIN" });
-  const myId = await userIdOf(myEmail);
-  const colleagueId = await userIdOf(colleagueEmail);
-  await setUserName(myId, myName);
-  await setUserName(colleagueId, colleagueName);
+  const me = await createUser({
+    companies: [{ role: "MEMBER" }],
+    name: myName,
+  });
+  const companyId = me.companyIds[0];
   const teamId = await insertTeam(companyId, teamName);
   const skillId = await insertSkill(companyId, teamId, "設計");
-  for (const [userId, level] of [
-    [myId, 2],
-    [colleagueId, 3],
-  ] as const) {
-    await assignMember(companyId, teamId, userId);
-    await insertLevel(companyId, teamId, skillId, userId, level);
-  }
-  const context = await signInWithMagicLink(browser, myEmail);
+  await assignMember(companyId, teamId, me.userId);
+  const context = await signIn(browser, me);
+  const colleague = await colleagueOf(context, teamId, me.userId);
+  await assignMember(companyId, teamId, colleague.userId);
+  await insertLevel(companyId, teamId, skillId, me.userId, 2);
+  await insertLevel(companyId, teamId, skillId, colleague.userId, 3);
   const page = await context.newPage();
   await openTeams(page);
 
@@ -173,22 +157,23 @@ test("割り当てられたメンバーは一覧からチームを開き、自�
   await expect(page).toHaveURL(new RegExp(`/dashboard/teams/${teamId}$`));
   await expect(page.getByRole("heading", { name: teamName })).toBeVisible();
   await expect(matrixRowOf(page, myName)).toContainText("○");
-  await expect(matrixRowOf(page, colleagueName)).toContainText("◎");
+  await expect(matrixRowOf(page, colleague.name)).toContainText("◎");
 
   await context.close();
 });
 
 const openMyTeamWithLevel = async (browser: Browser, level: number) => {
-  const companyId = uniqueCompanyId("l");
   const myName = `自分 ${crypto.randomUUID()}`;
-  const myEmail = await createTestUser({ companyId, role: "MEMBER" });
-  const myId = await userIdOf(myEmail);
-  await setUserName(myId, myName);
+  const me = await createUser({
+    companies: [{ role: "MEMBER" }],
+    name: myName,
+  });
+  const companyId = me.companyIds[0];
   const teamId = await insertTeam(companyId, `開発 ${crypto.randomUUID()}`);
   const skillId = await insertSkill(companyId, teamId, "設計");
-  await assignMember(companyId, teamId, myId);
-  await insertLevel(companyId, teamId, skillId, myId, level);
-  const context = await signInWithMagicLink(browser, myEmail);
+  await assignMember(companyId, teamId, me.userId);
+  await insertLevel(companyId, teamId, skillId, me.userId, level);
+  const context = await signIn(browser, me);
   const page = await context.newPage();
   await page.goto(`/dashboard/teams/${teamId}`);
   await expect(
@@ -298,13 +283,11 @@ const STALE_LIST_WOULD_RENDER_WITHIN_MS = 500;
 test("管理者は一覧でチームを作り、チームの画面で名前を変え、確認の後に消せて、消した後は一覧の取り直しを待つ間も消す前の一覧を出さない", async ({
   browser,
 }) => {
-  const companyId = uniqueCompanyId("g");
+  const me = await createUser();
+  const companyId = me.companyIds[0];
   const existingName = `既存 ${crypto.randomUUID()}`;
   await insertTeam(companyId, existingName);
-  const context = await signInWithMagicLink(
-    browser,
-    await createTestUser({ companyId }),
-  );
+  const context = await signIn(browser, me);
   const page = await context.newPage();
   const deleteRequests: string[] = [];
   page.on("request", (request) => {
@@ -413,14 +396,12 @@ test("管理者は一覧でチームを作り、チームの画面で名前を�
 test("チームの名前を変えた後の一覧は、取り直しを待つ間も変える前の名前を出さない", async ({
   browser,
 }) => {
-  const companyId = uniqueCompanyId("r");
+  const me = await createUser();
+  const companyId = me.companyIds[0];
   const before = `変える前 ${crypto.randomUUID()}`;
   const after = `変えた後 ${crypto.randomUUID()}`;
   const teamId = await insertTeam(companyId, before);
-  const context = await signInWithMagicLink(
-    browser,
-    await createTestUser({ companyId }),
-  );
+  const context = await signIn(browser, me);
   const page = await context.newPage();
   await openTeams(page);
   await teamItem(page, before).click();
@@ -448,14 +429,13 @@ test("チームの名前を変えた後の一覧は、取り直しを待つ間�
 test("メンバーにはチームの管理の部品が出ず、API を直に呼んでも 403 で、チームは変わらない", async ({
   browser,
 }) => {
-  const companyId = uniqueCompanyId("n");
   const teamName = `開発 ${crypto.randomUUID()}`;
-  const email = await createTestUser({ companyId, role: "MEMBER" });
+  const me = await createUser({ companies: [{ role: "MEMBER" }] });
+  const companyId = me.companyIds[0];
   const teamId = await insertTeam(companyId, teamName);
   const skillId = await insertSkill(companyId, teamId, "設計");
-  const myId = await userIdOf(email);
-  await assignMember(companyId, teamId, myId);
-  const context = await signInWithMagicLink(browser, email);
+  await assignMember(companyId, teamId, me.userId);
+  const context = await signIn(browser, me);
   const page = await context.newPage();
   await openTeams(page);
 
@@ -495,12 +475,15 @@ test("メンバーにはチームの管理の部品が出ず、API を直に呼�
       headers,
     }),
     await context.request.delete(`/api/skills/${skillId}`, { headers }),
-    await context.request.put(`/api/teams/${teamId}/assignments/${myId}`, {
+    await context.request.put(`/api/teams/${teamId}/assignments/${me.userId}`, {
       headers,
     }),
-    await context.request.delete(`/api/teams/${teamId}/assignments/${myId}`, {
-      headers,
-    }),
+    await context.request.delete(
+      `/api/teams/${teamId}/assignments/${me.userId}`,
+      {
+        headers,
+      },
+    ),
   ]) {
     expect(response.status()).toBe(403);
     expect((await response.json())._tag).toBe("NotManager");
@@ -512,7 +495,7 @@ test("メンバーにはチームの管理の部品が出ず、API を直に呼�
   const { team } = await teamAfterRejectedRequests.json();
   expect(team.name).toBe(teamName);
   expect(team.skills).toEqual([{ id: skillId, name: "設計" }]);
-  expect(team.assignedUserIds).toEqual([myId]);
+  expect(team.assignedUserIds).toEqual([me.userId]);
 
   await context.close();
 });
@@ -526,34 +509,23 @@ const nextDialog = (page: Page, answer: "accept" | "dismiss") => {
   return message.promise;
 };
 
-const createNamedUser = async (
-  companyId: string,
-  role: "OWNER" | "MEMBER",
-  label: string,
-) => {
-  const email = await createTestUser({ companyId, role });
-  const id = await userIdOf(email);
-  const name = `${label} ${crypto.randomUUID()}`;
-  await setUserName(id, name);
-  return { email, id, name };
-};
-
 test("管理者はチームの画面でスキルを足し・消し、メンバーを割り当て・外せる", async ({
   browser,
 }) => {
-  const companyId = uniqueCompanyId("k");
   const teamName = `開発 ${crypto.randomUUID()}`;
-  const [owner, assigned, candidate] = await Promise.all([
-    createNamedUser(companyId, "OWNER", "管理者"),
-    createNamedUser(companyId, "MEMBER", "割り当て済み"),
-    createNamedUser(companyId, "MEMBER", "候補"),
-  ]);
+  const candidateName = `候補 ${crypto.randomUUID()}`;
+  const candidate = await createUser({
+    companies: [{ role: "ADMIN" }],
+    name: candidateName,
+  });
+  const companyId = candidate.companyIds[0];
   const departedId = `departed-${crypto.randomUUID()}`;
   const teamId = await insertTeam(companyId, teamName);
   await insertSkill(companyId, teamId, "設計");
-  await assignMember(companyId, teamId, assigned.id);
   await assignMember(companyId, teamId, departedId);
-  const context = await signInWithMagicLink(browser, owner.email);
+  const context = await signIn(browser, candidate);
+  const assigned = await colleagueOf(context, teamId, candidate.userId);
+  await assignMember(companyId, teamId, assigned.userId);
   const page = await context.newPage();
   await page.goto(`/dashboard/teams/${teamId}`);
   await expect(teamTitle(page, teamName)).toBeVisible();
@@ -564,19 +536,12 @@ test("管理者はチームの画面でスキルを足し・消し、メンバ�
   const memberSelect = page.getByLabel("割り当てるメンバー");
 
   const options = memberSelect.locator("option");
-  await expect(options).toHaveCount(2);
+  await expect(options).toHaveCount(1);
   expect(
     await options.evaluateAll((elements) =>
-      elements
-        .map((e) => [e.textContent, (e as HTMLOptionElement).value])
-        .sort(),
+      elements.map((e) => [e.textContent, (e as HTMLOptionElement).value]),
     ),
-  ).toEqual(
-    [
-      [owner.name, owner.id],
-      [candidate.name, candidate.id],
-    ].sort(),
-  );
+  ).toEqual([[candidateName, candidate.userId]]);
 
   await skillName.fill("実装");
   await addSkillButton.click();
@@ -589,18 +554,18 @@ test("管理者はチームの画面でスキルを足し・消し、メンバ�
 
   await expect(page.getByRole("alert")).toHaveText("同じ名前がすでにあります");
 
-  await memberSelect.selectOption(candidate.id);
+  await memberSelect.selectOption(candidate.userId);
   await page.getByRole("button", { name: "割り当てる" }).click();
 
-  await expect(matrixRowOf(page, candidate.name)).toBeVisible();
+  await expect(matrixRowOf(page, candidateName)).toBeVisible();
 
   const unassignMessage = nextDialog(page, "accept");
-  await page.getByRole("button", { name: `${candidate.name} を外す` }).click();
+  await page.getByRole("button", { name: `${candidateName} を外す` }).click();
 
   expect(await unassignMessage).toBe(
-    `${candidate.name} をこのチームから外します。このチームに記入したレベルも消え、元に戻せません。`,
+    `${candidateName} をこのチームから外します。このチームに記入したレベルも消え、元に戻せません。`,
   );
-  await expect(matrixRowOf(page, candidate.name)).toHaveCount(0);
+  await expect(matrixRowOf(page, candidateName)).toHaveCount(0);
 
   const removeSkill = page.getByRole("button", { name: "実装 を削除" });
   const dismissedMessage = nextDialog(page, "dismiss");
@@ -633,12 +598,12 @@ test("管理者はチームの画面でスキルを足し・消し、メンバ�
 test("メンバー一覧が取れないと、管理者にも割り当ての部品を出さず、その旨を出す", async ({
   browser,
 }) => {
-  const companyId = uniqueCompanyId("u");
-  const email = await createTestUser({ companyId });
+  const me = await createUser();
+  const companyId = me.companyIds[0];
   const teamName = `開発 ${crypto.randomUUID()}`;
   const teamId = await insertTeam(companyId, teamName);
-  await assignMember(companyId, teamId, await userIdOf(email));
-  const context = await signInWithMagicLink(browser, email);
+  await assignMember(companyId, teamId, me.userId);
+  const context = await signIn(browser, me);
   const page = await context.newPage();
   await page.route(`**/api/teams/${teamId}`, async (route) => {
     const response = await route.fetch();
@@ -681,13 +646,11 @@ const collectApiRequests = (page: Page) => {
 test("最初の表示では、JS を待たずに始めた API の応答を SPA が使い、画面の API を 1 回ずつしか呼ばない", async ({
   browser,
 }) => {
-  const companyId = uniqueCompanyId("e");
+  const me = await createUser();
+  const companyId = me.companyIds[0];
   const teamName = `開発 ${crypto.randomUUID()}`;
   const teamId = await insertTeam(companyId, teamName);
-  const context = await signInWithMagicLink(
-    browser,
-    await createTestUser({ companyId }),
-  );
+  const context = await signIn(browser, me);
 
   const listPage = await context.newPage();
   const list = collectApiRequests(listPage);
@@ -711,13 +674,11 @@ test("最初の表示では、JS を待たずに始めた API の応答を SPA �
 test("チームの link にカーソルを乗せると先読みし、click で取り直さずにチームの画面を出す", async ({
   browser,
 }) => {
-  const companyId = uniqueCompanyId("h");
+  const me = await createUser();
+  const companyId = me.companyIds[0];
   const teamName = `開発 ${crypto.randomUUID()}`;
   const teamId = await insertTeam(companyId, teamName);
-  const context = await signInWithMagicLink(
-    browser,
-    await createTestUser({ companyId }),
-  );
+  const context = await signIn(browser, me);
   const page = await context.newPage();
   await openTeams(page);
   const { countOf } = collectApiRequests(page);
@@ -741,13 +702,11 @@ const FASTER_THAN_ROUTER_DEFAULT_PENDING_MS = 500;
 test("2 回目の一覧は、取り直しの応答を待たずに前に見た一覧を出す", async ({
   browser,
 }) => {
-  const companyId = uniqueCompanyId("c");
+  const me = await createUser();
+  const companyId = me.companyIds[0];
   const teamName = `開発 ${crypto.randomUUID()}`;
   await insertTeam(companyId, teamName);
-  const context = await signInWithMagicLink(
-    browser,
-    await createTestUser({ companyId }),
-  );
+  const context = await signIn(browser, me);
   const page = await context.newPage();
   await openTeams(page);
   await teamItem(page, teamName).click();
@@ -770,10 +729,10 @@ test("他の事業所のチームの URL を開いても、見つからないと
   browser,
 }) => {
   const otherTeamId = await insertTeam(
-    uniqueCompanyId("b"),
+    await otherCompanyId(),
     `B のチーム ${crypto.randomUUID()}`,
   );
-  const context = await signInWithMagicLink(browser, await createTestUser());
+  const context = await signIn(browser, await createUser());
   const page = await context.newPage();
 
   await page.goto(`/dashboard/teams/${otherTeamId}`);
@@ -789,7 +748,7 @@ test("他の事業所のチームの URL を開いても、見つからないと
 test("header の設定は taimei-auth の設定を新しいタブで開く", async ({
   browser,
 }) => {
-  const context = await signInWithMagicLink(browser, await createTestUser());
+  const context = await signIn(browser, await createUser());
   const page = await context.newPage();
   await openTeams(page);
 
@@ -807,7 +766,7 @@ test("header の設定は taimei-auth の設定を新しいタブで開く", asy
 test("チームの無い事業所の管理者には、チームを作る案内を出す", async ({
   browser,
 }) => {
-  const context = await signInWithMagicLink(browser, await createTestUser());
+  const context = await signIn(browser, await createUser());
   const page = await context.newPage();
 
   await openTeams(page);
@@ -824,9 +783,9 @@ test("チームの無い事業所の管理者には、チームを作る案内�
 test("どのチームにも割り当てられていないメンバーには、割り当てを頼む案内を出す", async ({
   browser,
 }) => {
-  const context = await signInWithMagicLink(
+  const context = await signIn(
     browser,
-    await createTestUser({ role: "MEMBER" }),
+    await createUser({ companies: [{ role: "MEMBER" }] }),
   );
   const page = await context.newPage();
 
@@ -842,7 +801,7 @@ test("どのチームにも割り当てられていないメンバーには、�
 });
 
 test("チームを取得できないときは、その旨を出す", async ({ browser }) => {
-  const context = await signInWithMagicLink(browser, await createTestUser());
+  const context = await signIn(browser, await createUser());
   const page = await context.newPage();
   await page.route("**/api/teams", (route) => route.fulfill({ status: 500 }));
 
@@ -853,9 +812,8 @@ test("チームを取得できないときは、その旨を出す", async ({ br
   await context.close();
 });
 
-// index.html の inline script は動かし、SPA の JS (/assets/*.js) だけを止めて、JS が描く前の表示を見る
 test("自分の情報を取得できないときは、その旨を出す", async ({ browser }) => {
-  const context = await signInWithMagicLink(browser, await createTestUser());
+  const context = await signIn(browser, await createUser());
   const page = await context.newPage();
   await page.route("**/api/me", (route) =>
     route.fulfill({ status: 500, body: "Internal Server Error" }),
