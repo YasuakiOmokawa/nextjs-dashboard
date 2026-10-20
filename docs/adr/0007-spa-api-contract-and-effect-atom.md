@@ -2,7 +2,7 @@
 
 - **Status**: Accepted (2026-10-10)。2026-10-12 に改訂した (#602)。#603〜#605 で移した。データ取得を Atom にする部分は #604 の prototype の結果で、#605 で確定した (2026-10-13)
 - **Date**: 2026-10-10 (改訂 2026-10-12)
-- **References**: ADR-0002 (事業所のデータに session 無しで触れない)、ADR-0006 (Static Assets の SPA と Worker)、taimei-auth の ADR-0017 (`vendor/taimei-auth/docs/adr/0017-effect-v4-full-adoption.md` の「web への拡大」「SPA の API 契約」)
+- **References**: ADR-0002 (事業所のデータに session 無しで触れない)、ADR-0006 (Static Assets の SPA と Worker)、taimei-auth の ADR-0017 (https://github.com/taimei-code/taimei-auth/blob/main/docs/adr/0017-effect-v4-full-adoption.md の「web への拡大」「SPA の API 契約」)
 
 ## Context
 

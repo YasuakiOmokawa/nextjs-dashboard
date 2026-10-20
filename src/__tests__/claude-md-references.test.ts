@@ -12,9 +12,7 @@ const git = (...args: string[]) =>
 
 const trackedPaths = git("ls-files");
 
-const claudeMdFiles = trackedPaths.filter(
-  (path) => path.endsWith("CLAUDE.md") && !path.startsWith("vendor/"),
-);
+const claudeMdFiles = trackedPaths.filter((path) => path.endsWith("CLAUDE.md"));
 
 const quotedTokensOf = (path: string) =>
   [...readFileSync(path, "utf8").matchAll(/`([^`\n]+)`/g)].map(

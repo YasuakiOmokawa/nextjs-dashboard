@@ -55,5 +55,5 @@
     ]
   },
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", "e2e", "vendor", "web"]
+  "exclude": ["node_modules", "e2e", "web"]
 }

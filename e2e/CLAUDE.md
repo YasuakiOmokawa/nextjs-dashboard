@@ -11,7 +11,7 @@ E2E は認証など、壊れたら致命的な導線だけに書く。次の 2 �
 
 - `NPM_TOKEN` は `$(/opt/homebrew/bin/gh auth token)` で渡す。ghtkn の token では `@taimei-code/auth-client` の取得が 403 になる
 - build は ignore された `certs/*.pem` (社内 CA) を使うので、git worktree では `npm ci` が証明書のエラーで落ちる。e2e は pem のある main の tree で流す (worktree の変更は `git stash -u` で移す)
-- `vendor/taimei-auth` を上げる時の PR の分け方は ADR-0003
+- taimei-auth の版は root の SDK の版で固定する (ADR-0009)
 
 ## 手元で taimei と taimei-auth を配信する (/qa-ui)
 

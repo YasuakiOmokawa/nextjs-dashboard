@@ -12,8 +12,6 @@ LICENSE
 web/dist
 *.swp
 
-/vendor
-
 # e2e tests
 /e2e
 

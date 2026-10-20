@@ -2,7 +2,8 @@
 
 ## 前提
 
-- 親ディレクトリに `taimei-auth` を clone (開発環境用。e2e は submodule の `vendor/taimei-auth` を使うので、先に `git submodule update --init` を実行する)
+- 親ディレクトリに `taimei-auth` を clone (開発環境用)
+- e2e は、root での `bun install` と `docker login ghcr.io` が要る (手順は `e2e/README.md` の「前提」)
 - `/etc/hosts` に `127.0.0.1 app.taimei-code.local auth.taimei-code.local`
 - `.env` に `NPM_TOKEN=<read:packages 権限の GitHub PAT>` (`@taimei-code/auth-client` の取得用)
 - port 3001 / 3100 / 5433 / 5434 / 5435 が空いていること

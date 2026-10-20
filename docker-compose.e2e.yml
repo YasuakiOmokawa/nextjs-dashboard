@@ -1,20 +1,11 @@
+include:
+  - path: ./node_modules/@taimei-code/auth-client/testing/compose.yml
+    env_file: ./e2e/taimei-auth.env
+
 volumes:
   pg-data:
-  auth-pg-data:
-
-# 同一 network 内で network alias によりコンテナ名と独立した DNS 名を提供。
-# - app.taimei-code.local → e2e-application (taimei, port 3001)
-# - auth.taimei-code.local → e2e-auth-service (taimei-auth, port 3100)
-# Playwright コンテナのブラウザは同 network 内の DNS を解決できるため、
-# extra_hosts は不要。production と同じ host pattern (.taimei-code.com) で
-# Cookie domain (.taimei-code.local) を共有可能 (cross-subdomain SSO)。
-networks:
-  e2e-network:
-    name: e2e-network
-    driver: bridge
 
 services:
-  # taimei 用 DB
   e2e-postgres:
     image: postgres:16.8-alpine3.21
     volumes:
@@ -30,58 +21,7 @@ services:
       interval: 3s
       timeout: 3s
       retries: 5
-    networks:
-      - e2e-network
 
-  # taimei-auth (認証サーバー) 用 DB — Better Auth が利用
-  e2e-auth-postgres:
-    image: postgres:16.8-alpine3.21
-    volumes:
-      - auth-pg-data:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_DB=auth
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
-      - PGPORT=5435
-    healthcheck:
-      test: pg_isready -U postgres -d auth
-      interval: 3s
-      timeout: 3s
-      retries: 5
-    networks:
-      - e2e-network
-
-  # taimei-auth (認証サーバー, Hono + Bun) — submodule で commit に固定したものを build する (docs/adr/0003)。
-  e2e-auth-service:
-    build:
-      context: './vendor/taimei-auth'
-      dockerfile: Dockerfile
-      # target を明示する理由: 既定 target (最終 stage) 頼みだと taimei-auth 側の stage 追加で
-      # silent に別 image を掴む。e2e に必要な full toolchain (drizzle-kit) + web/dist は
-      # dev stage (詳細: taimei-auth の docs/adr/0014-docker-runner-dev-stage-separation.md)。
-      target: dev
-      args:
-        APP_ENV: test
-    command: >
-      sh -c "bun run db:migrate && bun run db:migrate-manual && bun run src/index.ts"
-    environment:
-      - PORT=3100
-      - DATABASE_URL=postgres://postgres:password@e2e-auth-postgres:5435/auth
-      - AUTH_SERVICE_URL=http://auth.taimei-code.local:3100
-      - AUTH_COOKIE_DOMAIN=taimei-code.local
-      - AUTH_TRUSTED_ORIGINS=http://app.taimei-code.local:3001,http://auth.taimei-code.local:3100
-      - APP_ENV=test
-      - APP_NAME=taimei
-      - AUTH_SECRET=test-secret-for-e2e-testing-32chars
-    depends_on:
-      e2e-auth-postgres:
-        condition: service_healthy
-    networks:
-      e2e-network:
-        aliases:
-          - auth.taimei-code.local
-
-  # taimei (build 済みの SPA と Worker を wrangler dev で配る)
   e2e-application:
     build:
       context: '.'
@@ -107,14 +47,13 @@ services:
     depends_on:
       e2e-postgres:
         condition: service_healthy
-      e2e-auth-service:
-        condition: service_started
+      taimei-auth:
+        condition: service_healthy
     networks:
-      e2e-network:
+      default:
         aliases:
           - app.taimei-code.local
 
-  # Playwright runner — 同一 network 内なら DNS 解決でブラウザから .taimei-code.local が引ける。
   e2e:
     build:
       context: './e2e'
@@ -126,13 +65,14 @@ services:
       - PLAYWRIGHT_BASE_URL=http://app.taimei-code.local:3001
       - APP_BASE_URL=http://app.taimei-code.local:3001
       - AUTH_BASE_URL=http://auth.taimei-code.local:3100
-      - AUTH_DATABASE_URL=postgres://postgres:password@e2e-auth-postgres:5435/auth
+      - AUTH_DATABASE_URL=postgres://postgres@taimei-auth-postgres:5432/auth
       - APP_DATABASE_URL=postgres://postgres:password@e2e-postgres:5433/postgres
     command: >
       sh -c "${E2E_SERVICE_COMMAND}"
     volumes:
       - ./e2e/playwright-report:/app/playwright-report
       - ./e2e/test-results:/app/test-results
+      - ./node_modules/@taimei-code/auth-client:/app/node_modules/@taimei-code/auth-client:ro
     ports:
       - "9323:9323"
     develop:
@@ -144,6 +84,4 @@ services:
           path: ./e2e/package.json
     depends_on:
       - e2e-application
-      - e2e-auth-service
-    networks:
-      - e2e-network
+      - taimei-auth
