@@ -63,13 +63,6 @@ docker compose -p taimei-e2e -f docker-compose.e2e.yml down
 
 ## ログの確認
 
-### Magic Link URL の取得 (test mode で console 出力)
-
-```bash
-docker logs taimei-e2e-taimei-auth-1 2>&1 | grep "Magic Link"
-# → [TEST] Magic Link for foo@example.com: http://auth.taimei-code.local:3100/api/auth/magic-link/verify?token=xxx&callbackURL=...
-```
-
 ### Playwright HTML report
 
 `./playwright-report/index.html` (test 結果)

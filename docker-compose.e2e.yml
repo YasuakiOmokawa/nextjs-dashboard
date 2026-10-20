@@ -65,7 +65,6 @@ services:
       - PLAYWRIGHT_BASE_URL=http://app.taimei-code.local:3001
       - APP_BASE_URL=http://app.taimei-code.local:3001
       - AUTH_BASE_URL=http://auth.taimei-code.local:3100
-      - AUTH_DATABASE_URL=postgres://postgres@taimei-auth-postgres:5432/auth
       - APP_DATABASE_URL=postgres://postgres:password@e2e-postgres:5433/postgres
     command: >
       sh -c "${E2E_SERVICE_COMMAND}"

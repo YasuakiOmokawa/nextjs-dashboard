@@ -30,3 +30,4 @@ ADR-0003 は「`auth-client-v*` の tag で固定する」を、server だけの
 - 前提条件 (ADR-0003 から引き継ぐ、未了): Dependabot の secret に `NPM_TOKEN` を登録する。SDK の bump の PR が taimei-auth を上げる唯一の経路になり、登録が無いとその PR の e2e は `bun install` と `docker login` で落ちる。
 - local で e2e を回す前に、root の `bun install` と GHCR への login が要る (手順は `e2e/README.md` の「前提」)。
 - 断片の DB は run のたびに空になる。
+- Decision のとおり e2e の package に SDK を足さないので、e2e の spec が mount した SDK を import すると、fallow はそれを unlisted dependency とみなす。`.fallowrc.json` の `ignoreDependencies` に SDK を入れて、この検出から外す。
