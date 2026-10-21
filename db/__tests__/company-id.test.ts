@@ -28,24 +28,17 @@ it("fixtureCompanyId は同じ label に同じ id を返し、違う label に�
   expect(fixtureCompanyId("b")).not.toBe(companyId);
 });
 
-it("company_id の列はどの表も、SDK の事業所 id の形で作った id を切り詰めずに収める", () =>
+it("company_id の列はどの表も長さの上限を持たない text にする (事業所 id の長さは SDK の COMPANY_ID_PATTERN が決める)", () =>
   withRollback(async (tx) => {
     const { rows } = await tx.execute<{
       table_name: string;
-      character_maximum_length: number | null;
+      data_type: string;
     }>(
-      sql`select table_name, character_maximum_length from information_schema.columns where table_schema = 'public' and column_name = 'company_id'`,
-    );
-    const companyIds = Array.from({ length: 100 }, (_, i) =>
-      fixtureCompanyId(`column-length-${i}`),
+      sql`select table_name, data_type from information_schema.columns where table_schema = 'public' and column_name = 'company_id'`,
     );
 
     expect(rows.length).toBeGreaterThan(0);
-    expect(
-      rows.filter(({ character_maximum_length: maxLength }) =>
-        companyIds.some((id) => maxLength !== null && id.length > maxLength),
-      ),
-    ).toEqual([]);
+    expect(rows.filter(({ data_type }) => data_type !== "text")).toEqual([]);
   }));
 
 it("テストの外で CompanyId を作るのは、session を確かめる requestSessionOf と DB の行を読む purgeDeparted だけ (ほかの値は session か DB から受け取る)", () => {
