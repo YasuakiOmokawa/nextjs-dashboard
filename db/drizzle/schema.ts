@@ -20,8 +20,7 @@ import { LEVELS, NAME_MAX_LENGTH } from "../column-values";
 import type { CompanyId } from "../company-id";
 import type { SkillId, TeamId } from "../ids";
 
-const companyId = () =>
-  varchar("company_id", { length: 32 }).notNull().$type<CompanyId>();
+const companyId = () => text("company_id").notNull().$type<CompanyId>();
 export const COMPANY_ID_SETTING = "app.company_id";
 export const MEMBER_SKILLS_ASSIGNMENT_FK = "member_skills_assignment_fk";
 export const MEMBER_SKILLS_SKILL_FK = "member_skills_skill_fk";

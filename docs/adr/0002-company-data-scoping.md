@@ -241,6 +241,8 @@ companyId の source は **`runScopedService` 内 / `requireCompany` の SDK gua
 
 auth-coupled な sentinel (実 company id の埋め込み) は不要 (cross-DB 結合を避ける)。`app/lib/placeholder-data.ts` はこの機に削除 or company_id 対応する (未使用残骸の整理、Phase 1 任意タスク)。
 
+2026-10-21 追記: #644 で `company_id` の列を長さの無い `text` にした。事業所 id の形と長さは SDK の `COMPANY_ID_PATTERN` が決め、`db/company-id.ts` の `CompanyId` が確かめる。taimei-auth が id の形を変えても taimei の migration は要らない。
+
 ## Alternatives Considered
 
 | 案 | 採用しなかった理由 | 再評価トリガー |

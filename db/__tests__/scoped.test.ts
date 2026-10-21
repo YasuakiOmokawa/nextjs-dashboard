@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/node-postgres";
-import { PgDialect, pgTable, varchar } from "drizzle-orm/pg-core";
+import { PgDialect, pgTable, text } from "drizzle-orm/pg-core";
 import { Client } from "pg";
 import { expect, it } from "vitest";
 import { TEST_DATABASE_URL } from "@/src/services/__tests__/db/global-setup";
@@ -14,7 +14,7 @@ import { companyFilter, withCompanyScope } from "../scoped";
 const COMPANY_X = fixtureCompanyId("x");
 
 const scopedRows = pgTable("scoped_rows", {
-  companyId: varchar("company_id", { length: 32 }).notNull(),
+  companyId: text("company_id").notNull(),
 });
 
 it("companyFilter は company_id が渡した事業所と一致する行に絞る", () => {
