@@ -24,7 +24,7 @@ describe("auth を偽にする試験", () => {
 });
 
 const TAIMEI_AUTH_INTERNAL_TERMS =
-  /service_name|redirect_url|reason=|\/auth\/error|\/auth\/signup\/|AUTH_URL\}\/|"\/account|5 \* 60|300_000|\/rpc\b|\/api\/auth\/|\/api\/account\/|\/testing\/v1|auth-schema|verification|session_token|db:migrate|src\/index\.ts|testing\/server\.ts|target: dev|\bAUTH_COOKIE_DOMAIN|\bAUTH_TRUSTED_ORIGINS|\bAUTH_SECRET|\bAPP_ENV|\bAPP_NAME|MFA_TOTP|\bAUTH_DATABASE_URL|auth-postgres|cmp_/;
+  /service_name|redirect_url|reason=|\/auth\/error|\/auth\/signup\/|AUTH_URL\}\/|"\/account|5 \* 60|300_000|\/rpc\b|\/api\/auth\/|\/api\/account\/|\/testing\/v1|auth-schema|verification|session_token|db:migrate|src\/index\.ts|testing\/server\.ts|target: dev|\bAUTH_COOKIE_DOMAIN|\bAUTH_TRUSTED_ORIGINS|\bAUTH_SECRET|\bAPP_ENV|\bAPP_NAME|MFA_TOTP|\bAUTH_DATABASE_URL|auth-postgres|cmp_|taimei-network|\.\.\/taimei-auth/;
 
 const scannedPaths = execFileSync(
   "git",
@@ -39,6 +39,8 @@ const scannedPaths = execFileSync(
     "e2e",
     "scripts",
     "docker-compose*.yml",
+    "README.md",
+    ".github",
   ],
   { encoding: "utf8" },
 )
@@ -49,8 +51,19 @@ const scannedPaths = execFileSync(
       path !== "src/__tests__/taimei-auth-knowledge.test.ts",
   );
 
+it.each(["docker-compose.taimei-auth-port.yml", "scripts/qa-serve.sh"])(
+  "%s は、断片の taimei-auth を host の loopback だけに開く (試験用の server は OWNER の session を作れるので LAN に開かない)",
+  (path) => {
+    const published = linesMatching(path, /^\s*- "[^"]*:3100"$/);
+    expect(published).not.toEqual([]);
+    expect(
+      published.filter((line) => !/^\s*- "127\.0\.0\.1:/.test(line)),
+    ).toEqual([]);
+  },
+);
+
 it.each(scannedPaths)(
-  "%s は、taimei-auth の画面の URL・Magic Link の有効期限・内部の API の path・表・token の保存形式・起動の command・内部の環境変数・事業所 id の形を書かず、SDK の公開 API と断片の公開の設定 (TAIMEI_AUTH_*) だけを使う (taimei-auth が変えた時に SDK の版上げだけで済ませる)",
+  "%s は、taimei-auth の画面の URL・Magic Link の有効期限・内部の API の path・表・token の保存形式・起動の command・内部の環境変数・事業所 id の形・共有ネットワーク・sibling の clone の path を書かず、SDK の公開 API と断片の公開の設定 (TAIMEI_AUTH_*) だけを使う (taimei-auth が変えた時に SDK の版上げだけで済ませる)",
   (path) => {
     expect(linesMatching(path, TAIMEI_AUTH_INTERNAL_TERMS)).toEqual([]);
   },

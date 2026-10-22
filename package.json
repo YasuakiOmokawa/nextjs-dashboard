@@ -12,6 +12,7 @@
     "qa:serve": "bash scripts/qa-serve.sh serve",
     "qa:login": "bash scripts/qa-serve.sh login",
     "qa:down": "bash scripts/qa-serve.sh down",
+    "dev:login": "bash scripts/qa-serve.sh dev-login",
     "lint": "biome check . && fallow audit",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",

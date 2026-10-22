@@ -65,8 +65,9 @@ serve() {
 }
 
 login() {
+  mkdir -p "$STATE"
   local link file=$STATE/login-$$.html
-  link=$(cd "$ROOT" && AUTH_BASE_URL=$AUTH_URL APP_BASE_URL=$APP_URL bun -e '
+  link=$(cd "$ROOT" && bun -e '
     import { createUser } from "./e2e/tests/utils/testing-auth";
     const user = await createUser({ name: "QA 管理者", companies: [{ name: "QA 事業所", role: "OWNER" }] });
     console.log(user.loginUrl);
@@ -91,10 +92,11 @@ down() {
 
 case ${1:-} in
 serve) shift && serve "$@" ;;
-login) login ;;
+login) AUTH_BASE_URL=$AUTH_URL APP_BASE_URL=$APP_URL login ;;
+dev-login) login ;;
 down) down ;;
 *)
-  echo "usage: $0 serve [--app-role] | login | down" >&2
+  echo "usage: $0 serve [--app-role] | login | dev-login | down" >&2
   exit 1
   ;;
 esac
