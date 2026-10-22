@@ -23,11 +23,6 @@ jobs:
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # taimei-network は dev では taimei-auth (sibling compose) が作成主だが、CI test job では
-      # taimei 単独実行のため事前に作成する。`|| true` は CI runner が再利用された際の重複防止。
-      - name: Create shared network
-        run: docker network create taimei-network || true
-
       - name: Start test database
         run: docker compose up -d test_db --wait
 

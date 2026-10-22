@@ -1,19 +1,13 @@
+include:
+  - path:
+      - ./node_modules/@taimei-code/auth-client/testing/compose.yml
+      - ./docker-compose.taimei-auth-port.yml
+    env_file: ./e2e/taimei-auth.env
+
 volumes:
   pg-data:
 
-# 共有ネットワーク `taimei-network` は taimei-auth (sibling compose) が作成主 (define)。
-# taimei 側は external 参照のみ。先に `cd ../taimei-auth && docker compose up --build` で
-# network と auth-service を起動しておくこと。
-# - app.taimei-code.local → application (taimei, port 3001)         ← 本 compose で alias 付与
-# - auth.taimei-code.local → auth-service (taimei-auth, port 3100)  ← taimei-auth 側で alias 付与
-# Cookie domain (.taimei-code.local) を共有し cross-subdomain SSO を成立させる。
-networks:
-  taimei-network:
-    name: taimei-network
-    external: true
-
 services:
-  # taimei 用 DB
   postgres:
     image: postgres:16.8-alpine3.21
     volumes:
@@ -22,9 +16,6 @@ services:
         source: "./dump"
         target: "/dump"
     ports:
-      # host 側は 5433 に退避。default の 5432 は他のローカル postgres スタックと衝突しやすいため
-      # 常時共存できるようズラす (port 割り当て一覧は README.md「前提」参照)。
-      # container 側 5432 は据え置き — application は service 名 postgres:5432 で繋ぐので無影響。
       - "5433:5432"
     environment:
       - POSTGRES_DATABASE=postgres
@@ -36,8 +27,6 @@ services:
       interval: 3s
       timeout: 3s
       retries: 5
-    networks:
-      - taimei-network
 
   test_db:
     image: postgres:16.8-alpine3.21
@@ -52,11 +41,7 @@ services:
       interval: 3s
       timeout: 3s
       retries: 5
-    networks:
-      - taimei-network
 
-  # taimei (SPA を build して wrangler dev で配る) — taimei-auth (sibling compose) の auth-service に依存。
-  # 別 compose のため depends_on で起動順を担保できない。先に taimei-auth 側 compose を起動すること。
   application:
     build:
       context: '.'
@@ -74,8 +59,6 @@ services:
       - LOCAL_UPSTREAM=app.taimei-code.local:3001
       - AUTH_URL=http://auth.taimei-code.local:3100
       - AUTH_SERVICE_URL=http://auth.taimei-code.local:3100
-      # taimei-auth 側の AUTH_SERVICE_KEY と同じ値にする。違うと taimei-auth の RPC が 401 を返す
-      - AUTH_SERVICE_KEY=local-dev-key
     develop:
       watch:
         - action: sync
@@ -86,7 +69,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      taimei-auth:
+        condition: service_healthy
     networks:
-      taimei-network:
+      default:
         aliases:
           - app.taimei-code.local
